@@ -71,6 +71,8 @@ from pathlib import Path
 from typing import Any
 
 from .participants import normalise_participants
+from . import bulk_classifier as _bulk_classifier
+from . import scam_guard as _scam_guard
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +168,60 @@ class OutstandingTodo:
 # Match a markdown table. The Action items section can appear in any of
 # the work / coaching / one-on-one variants; the heading is always
 # "## Action items" per _conventions.md and the variant prompts.
-_ACTION_HEADING_RE = re.compile(
-    r"^##\s+Action\s+items\s*$", re.IGNORECASE | re.MULTILINE
+#
+# The prompts pin this heading to English (``language_instruction`` in
+# src/language.py), so the first alternative is the one that matches in
+# practice. The localised aliases are a safety net: a small local model
+# that translates the heading anyway must not make every todo in a
+# non-English conversation vanish silently.
+_ACTION_HEADING_ALIASES = (
+    "Action\\s+items",
+    # German
+    "Aufgaben", "Aktionspunkte", "Handlungspunkte", "Ma\u00dfnahmen", "To-dos",
+    # French
+    "Actions?\\s+\u00e0\\s+mener", "Points\\s+d['\u2019]action", "T\u00e2ches", "Actions",
+    # Spanish
+    "Acciones", "Tareas", "Elementos\\s+de\\s+acci\u00f3n", "Puntos\\s+de\\s+acci\u00f3n",
+    # Italian
+    "Azioni", "Attivit\u00e0", "Punti\\s+d['\u2019]azione",
+    # Japanese
+    "\u30a2\u30af\u30b7\u30e7\u30f3\u30a2\u30a4\u30c6\u30e0", "\u30a2\u30af\u30b7\u30e7\u30f3", "\u30bf\u30b9\u30af", "\u3084\u308b\u3053\u3068", "\u884c\u52d5\u9805\u76ee",
+    # Chinese (simplified + traditional)
+    "\u884c\u52a8\u9879", "\u5f85\u529e\u4e8b\u9879", "\u5f85\u8fa6\u4e8b\u9805", "\u884c\u52d5\u9805\u76ee", "\u4efb\u52a1", "\u4efb\u52d9",
 )
+_ACTION_HEADING_RE = re.compile(
+    r"^##\s+(?:" + "|".join(_ACTION_HEADING_ALIASES) + r")\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Localised table column names -> the canonical English key the rest of
+# the extractor reads. Same safety-net purpose as the heading aliases.
+_COLUMN_ALIASES = {
+    "owner": (
+        "verantwortlich", "zust\u00e4ndig", "responsable", "responsabile",
+        "propri\u00e9taire", "\u62c5\u5f53", "\u62c5\u5f53\u8005", "\u8d1f\u8d23\u4eba", "\u8ca0\u8cac\u4eba", "\u8d1f\u8d23\u8005",
+    ),
+    "action": (
+        "aufgabe", "ma\u00dfnahme", "massnahme", "t\u00e2che", "acci\u00f3n", "tarea",
+        "azione", "attivit\u00e0", "\u30bf\u30b9\u30af", "\u5185\u5bb9", "\u4e8b\u9879", "\u4e8b\u9805", "\u4efb\u52a1", "\u4efb\u52d9",
+    ),
+    "deadline": (
+        "frist", "f\u00e4lligkeit", "termin", "\u00e9ch\u00e9ance", "d\u00e9lai", "plazo",
+        "fecha l\u00edmite", "scadenza", "\u671f\u9650", "\u7de0\u5207", "\u622a\u6b62\u65e5\u671f", "\u622a\u6b62", "\u671f\u9650",
+    ),
+    "priority": (
+        "priorit\u00e4t", "priorit\u00e9", "prioridad", "priorit\u00e0", "\u512a\u5148\u5ea6",
+        "\u4f18\u5148\u7ea7", "\u512a\u5148\u9806\u4f4d", "\u4f18\u5148\u7d1a", "\u512a\u5148\u7d1a",
+    ),
+    "notes": (
+        "notizen", "anmerkungen", "bemerkungen", "remarques", "notes", "notas",
+        "note", "\u5099\u8003", "\u5907\u6ce8", "\u5099\u8a3b", "\u30e1\u30e2",
+    ),
+    "status": ("status", "statut", "estado", "stato", "\u72b6\u6cc1", "\u72b6\u6001", "\u72c0\u614b"),
+}
+_COLUMN_LOOKUP = {
+    alias: canon for canon, aliases in _COLUMN_ALIASES.items() for alias in aliases
+}
 
 # Match the next H2 heading after Action items so we know where the
 # table ends. Anchoring to "^## " avoids accidentally matching ###
@@ -223,7 +276,10 @@ def parse_action_items_table(enrichment_md: str) -> list[dict[str, str]]:
     header_cells = _split_row(header_line)
     if not header_cells:
         return []
-    column_keys = [c.strip().lower() for c in header_cells]
+    column_keys = [
+        _COLUMN_LOOKUP.get(c.strip().lower(), c.strip().lower())
+        for c in header_cells
+    ]
 
     rows: list[dict[str, str]] = []
     for line in body_lines:
@@ -329,9 +385,22 @@ def resolve_owner(owner_cell: str, participants: list[dict]) -> tuple[str, str]:
 
 
 _PRIORITY_TOKENS = {
-    "high": {"high", "urgent", "asap", "critical", "blocker"},
-    "medium": {"medium", "med", "normal", "this week"},
-    "low": {"low", "whenever", "nice to have", "nice-to-have"},
+    "high": {
+        "high", "urgent", "asap", "critical", "blocker",
+        "hoch", "dringend", "kritisch",
+        "haute", "\u00e9lev\u00e9e", "\u00e9lev\u00e9", "urgente", "alta", "alto", "urgentissimo",
+        "\u9ad8", "\u7dca\u6025", "\u7d27\u6025", "\u91cd\u8981",
+    },
+    "medium": {
+        "medium", "med", "normal", "this week",
+        "mittel", "moyenne", "moyen", "media", "medio",
+        "\u4e2d", "\u666e\u901a", "\u4e00\u822c",
+    },
+    "low": {
+        "low", "whenever", "nice to have", "nice-to-have",
+        "niedrig", "gering", "basse", "faible", "baja", "bajo", "bassa", "basso",
+        "\u4f4e",
+    },
 }
 
 
@@ -342,7 +411,9 @@ def normalise_priority(cell: str) -> str | None:
         return None
     v = cell.strip().lower()
     for bucket, tokens in _PRIORITY_TOKENS.items():
-        if v in tokens or any(t in v for t in tokens):
+        # Single-character CJK tokens match the whole cell only: as a
+        # substring they would fire inside unrelated words.
+        if v in tokens or any(len(t) > 1 and t in v for t in tokens):
             return bucket
     return None
 
@@ -463,9 +534,11 @@ def normalise_deadline(
 
     text = cell.strip().lower()
 
-    if re.search(r"\btoday\b", text):
+    if re.search(r"\b(?:today|heute|aujourd['\u2019]hui|hoy|oggi)\b|\u4eca\u65e5|\u4eca\u5929", text):
         return base.isoformat()
-    if re.search(r"\btomorrow\b", text):
+    # "morgen" is "tomorrow" in German and Dutch. English "morning" does
+    # not match: \b needs a word boundary right after "morgen".
+    if re.search(r"\b(?:tomorrow|morgen|demain|ma\u00f1ana|domani)\b|\u660e\u65e5|\u660e\u5929", text):
         return (base + timedelta(days=1)).isoformat()
 
     n_days = _IN_N_DAYS_RE.search(text)
@@ -516,11 +589,21 @@ _DONE_PHRASES = (
     "wrapped up", "taken care of", "sorted out",
     "has been done", "has been sent", "was sent", "was completed",
     "no longer needed", "no longer required",
+    # German / French / Spanish / Italian / Japanese / Chinese
+    "erledigt", "abgeschlossen", "bereits gesendet", "bereits erledigt",
+    "d\u00e9j\u00e0 fait", "d\u00e9j\u00e0 envoy\u00e9", "termin\u00e9", "r\u00e9solu",
+    "ya hecho", "ya enviado", "completado", "resuelto",
+    "gi\u00e0 fatto", "gi\u00e0 inviato", "completato", "risolto",
+    "\u5b8c\u4e86", "\u5bfe\u5fdc\u6e08\u307f", "\u9001\u4fe1\u6e08\u307f", "\u5b8c\u6210\u6e08\u307f",
+    "\u5df2\u5b8c\u6210", "\u5df2\u53d1\u9001", "\u5df2\u767c\u9001", "\u5df2\u89e3\u51b3",
 )
 
 # Tokens that, when the cell is JUST this word, mean done. Guards
 # against "done" appearing as a substring of unrelated words.
-_DONE_EXACT = frozenset({"done", "complete", "completed", "closed", "resolved"})
+_DONE_EXACT = frozenset({
+    "done", "complete", "completed", "closed", "resolved",
+    "erledigt", "fait", "hecho", "fatto", "\u5b8c\u4e86", "\u6e08\u307f", "\u5b8c\u6210",
+})
 
 
 def detect_status(
@@ -575,6 +658,8 @@ def _deterministic_todo_id(
 def extract_outstanding_todos(
     enrichment_md: str,
     metadata: dict,
+    *,
+    transcript: str = "",
 ) -> list[OutstandingTodo]:
     """Parse the enrichment markdown's Action items table into todos.
 
@@ -602,6 +687,19 @@ def extract_outstanding_todos(
     if not conversation_id:
         return []
 
+    # A commitment is the user's own words. Inbound bulk, marketing,
+    # newsletter, job-alert and transactional mail ("click to confirm your
+    # place on the waitlist") is never one: the extractor reads a sales CTA
+    # as an action item owned by "You". The processor stamps
+    # ``non_relational`` before enrichment; classify again here so a caller
+    # that did not (resume, backfill, tests) cannot slip it through.
+    if metadata.get("non_relational") or _bulk_classifier.is_non_relational(metadata):
+        logger.info(
+            "outstanding_todos: %s is bulk/automated mail, no commitments",
+            conversation_id,
+        )
+        return []
+
     others = [
         p for p in participants
         if (p.get("role") or "other") != "user" and p.get("id")
@@ -613,6 +711,11 @@ def extract_outstanding_todos(
     if not subject_person_ids:
         return []
 
+    # Junk, spam or fraud mail produces no todo at all, and a payment todo
+    # from someone the owner has never written to is dropped (scam_guard).
+    # Counted in the log by reason, never shown.
+    junk = _scam_guard.junk_reason(metadata)
+    withheld: dict[str, int] = {}
     rows = parse_action_items_table(enrichment_md)
     todos: list[OutstandingTodo] = []
     for row in rows:
@@ -622,6 +725,12 @@ def extract_outstanding_todos(
             continue
         # Truncate runaway LLM cells.
         action_text = action_text[:_MAX_TEXT_LEN]
+        why = _scam_guard.todo_withheld_reason(
+            action_text, metadata, transcript=transcript, junk=junk
+        )
+        if why:
+            withheld[why] = withheld.get(why, 0) + 1
+            continue
 
         owner_id, owner_display = resolve_owner(
             row.get("owner") or "", participants
@@ -656,6 +765,12 @@ def extract_outstanding_todos(
         )
         todos.append(todo)
 
+    if withheld:
+        logger.warning(
+            "outstanding_todos: withheld %s for %s",
+            ", ".join(f"{k}={v}" for k, v in sorted(withheld.items())),
+            conversation_id,
+        )
     return todos
 
 

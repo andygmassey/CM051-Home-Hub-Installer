@@ -63,7 +63,7 @@ chmod +x "$TMP/fakebin/tailscale"
 export PATH="$TMP/fakebin:$PATH"
 
 out="$("$W" status 2>&1)"; rc=$?
-if [[ $rc -eq 1 ]] && printf '%s' "$out" | grep -qi "does not appear to be running"; then
+if [[ $rc -eq 1 ]] && grep -qi "does not appear to be running" <<< "$out"; then
     ok "socket absent -> exit 1 with plain-language guidance"
 else
     bad "socket absent -> wrong behaviour (rc=$rc): $out"
@@ -72,7 +72,7 @@ fi
 python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' \
     "$TMP/tailscale/tailscaled.sock" 2>/dev/null
 out="$("$W" ip -4 2>&1)"; rc=$?
-if [[ $rc -eq 0 ]] && printf '%s' "$out" | grep -q -- "--socket=$TMP/tailscale/tailscaled.sock ip -4"; then
+if [[ $rc -eq 0 ]] && grep -q -- "--socket=$TMP/tailscale/tailscaled.sock ip -4" <<< "$out"; then
     ok "socket present -> passes --socket AND user args through"
 else
     bad "pass-through wrong (rc=$rc): $out"

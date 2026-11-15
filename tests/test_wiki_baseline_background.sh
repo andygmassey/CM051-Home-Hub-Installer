@@ -69,7 +69,7 @@ fi
 # summary compile cannot starve live chat. That is an IMPROVEMENT, and it is what
 # broke the literal. Assert over the BLOCK instead of one line.
 _bg_block="$(awk '/nohup bash -c/,/^[[:space:]]*disown/' "$INSTALL_SH")"
-if ! printf '%s\n' "$_bg_block" | grep -qF 'docker compose --profile compile run --rm -T wiki-compiler'; then
+if ! grep -qF 'docker compose --profile compile run --rm -T wiki-compiler' <<< "$_bg_block"; then
     failure "no detached background full compile -- summaries would never land"
 fi
 # The background invocation must NOT carry the skip flag (it is the FULL
@@ -82,7 +82,7 @@ fi
 # assert the two facts separately over the same block: it is DETACHED (& plus
 # disown) and its output is CAPTURED (WIKI_BG_LOG), which is what "install would
 # not wait on it" and "we can see what it did" actually mean.
-if ! printf '%s\n' "$_bg_block" | grep -qE '>"\$WIKI_BG_LOG" 2>&1 &[[:space:]]*$'; then
+if ! grep -qE '>"\$WIKI_BG_LOG" 2>&1 &[[:space:]]*$' <<< "$_bg_block"; then
     failure "background compile is not detached with & -- install would wait on it"
 fi
 if ! grep -q 'disown' "$INSTALL_SH"; then

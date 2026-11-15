@@ -87,7 +87,7 @@ n="$(printf '%s\n' "$out" | grep -c . || true)"
 [ "$rc" -eq 0 ] || no "(0) the block exited $rc under set -Eeuo pipefail" "$out"
 [ "$n" -eq 3 ] && ok "(1) all THREE distinct roots reach the importer" \
                 || no "(1) $n root(s) reached the importer, expected 3" "$out"
-printf '%s\n' "$out" | grep -qx -- "$I" && ok "(2) a root that is NOT the first-detected one is imported" \
+grep -qx -- "$I" <<< "$out" && ok "(2) a root that is NOT the first-detected one is imported" \
                 || no "(2) the second root was dropped: that IS the #957 defect" "$out"
 d="$(printf '%s\n' "$out" | sort | uniq -d | grep -c . || true)"
 [ "$d" -eq 0 ] && ok "(3) EXPORTS_DIR also appearing in the roots array is added once, not twice" \
@@ -110,7 +110,7 @@ REFILLED="${HOME_FAKE}/.ostler/imports"; mkdir -p "$REFILLED"
 DECLINED=1
 out="$(run "$BLOCK" "$REFILLED" "$I" "$T")"
 DECLINED=0
-printf '%s\n' "$out" | grep -qx -- "$I" \
+grep -qx -- "$I" <<< "$out" \
     && no "(6) a DECLINED import was carried out anyway, on the refilled-EXPORTS_DIR branch" "$out" \
     || ok "(6) a declined import reaches the importer with none of the detected roots"
 [ "$(printf '%s\n' "$out" | grep -c . || true)" -eq 1 ] \
@@ -121,21 +121,21 @@ out="$(run "$BLOCK" "$REFILLED" "$I" "$T")"
     && ok "(6c) CONTROL: the SAME inputs NOT declined import all three, so arm 6 measures consent" \
     || no "(6c) the control case did not import 3, so arm 6 may be passing for another reason" "$out"
 out="$(run "$BLOCK" "$L" "${WORK}/never-existed")"
-printf '%s\n' "$out" | grep -qx -- "${WORK}/never-existed" \
+grep -qx -- "${WORK}/never-existed" <<< "$out" \
     && no "(7) a NON-EXISTENT root was handed to the importer" "$out" \
     || ok "(7) a non-existent root is refused, so a stale detection cannot break the import"
 
 echo
 echo "ARM 8: CX-126, a whole scan tree is refused as an EXTRA root and SAID OUT LOUD"
 out="$(run "$BLOCK" "$L" "${HOME_FAKE}/Downloads")"
-printf '%s\n' "$out" | grep -qx -- "${HOME_FAKE}/Downloads" \
+grep -qx -- "${HOME_FAKE}/Downloads" <<< "$out" \
     && no "(8a) the whole of ~/Downloads was handed to the importer to rglob" "$out" \
     || ok "(8a) a root equal to a scan root is refused (CX-126 measured a multi-minute stall)"
 grep -q 'Not importing the whole of' "$INFO_LOG" \
     && ok "(8b) the refusal is on the customer's install log, not silent" \
     || no "(8b) the root was dropped with no line of output" "$(cat "$INFO_LOG")"
 out="$(run "$BLOCK" "${HOME_FAKE}/Downloads")"
-printf '%s\n' "$out" | grep -qx -- "${HOME_FAKE}/Downloads" \
+grep -qx -- "${HOME_FAKE}/Downloads" <<< "$out" \
     && ok "(8c) EXPORTS_DIR is EXEMPT: what main already imports is unchanged" \
     || no "(8c) this change altered what main imports, so it is not a strict superset" "$out"
 [ -s "$INFO_LOG" ] \
@@ -182,10 +182,10 @@ DECLINE="$(awk '/IMPORT_CONFIRM:-y.*==.*"n"/,/^    fi$/' "$INSTALL")"
 if [ -z "$DECLINE" ]; then
     no "(11) could not find the decline branch in install.sh: re-point this arm"
 else
-    printf '%s\n' "$DECLINE" | grep -qF 'DETECTED_EXPORT_ROOTS=()' \
+    grep -qF 'DETECTED_EXPORT_ROOTS=()' <<< "$DECLINE" \
         && ok "(11) the decline branch empties DETECTED_EXPORT_ROOTS, not only EXPORTS_DIR" \
         || no "(11) the decline empties EXPORTS_DIR and leaves the roots array full" "$DECLINE"
-    printf '%s\n' "$DECLINE" | grep -qF 'IMPORT_DECLINED=1' \
+    grep -qF 'IMPORT_DECLINED=1' <<< "$DECLINE" \
         && ok "(11a) the decline RECORDS the answer, so nothing downstream has to infer it" \
         || no "(11a) the answer is not recorded, so a downstream guard must reconstruct it" "$DECLINE"
     # Recording only beats inferring while the record cannot be forged. Two
@@ -196,7 +196,7 @@ else
         && ok "(11b) IMPORT_DECLINED is written in exactly 2 places: the init and the prompt" \
         || no "(11b) IMPORT_DECLINED is written in $W places, so the consent record can be overwritten" \
              "$(grep -n '^[[:space:]]*IMPORT_DECLINED=' "$INSTALL")"
-    printf '%s\n' "$DECLINE" | grep -qF 'EXPORTS_DIR=""' \
+    grep -qF 'EXPORTS_DIR=""' <<< "$DECLINE" \
         && ok "(11-CONTROL) the extracted branch IS the decline: it clears EXPORTS_DIR too" \
         || no "(11-CONTROL) the awk range caught the wrong block, so arm 11 proves nothing" "$DECLINE"
 fi

@@ -54,10 +54,24 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # The contract describes the gateway this installer SHIPS, so compare it
+      # with the pinned hub tag, not ostler-assistant main. Reading main turned
+      # every CM051 PR red the moment an unshipped route merged upstream
+      # (2026-10-19: oa #573 invites routes vs pinned hub-v0.5.22).
+      - name: the hub tag this installer ships
+        id: hub
+        run: |
+          v="$(sed -nE 's/^DAEMON_VERSION[[:space:]]*\?=[[:space:]]*([0-9][0-9.]*)[[:space:]]*$/\1/p' gui/Makefile)"
+          if [ -z "$v" ]; then
+            echo "CANNOT-RUN: DAEMON_VERSION not readable from gui/Makefile"; exit 2
+          fi
+          echo "tag=hub-v${v}" >> "$GITHUB_OUTPUT"
+          echo "comparing the contract with ostler-assistant @ hub-v${v}"
       - uses: actions/checkout@v4
         with:
           repository: ostler-ai/ostler-assistant
           path: ostler-assistant
+          ref: ${{ steps.hub.outputs.tag }}
           # CM051_RELEASES_READ: fine-grained, resource owner ostler-ai, repos
           # ostler-assistant + ostler-remote-capture + ostler-releases, read code,
           # metadata and pull requests (Andy's token page, 2026-10-09). The

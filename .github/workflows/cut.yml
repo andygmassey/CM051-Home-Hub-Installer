@@ -249,6 +249,7 @@ jobs:
       - name: Resolve which cut this run is about
         env:
           REHEARSE_REF: ${{ startsWith(github.ref, 'refs/heads/rehearse/v1.0.') && github.ref_name || '' }}
+          CUT_BRANCH_REF: ${{ startsWith(github.ref, 'refs/heads/cut/v1.0.') && github.ref_name || '' }}
         run: |
           set -euo pipefail
           # 🔴 THE SOURCE IS NOW EXPORTED, NOT JUST PRINTED (#171).
@@ -275,6 +276,20 @@ jobs:
             CUT_VERSION="${REHEARSE_REF#rehearse/}"
             CUT_VERSION_SOURCE="tag"
             echo "source: tag rehearsal on ${REHEARSE_REF} (no tag exists, nothing is built)"
+          elif [ -n "${CUT_BRANCH_REF:-}" ]; then
+            # A cut/ dispatch builds a real candidate, so it gets the TAG RUN'S
+            # preflight (OSTLER_CUT_IN_PROGRESS=1, every tag-only step). The
+            # version is the one the BRANCH names, never the plist the
+            # installer-version gate compares against (#171). v1.0.109 spent its
+            # one tag on a checklist refusal this dispatch printed as a [note].
+            if [[ "${CUT_BRANCH_REF}" =~ ^cut/(v1\.0\.[0-9]+) ]]; then
+              CUT_VERSION="${BASH_REMATCH[1]}"
+            else
+              echo "::error::cut/ branch ${CUT_BRANCH_REF} does not name a v1.0.NN version" >&2; exit 1
+            fi
+            CUT_VERSION_SOURCE="tag"
+            echo "source: cut branch ${CUT_BRANCH_REF} (tag-time preflight enforced; a candidate is built, nothing is published)"
+            echo "::notice::NOT A FULL TAG RUN. One tag-time check cannot run without a tag: 'The artefact's content IS the tag being cut' (push only). Publishing steps are push only by design."
           else
             VER="$(python3 -c 'import plistlib; print(plistlib.load(open("gui/OstlerInstaller/Info.plist","rb"))["CFBundleShortVersionString"])')"
             [ -n "$VER" ] || { echo "::error::could not read CFBundleShortVersionString from gui/OstlerInstaller/Info.plist" >&2; exit 1; }
@@ -405,7 +420,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: python3 tests/test_the_cut_checklist_is_complete.py
 
@@ -443,7 +458,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: python3 tests/test_strict_checks_are_back_on_before_a_cut.py
 
       # 🔴 THE DOCTOR PAGE IS THE ONE A CUSTOMER IS SENT TO WHEN SOMETHING IS
@@ -486,7 +501,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
           python3 tests/test_the_doctor_page_is_on_brand.py
@@ -536,7 +551,7 @@ jobs:
           # The check still RUNS on a dispatch and still PRINTS every blocking
           # row. It reports instead of refusing, so a candidate can be built and
           # walked and the rows can finally close.
-          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')) && '1' || '0' }}
+          OSTLER_CUT_IN_PROGRESS: ${{ (github.event_name == 'push' || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')) && '1' || '0' }}
         run: |
           python3 -m pip install --quiet rdflib pyoxigraph
           python3 tests/test_a_forget_erases_the_fact_not_just_the_link.py
@@ -566,11 +581,20 @@ jobs:
       # NOT `if: always()`. If an earlier step already failed the cut, this
       # adds nothing; and unlike the freshness self-tests it needs the checkout
       # to be the tag.
+      # ONE DAEMON HOLD, TWO REGISTERS (v1.0.110, cut run 39197687650). The hold
+      # in scripts/daemon_hold_ack.tsv is read by check-freshness here; the same
+      # hold must also be in cut-manifests/permanent.yaml, which check-manifest
+      # reads only inside the build. A hold in one register only passes every
+      # dry run and the rehearsal, then kills the build after the tag is spent.
+      - name: The daemon hold is in both hold registers
+        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')
+        run: python3 scripts/verify_daemon_hold_registers_agree.py "${CUT_VERSION}"
+
       - name: BOM rows must be in the pinned tree
-        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.')
+        if: startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.')
         run: |
           set -euo pipefail
-          VER="${GITHUB_REF_NAME#rehearse/}"
+          VER="${CUT_VERSION}"
           echo "tag: ${VER}"
           bash scripts/verify_bom_rows_are_in_the_pin.sh "$VER"
 
@@ -850,6 +874,34 @@ jobs:
           OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
         run: bash scripts/provenance_gate.sh
 
+      # Vendor reconstruction, CM041 trees, STRICT (rows 2206/2212, v1.0.124).
+      # Until this step, NOTHING in the cut ran verify_vendor_fresh.sh: its only
+      # invocation was vendor-integrity.yml with VENDOR_FRESH_STRICT=0, where no
+      # source repo exists, so four of six cm041 patches stopped rebuilding their
+      # trees and no cut could see it. Here CM041 is cloned (full history: the
+      # pins are old) OUTSIDE the workspace, so no tree-wide gate below reads
+      # private source, and the gate runs STRICT over the cm041 trees: a vendored
+      # byte that pin + patch does not produce, or an unacknowledged upstream
+      # commit past a pin, is RED and stops the cut. A clone that fails is RED
+      # too (CANNOT-RUN), never a skipped step. The other trees' source repos are
+      # not on this runner; the verdict line says how many were NOT examined.
+      - name: Vendor reconstruction -- cm041 trees, strict (pin + patch == vendored tree)
+        # always(): an earlier red must not SKIP this step; a skipped gate says
+        # nothing (ci-maskless). The job still fails on that earlier red.
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+              echo "CANNOT-RUN: no token to read andygmassey/CM041-People-Graph"; exit 2
+          fi
+          CM041="${RUNNER_TEMP}/cm041-source"
+          gh repo clone andygmassey/CM041-People-Graph "$CM041" -- --quiet
+          git -C "$CM041" rev-parse --verify --quiet origin/main >/dev/null
+          export CM041
+          VENDOR_FRESH_SCOPE=cm041/ VENDOR_FRESH_STRICT=1 bash scripts/verify_vendor_fresh.sh
+
       - name: Repo-side gates
         if: always()
         env:
@@ -867,6 +919,8 @@ jobs:
           # v1018-D027: local cutting must be impossible. Asserted here too, so
           # a PR that quietly removes the guard cannot then cut in CI.
           ./tests/test_no_local_cuts.sh
+          ./tests/test_every_ship_prereq_is_classified.sh
+          ./tests/test_ttywalk_guard_install_root_mirrors_the_app.sh
           # The appcast debt is collected HERE, before a version is spent.
           # PUBLISH_APPCAST=onbox means CI cuts a good DMG and does NOT
           # publish the feed, by Andy's settled decision (no Sparkle private
@@ -996,8 +1050,42 @@ jobs:
       # undoing the unmaskability the header above argues for. Keep both:
       # unmaskable where it can answer, silent where it cannot.
       - name: The installer's own version IS the version being cut
-        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.'))
+        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
         run: bash tests/test_installer_version_matches_the_cut.sh "${CUT_VERSION}"
+
+      # LAST STEP, same command and same gate env as the cut job's `make -C gui
+      # ship` runs for check-orphans. v1.0.119 and v1.0.126 each spent their one
+      # tag push on this gate firing in the cut job, because nothing in
+      # preflight (and so no rehearse/ dispatch) ran it. GH_TOKEN is required:
+      # without it PR lookups fail closed as "no PR exists". Same ref guard and
+      # `always()` as the step above, for the same reasons.
+      # LAST STEP. Every ship: / release: / package: prerequisite that needs no build output, run here
+      # with the cut step's own env (the list is scripts/ship_prereq_classes.tsv, enforced by
+      # tests/test_every_ship_prereq_is_classified.sh). check-orphans then check-pr-age are the last two.
+      # v1.0.119/126 burnt on check-orphans, v1.0.127 on check-pr-age, each only in the cut job.
+      # The daemon is cloned exactly as cut-prepare does, so the orphan gate examines the same 2 repos.
+      - name: Ship prerequisites that need no build output (LINUX class)
+        if: always() && (startsWith(github.ref, 'refs/tags/v1.0.') || startsWith(github.ref, 'refs/heads/rehearse/v1.0.') || startsWith(github.ref, 'refs/heads/cut/v1.0.'))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          PROV_GATE_SKIP_CLASSES: wiki
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+          OSTLER_CUT_VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          DEST="${RUNNER_TEMP}/ostler-assistant"
+          rm -rf "$DEST"
+          git clone --quiet "https://x-access-token:${OSTLER_RELEASES_TOKEN}@github.com/ostler-ai/ostler-assistant.git" "$DEST" 2>/dev/null
+          export OSTLER_ASSISTANT_DIR="$DEST"
+          bash scripts/run_ship_prereqs.sh LINUX
 
   cut:
     needs: preflight
@@ -1154,6 +1242,24 @@ jobs:
           ./tests/test_orphan_gate_pr_skip_is_per_label.sh
           ./tests/test_orphan_gate_empty_pr_list_needs_a_control.sh
           ./tests/test_orphan_gate_failed_fetch_is_not_truth.sh
+
+      # macOS-only static prerequisites of make ship, run before any build (class MACOS in
+      # scripts/ship_prereq_classes.tsv). Same targets, same env as the Build step below.
+      - name: Ship prerequisites that need no build output (MACOS class)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSTLER_RELEASES_TOKEN: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_GH_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_ANDYGMASSEY: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_TOKEN_OSTLER_AI: ${{ secrets.OSTLER_GH_TOKEN_ANDYGMASSEY }}
+          PR_AGE_ALLOW_PARTIAL: "andygmassey/CM044-PWG-Personal-Wiki,andygmassey/CM041-People-Graph,andygmassey/CM059-Ostler-Editor,andygmassey/CM031-PWG-Companion,andygmassey/HR015-Gaming-PC,ostler-ai/ostler-assistant"
+          OSTLER_PROVENANCE_SKIP_KINDS: wiki_image_grep,wiki_image_absent
+          PROV_GATE_SKIP_CLASSES: wiki
+          OSTLER_ORPHAN_GATE_SKIP: CM044,CM041,CM059,CM031,daemon
+          OSTLER_ORPHAN_GATE_TOKEN_OSTLER_AI: ${{ secrets.CM051_RELEASES_READ }}
+          OSTLER_ORPHAN_GATE_PR_CONTROL: '1'
+          OSTLER_CUT_VERSION: ${{ github.ref_name }}
+        run: bash scripts/run_ship_prereqs.sh MACOS
 
       - name: Build, sign, notarise, staple
         env:
@@ -1447,6 +1553,24 @@ jobs:
               exit 1
           fi
           bash scripts/verify_dmg_delivers_fixes.sh "$DMG"
+
+      # 118 U4. v1.0.117 shipped Ostler Uninstaller.app and Recover Ostler.app
+      # with no icon: Finder showed the blank placeholder in /Applications/Ostler
+      # and every gate above was green, because none of them looks at what the
+      # customer sees. This reads every .app in the staged DMG (nested ones
+      # included) and requires its CFBundleIconFile / CFBundleIconName to
+      # resolve. Demonstrated red on the real v1.0.117 artefact (2 apps).
+      # Exit 2 is CANNOT-RUN and is not a pass.
+      - name: Every app in the DMG has an icon (118 U4)
+        if: always()
+        run: |
+          set -uo pipefail
+          DMG="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
+          if [ -z "$DMG" ]; then
+              echo "::error title=No DMG to inspect::The app-icon gate found no dist/*.dmg. It failed to look. DO NOT SHIP."
+              exit 1
+          fi
+          python3 scripts/verify_payload_app_icons.py "$DMG"
 
       # ── THE ARTEFACT WALK ITSELF (#719 successor) ───────────────────────
       # scripts/walk_dmg.sh is 498 lines of eight-arm artefact walk and it has

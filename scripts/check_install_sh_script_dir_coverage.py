@@ -125,6 +125,7 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "assistant-agent": ["../assistant-agent"],
     "wiki-recompile": ["../wiki-recompile"],
     "context-refresh": ["../context-refresh"],
+    "uninstall": ["../uninstall"],
     "cm021": ["vendor/cm021"],
     "imessage-bridge": ["vendor/imessage_bridge"],
     "identity_resolver": ["vendor/cm041"],
@@ -165,6 +166,9 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "scripts/repair_netflix_rating_polarity.py": [
         '${SRCROOT}/../scripts/repair_netflix_rating_polarity.py'
     ],
+    "scripts/remotecapture_transcription.sh": [
+        '${SRCROOT}/../scripts/remotecapture_transcription.sh'
+    ],
     # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
     # HIDING IT. A cp-unique needle for this asset would have to be the cp
     # LINE itself, because its source is assigned three lines earlier as
@@ -194,6 +198,16 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # construction, which is why this gate refused the change until the
     # postBuildScript existed. Both needles assert the cp lines.
     "lib/ostler-container-engine.sh": ['${SRCROOT}/../lib/ostler-container-engine.sh'],
+    # ostler-conversations-mirror.sh: sourced by bin/ostler-fda each tick (the derive
+    # tick's ~/Documents mirror); bundled by the same postBuildScript.
+    "lib/ostler-conversations-mirror.sh": ['${SRCROOT}/../lib/ostler-conversations-mirror.sh'],
+    # ostler-loopback-guard.sh: install.sh FAILS CLOSED without it, and the
+    # installer's admin shell runs its install-root from the bundle.
+    "lib/ostler-loopback-guard.sh": ['${SRCROOT}/../lib/ostler-loopback-guard.sh'],
+
+    # v1.0.126: the container VM size table, sourced before `colima start`;
+    # bundled by the same postBuildScript. Missing = the old fixed 4 GiB VM.
+    "lib/ostler-vm-size.sh": ['${SRCROOT}/../lib/ostler-vm-size.sh'],
     "bin": ['${SRCROOT}/../bin/ostler-engine-supervisor.sh'],
     # settling_progress.sh: install.sh sources
     # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
@@ -206,6 +220,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
+    # settling_channels.json: the fixed Setting-up channel set (CM051 #3426).
+    # install.sh copies it to ~/.ostler/state/; gui/project.yml cp's it into
+    # Resources/lib/. The needle asserts the bundling reference.
+    "lib/settling_channels.json": ['${SRCROOT}/../lib/settling_channels.json'],
     # #399: the end-of-install confirmation helpers. install.sh's
     # confirmation block probes ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py
     # and ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips the
@@ -221,6 +239,11 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # so a dropped cp line would ship an installer that never reads older
     # history, with no error anywhere. The needle is the cp line's own form.
     "lib/ostler_catchup.py": ['${SRCROOT}/../lib/ostler_catchup.py'],
+    # 2026-10-24: records the language and reviewed-translation ids each consent
+    # screen was shown with (install.sh _consent_cli_record). A dropped cp line
+    # would log "display-language record failed" on every consent, so the
+    # needle is the cp line's own form.
+    "lib/ostler_consent_display.py": ['${SRCROOT}/../lib/ostler_consent_display.py'],
     # #550 (2026-08-28): the store-auth shim. install.sh:6523 seeds it from
     # ${SCRIPT_DIR}/lib/ostler_store_auth.py into ${OSTLER_DIR}/lib, and a .pth
     # in every venv imports it so the pinned Python clients authenticate to
@@ -248,6 +271,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "THIRD_PARTY_NOTICES.md": ["vendor/THIRD_PARTY_NOTICES.md"],
     "LICENSES": ["vendor/LICENSES"],
     "Ostler.app": ["OSTLER_APP_PATH"],
+    # GAP3: the standalone Ostler Uninstaller.app is nested into Resources by the
+    # "Bundle install.sh + ..." postBuildScript, gated on UNINSTALLER_APP_PATH
+    # (built by gui/Makefile's build-uninstaller). The needle asserts that
+    # bundling reference so removing the project.yml cp line goes RED. The
+    # ${SCRIPT_DIR}/../Ostler Uninstaller.app dev fallback is covered by the ".."
+    # exception above, exactly as ../Ostler.app is.
+    "Ostler Uninstaller.app": ["UNINSTALLER_APP_PATH"],
     # Recover Ostler.app (#1970): the standalone GUI doorway to the installed
     # ostler-unlock redeemer. install.sh probes ${SCRIPT_DIR}/Recover Ostler.app
     # and stages it into /Applications/Ostler; the copy into Resources is the
@@ -275,6 +305,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "extensions/OstlerSafariExtension.app.zip": [
         "vendor/extensions/OstlerSafariExtension.app.zip"
     ],
+    # Care rules: install.sh runs ${SCRIPT_DIR}/care/write_agents_md.sh. The
+    # "Bundle care rules" postBuildScript declares the source path (this needle)
+    # and copies the tree into Resources/care/ (the CP_ONLY needle below).
+    "care": ["../care"],
 }
 
 
@@ -320,6 +354,12 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     "scripts/repair_netflix_rating_polarity.py": [
         'cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"'
     ],
+    "scripts/remotecapture_transcription.sh": [
+        'cp "${SRC_RCT}" "${DEST}/scripts/remotecapture_transcription.sh"'
+    ],
+    # SRC is assigned above the cp, so the source path survives deleting the
+    # copy; only the cp line is unique to the copy actually happening.
+    "care": ['cp -R "${SRC}/"* "${DEST}/care/"'],
 }
 SCRIPT_DIR_REGEX = re.compile(r'"\$\{SCRIPT_DIR\}/([^"$]+?)"')
 

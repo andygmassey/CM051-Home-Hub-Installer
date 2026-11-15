@@ -72,7 +72,7 @@ expect "a later test step WITHOUT always() is flagged" 1 "$d"
 
 # and it must NAME the offender, or the report is unactionable
 _out="$(python3 "$GATE" "$d" 2>&1)"
-if printf '%s\n' "$_out" | grep -q 'second test'; then
+if grep -q 'second test' <<< "$_out"; then
     ok "names the maskable step"
 else
     bad "the maskable step is not NAMED in the output"

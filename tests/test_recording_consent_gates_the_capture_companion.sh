@@ -34,29 +34,28 @@
 # nobody". That premise did not hold on this tree.
 #
 # ============================================================================
-# WHY THIS TEST EXECUTES THE PHASE AND DOES NOT PATTERN-MATCH IT
+# WHAT THE CUSTOMER GETS, PER ANSWER (updated 2026-11-11, Andy)
 # ============================================================================
 #
-# The defect is not a missing string. Both the broken and the fixed tree
-# contain the consent screen, the record, and the whole RemoteCapture phase;
-# only whether the phase RUNS differs. No pattern over either half can tell
-# them apart, and a test asserting "the gate is present" would pass against a
-# gate wired to a variable nothing sets.
+# Every answer stages the app. What the answer controls is WHERE the LaunchAgent
+# plist lands, and so whether anything starts at login:
 #
-# So this extracts the real phase out of install.sh, runs it with every
-# external command stubbed, and asserts on the EFFECTS a customer would get:
+#   accepted   staged, LaunchAgent live in ~/Library/LaunchAgents, bootstrapped
+#   declined   staged, plist DISABLED beside the app, nothing live, told it stays off
+#   unknown    staged, plist DISABLED beside the app, nothing live, told it is waiting
 #
-#   did the installer try to fetch the bundle   (curl called)
-#   did a LaunchAgent plist get written         (file on disk)
-#   did a prior run's LaunchAgent get removed   (file gone + bootout called)
+# The earlier version of this file asserted that a declined answer fetches
+# nothing. That was the complaint: a customer who said "not now" had no app, and
+# turning transcription on later said "run the installer again". Those
+# assertions encode the defect and have been replaced, not weakened.
 #
-# The stubs return failure where the real commands would touch the network,
-# which is why the accepted arm asserts "it tried", not "it succeeded". Trying
-# is the whole difference: on the declined arm it must not try at all.
+# WHY THIS TEST EXECUTES THE PHASE AND DOES NOT PATTERN-MATCH IT. Both trees
+# contain the consent screen, the record and the phase; only what the phase
+# DOES with each answer differs. So this extracts the real phase, runs it with
+# every external command stubbed, and asserts on what lands on disk and what
+# launchctl is told.
 #
-# ============================================================================
 # THREE STATES. 0 pass, 1 fail, 2 cannot-run.
-# ============================================================================
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -68,6 +67,8 @@ bad() { FAIL=$((FAIL+1)); printf '  [FAIL] %s\n' "$1"; }
 
 [ -f "$SUBJECT" ] || { echo "CANNOT-RUN: no install.sh at ${SUBJECT}" >&2; exit 2; }
 [ -f "$STRINGS" ] || { echo "CANNOT-RUN: no string catalogue at ${STRINGS}" >&2; exit 2; }
+# The assertions below compare against the catalogue's own words, so load it here too.
+. "$STRINGS"
 command -v python3 >/dev/null 2>&1 || { echo "CANNOT-RUN: no python3" >&2; exit 2; }
 WORK="$(mktemp -d)" || { echo "CANNOT-RUN: no working directory" >&2; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
@@ -98,16 +99,22 @@ PY
 # ── run one arm ─────────────────────────────────────────────────────────────
 # $1 subject file, $2 the consent state the spine will report,
 # $3 "prior" to pre-create a LaunchAgent plist from an earlier run.
-# Echoes "<rc>|<curl-called>|<plist-present>|<bootout-called>|<stdout digest>".
+# Echoes, pipe-separated:
+#   rc | fetched | app-staged | live-plist | staged-plist | booted-out | loaded | stdout digest
 _run_arm() {
     local subject="$1" state="$2" prior="${3:-}" body r="${WORK}/arm"
-    rm -rf "$r"; mkdir -p "$r/box/Library/LaunchAgents" "$r/apps" "$r/logs"
-    body="$(_extract_phase "$subject")" || { printf 'NOPHASE||||'; return; }
-    [ -n "$body" ] || { printf 'NOPHASE||||'; return; }
+    rm -rf "$r"; mkdir -p "$r/box/Library/LaunchAgents" "$r/box/Library/Application Support/Ostler RemoteCapture" "$r/apps" "$r/logs"
+    body="$(_extract_phase "$subject")" || { printf 'NOPHASE|||||||'; return; }
+    [ -n "$body" ] || { printf 'NOPHASE|||||||'; return; }
+    # The phase hard-codes /Applications (its apps dir, tar -C, the relocate
+    # and mv of legacy bundles). Re-root EVERY such path into this arm's sandbox,
+    # so a test run can never write to or move anything in the real /Applications.
+    # (Measured 2026-11-11: an unsandboxed run created /Applications/Ostler.)
+    body="${body//\/Applications/${r}/apps}"
 
-    local plist="${r}/box/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
+    local live="${r}/box/Library/LaunchAgents/com.creativemachines.ostler-remotecapture.plist"
     if [ "$prior" = prior ]; then
-        printf '%s\n' "<plist>left by an earlier run</plist>" > "$plist"
+        printf '%s\n' "<plist>left by an earlier run</plist>" > "$live"
     fi
 
     {
@@ -117,7 +124,13 @@ _run_arm() {
         printf 'source %q\n' "$STRINGS"
         printf 'HOME=%q\n' "${r}/box"
         printf 'LOGS_DIR=%q\n' "${r}/logs"
+        printf 'OSTLER_DIR=%q\n' "${r}/box/.ostler"
+        printf 'SCRIPT_DIR=%q\n' "$REPO"
+        printf 'OSTLER_APPS_DIR=%q\n' "${r}/apps/Ostler"
         printf 'OSTLER_CODESIGN_REQ=%q\n' 'anchor apple generic'
+        printf 'OSTLER_REMOTECAPTURE_VERSION=%q\n' '0.1.10'
+        # Pin the one digest the stub produces, so the real verify runs.
+        printf 'OSTLER_REMOTECAPTURE_SHA256=%q\n' 'deadbeef'
         printf 'OSTLER_CONSENT_SPOKEN_CAPTURE_DECISION=""\n'
         printf 'REMOTECAPTURE_INSTALLED=false\n'
         printf '_STATE=%q\n' "$state"
@@ -134,20 +147,39 @@ err()  { printf 'ERR %s\n' "$*"; }
 ok()   { printf 'OK %s\n' "$*"; }
 progress() { printf 'PROGRESS %s\n' "$2"; }
 fail_with_code() { printf 'FAILCODE %s\n' "$1"; exit 9; }
-_ostler_launchagent_load_verified() { printf 'LOADED %s\n' "$1"; return 0; }
-# Externals. curl is the discriminator: reaching it means the installer set
-# out to stage the capture companion.
-curl() { : > "${MARKER_DIR}/curl-called"; return 22; }
+_ostler_launchagent_load_verified() { printf 'LOADED %s\n' "$1"; touch "${MARKER_DIR}/loaded"; return 0; }
+# Externals. The download succeeds and writes what the real one would: an
+# archive and a sidecar that agrees with the pin. The archive then extracts to
+# a bundle, so the install is measured as far as the LaunchAgent decision.
+curl() {
+    : > "${MARKER_DIR}/curl-called"
+    local a prev=""
+    for a in "$@"; do
+        if [ "$prev" = "-o" ]; then
+            case "$a" in
+                *.sha256) printf 'deadbeef  x\n' > "$a" ;;
+                *)        printf 'archive\n' > "$a" ;;
+            esac
+        fi
+        prev="$a"
+    done
+    return 0
+}
+tar() {
+    # The real command extracts into /Applications; the stub writes the bundle
+    # into this arm's apps folder instead.
+    mkdir -p "${OSTLER_APPS_DIR}/Ostler RemoteCapture.app/Contents/MacOS"
+    : > "${OSTLER_APPS_DIR}/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture"
+    return 0
+}
 launchctl() { printf '%s\n' "$*" >> "${MARKER_DIR}/launchctl-calls"; return 0; }
-tar() { return 1; }
-codesign() { return 1; }
-spctl() { return 1; }
+codesign() { return 0; }
+spctl() { return 0; }
 xattr() { return 0; }
-shasum() { printf 'deadbeef  x\n'; }
+shasum() { printf 'deadbeef  %s\n' "${2:-x}"; }
 sudo() { return 1; }
 # uname must still answer honestly for the architecture branch; on a non-arm64
-# runner the accepted arm would take the Apple Silicon skip and prove nothing,
-# so force the branch the customer Macs take.
+# runner the arm would take the Apple Silicon skip and prove nothing.
 uname() { printf 'arm64\n'; }
 STUBS
         printf '%s\n' "$body"
@@ -155,18 +187,20 @@ STUBS
 
     local out rc
     out="$(bash "${r}/run.sh" 2>&1)"; rc=$?
-    local curled=no plistp=no booted=no
-    [ -f "${r}/curl-called" ] && curled=yes
-    [ -f "$plist" ] && plistp=yes
-    if [ -f "${r}/launchctl-calls" ] && /usr/bin/grep -q 'bootout' "${r}/launchctl-calls"; then
-        booted=yes
-    fi
-    printf '%s|%s|%s|%s|%s' "$rc" "$curled" "$plistp" "$booted" "$(printf '%s' "$out" | tr '\n' ';')"
+    local fetched=no app=no livep=no stagedp=no booted=no loaded=no appstaged=no
+    [ -f "${r}/curl-called" ] && fetched=yes
+    [ -f "${r}/apps/Ostler/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture" ] && app=yes
+    [ -f "${r}/box/Library/Application Support/Ostler/staged/Ostler RemoteCapture.app/Contents/MacOS/RemoteCapture" ] && appstaged=yes
+    [ -f "$live" ] && livep=yes
+    [ -f "${r}/box/Library/Application Support/Ostler RemoteCapture/com.creativemachines.ostler-remotecapture.plist.staged" ] && stagedp=yes
+    if [ -f "${r}/launchctl-calls" ] && /usr/bin/grep -q 'bootout' "${r}/launchctl-calls"; then booted=yes; fi
+    [ -f "${r}/loaded" ] && loaded=yes
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s' "$rc" "$fetched" "$app" "$livep" "$stagedp" "$booted" "$loaded" "$appstaged" "$(printf '%s' "$out" | tr '\n' ';')"
 }
+field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
+digest() { printf '%s' "$1" | cut -d'|' -f9-; }
 
-# ── the harness must be able to tell the two outcomes apart ─────────────────
-# Without this, a stub that never fired would report every arm as "did not
-# stage" and the whole file would read green for the wrong reason.
+# ── the harness must be able to tell the outcomes apart ─────────────────────
 echo "── the mechanism, so the predicate is not taken on trust ──"
 _probe="$(_run_arm "$SUBJECT" accepted)"
 case "$_probe" in
@@ -174,106 +208,123 @@ case "$_probe" in
               echo "  Its boundary lines have moved or been renamed. NOTHING was measured." >&2
               exit 2 ;;
 esac
-if [ "$(printf '%s' "$_probe" | cut -d'|' -f2)" = yes ]; then
-    ok "the harness can observe a staging attempt (accepted reaches curl)"
+if [ "$(field "$_probe" 3)" = yes ]; then
+    ok "the harness can observe a staged app (accepted installs the bundle)"
 else
-    echo "CANNOT-RUN: the accepted arm did not reach curl, so this harness cannot" >&2
-    echo "  distinguish a phase that ran from one that refused. Every 'did not" >&2
-    echo "  stage' verdict below would be unearned." >&2
+    echo "CANNOT-RUN: the accepted arm did not stage the bundle, so this harness cannot" >&2
+    echo "  tell an install that ran from one that refused. Every verdict below would be unearned." >&2
+    echo "  rc=$(field "$_probe" 1) out=$(digest "$_probe")" >&2
     exit 2
 fi
 
 echo "── consumer-side: what each answer actually does ──"
 
-# ACCEPTED: the customer asked for this. It must proceed.
+# ACCEPTED: the customer asked for this. Live agent, loaded.
 _r="$(_run_arm "$SUBJECT" accepted)"
-if [ "$(printf '%s' "$_r" | cut -d'|' -f2)" = yes ]; then
-    ok "accepted: the capture companion is staged, as the customer asked"
+if [ "$(field "$_r" 4)" = yes ] && [ "$(field "$_r" 7)" = yes ] && [ "$(field "$_r" 3)" = yes ] && [ "$(field "$_r" 8)" = no ]; then
+    ok "accepted: the app is in /Applications, the LaunchAgent is live in LaunchAgents and loaded, as the customer asked"
 else
-    bad "accepted: the phase refused a customer who said yes. That is a closed hole, not a feature."
+    bad "accepted: the agent was not made live (live=$(field "$_r" 4) loaded=$(field "$_r" 7)). A yes that does nothing is a closed hole."
 fi
 
-# DECLINED: the screen promised transcription would stay off.
+# DECLINED: the app is PARKED outside /Applications; nothing is live; the customer is told it stays off.
 _r="$(_run_arm "$SUBJECT" declined)"
-_curl="$(printf '%s' "$_r" | cut -d'|' -f2)"
-_plist="$(printf '%s' "$_r" | cut -d'|' -f3)"
-_out="$(printf '%s' "$_r" | cut -d'|' -f5-)"
-if [ "$_curl" = no ]; then
-    ok "declined: nothing is fetched, so no capture companion is staged"
+if [ "$(field "$_r" 3)" = no ] && [ "$(field "$_r" 8)" = yes ]; then
+    ok "declined: the app is parked in staged/, NOT in /Applications, and enable can bring it back with no reinstall"
 else
-    bad "declined: the installer still fetched the capture companion. The screen said transcription would stay off."
+    bad "declined: app in /Applications=$(field "$_r" 3) parked=$(field "$_r" 8). A declined app must not sit where a customer can open it."
 fi
-if [ "$_plist" = no ]; then
-    ok "declined: no LaunchAgent is written, so nothing starts at login"
+if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 7)" = no ]; then
+    ok "declined: nothing is live in LaunchAgents and nothing is loaded, so nothing captures or starts at login"
 else
-    bad "declined: a RunAtLoad LaunchAgent was written anyway"
+    bad "declined: an agent is live or loaded (live=$(field "$_r" 4) loaded=$(field "$_r" 7)). Transcription was declined."
 fi
-case "$_out" in
-    *"$(printf '%s' "${MSG_INFO_CM042_SKIPPED_TRANSCRIPTION_OFF:-__unset__}" | cut -c1-40)"*|*"not installed"*)
-        ok "declined: the customer is told why, in their own answer's terms" ;;
+if [ "$(field "$_r" 5)" = yes ]; then
+    ok "declined: the disabled plist is staged beside the app, ready for an in-place enable"
+else
+    bad "declined: no staged plist, so there is nothing to enable later"
+fi
+case "$(digest "$_r")" in
+    *"$(printf '%s' "${MSG_INFO_CM042_STAGED_TRANSCRIPTION_OFF:-__unset__}" | cut -c1-40)"*)
+        ok "declined: the customer is told it stays off, in the catalogue's own words" ;;
     *)  bad "declined: the phase went quiet. Silence and 'it does not exist' look identical to a customer." ;;
 esac
 
-# UNKNOWN: nobody was ever asked, or the answer was lost. Not the same fact as
-# a refusal, and the installer's own doctrine says it may not be treated as
-# one in silence.
+# UNKNOWN: nobody was asked, or the answer was lost. Same placement as declined,
+# but the customer is told it is waiting, not refused.
 _r="$(_run_arm "$SUBJECT" unknown)"
-if [ "$(printf '%s' "$_r" | cut -d'|' -f2)" = no ]; then
-    ok "unknown: nothing is staged (off is the safe posture for an unanswered recording question)"
+if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 7)" = no ] && [ "$(field "$_r" 5)" = yes ] && [ "$(field "$_r" 3)" = no ] && [ "$(field "$_r" 8)" = yes ]; then
+    ok "unknown: parked outside /Applications, staged plist disabled, nothing live (off is the safe posture for an unanswered recording question)"
 else
-    bad "unknown: the installer staged the capture companion against an answer nobody gave"
+    bad "unknown: not staged disabled with nothing live (staged=$(field "$_r" 5) live=$(field "$_r" 4) loaded=$(field "$_r" 7))"
 fi
-case "$(printf '%s' "$_r" | cut -d'|' -f5-)" in
+case "$(digest "$_r")" in
     *WARN-UNKNOWN*spoken_capture_recording_consent*)
-        ok "unknown: it SAYS the step was skipped for want of an answer, not for want of consent" ;;
+        ok "unknown: it SAYS the step is waiting for an answer, not that consent was refused" ;;
     *)  bad "unknown was treated as declined in silence. Those are different facts with different next actions." ;;
 esac
 
 # A PRIOR RUN'S AGENT. Answering yes once and no later must not leave the
 # companion starting at every login.
 _r="$(_run_arm "$SUBJECT" declined prior)"
-if [ "$(printf '%s' "$_r" | cut -d'|' -f3)" = no ] && [ "$(printf '%s' "$_r" | cut -d'|' -f4)" = yes ]; then
-    ok "declined after a previous yes: the old LaunchAgent is booted out and removed"
+if [ "$(field "$_r" 4)" = no ] && [ "$(field "$_r" 6)" = yes ] && [ "$(field "$_r" 5)" = yes ]; then
+    ok "declined after a previous yes: the live agent is booted out and removed, and the staged copy stays"
 else
-    bad "declined after a previous yes: the old LaunchAgent survives (plist=$(printf '%s' "$_r" | cut -d'|' -f3) bootout=$(printf '%s' "$_r" | cut -d'|' -f4))"
+    bad "declined after a previous yes: not cleaned up (live=$(field "$_r" 4) booted=$(field "$_r" 6) staged=$(field "$_r" 5))"
 fi
 
 # ── MUTATION A: put the defect back ─────────────────────────────────────────
-# Collapse the gate to the pre-fix shape -- the architecture test alone -- and
-# the declined arm must stage again. A guard nobody has watched fail proves
-# nothing.
-echo "── mutation A: the defect reintroduced ──"
-_mut="${WORK}/mutant.sh"
+# Place the plist LIVE regardless of the answer. A declined customer's agent
+# then starts at every login. The live-plist assertion must catch it.
+echo "── mutation A: placement ignores the answer ──"
+_mut="${WORK}/mutantA.sh"
 python3 - "$SUBJECT" > "$_mut" <<'PY'
-import re, sys
+import sys
 src = open(sys.argv[1]).read()
-gate = re.search(
-    r'_OSTLER_CONSENT_SPOKEN_CAPTURE="\$\(_ostler_consent_state.*?\nelif \[\[ "\$REMOTECAPTURE_ARCH_DETECTED"',
-    src, re.S)
-if gate is None:
+needle = '[[ "$_OSTLER_CONSENT_SPOKEN_CAPTURE" == "accepted" ]] && REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_LAUNCHAGENT_PLIST"'
+if src.count(needle) != 1:
     sys.exit(3)
-src = src.replace(gate.group(0), 'if [[ "$REMOTECAPTURE_ARCH_DETECTED"', 1)
-sys.stdout.write(src)
+sys.stdout.write(src.replace(needle, 'REMOTECAPTURE_PLIST_TARGET="$REMOTECAPTURE_LAUNCHAGENT_PLIST"', 1))
 PY
 if [ ! -s "$_mut" ]; then
-    echo "CANNOT-RUN: could not build the mutant -- the gate's shape did not match." >&2
+    echo "CANNOT-RUN: could not build mutant A -- the placement line did not match." >&2
     echo "  A mutation that did not apply looks exactly like one that was not caught." >&2
     exit 2
 fi
 if ! bash -n "$_mut" 2>/dev/null; then
-    echo "CANNOT-RUN: the mutant does not parse, so it is not the pre-fix tree." >&2
+    echo "CANNOT-RUN: mutant A does not parse, so it is not the pre-fix tree." >&2
     exit 2
 fi
 _r="$(_run_arm "$_mut" declined)"
-if [ "$(printf '%s' "$_r" | cut -d'|' -f2)" = yes ]; then
-    ok "MUTATION A: without the gate, a declined customer is staged the companion -- the guard fires"
+if [ "$(field "$_r" 4)" = yes ]; then
+    ok "MUTATION A: a declined answer places a live agent -- the guard fires"
 else
-    bad "MUTATION A: the mutant ALSO refused. This test is not measuring the gate."
+    bad "MUTATION A: the mutant ALSO kept the declined agent off. This test is not measuring the placement."
+fi
+
+# ── MUTATION C: never park the app, so a declined app stays in /Applications ─
+echo "── mutation C: the verified app is never parked ──"
+_mutc="${WORK}/mutantC.sh"
+python3 - "$SUBJECT" > "$_mutc" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+needle = 'REMOTECAPTURE_INSTALLED=true; _ostler_remotecapture_park'
+if src.count(needle) != 1:
+    sys.exit(3)
+sys.stdout.write(src.replace(needle, 'REMOTECAPTURE_INSTALLED=true', 1))
+PY
+if [ ! -s "$_mutc" ] || ! bash -n "$_mutc" 2>/dev/null; then
+    echo "CANNOT-RUN: mutant C did not build or parse; nothing was measured." >&2
+    exit 2
+fi
+_r="$(_run_arm "$_mutc" declined)"
+if [ "$(field "$_r" 3)" = yes ]; then
+    ok "MUTATION C: without the park, a declined app sits in /Applications -- the placement guard fires"
+else
+    bad "MUTATION C: the mutant ALSO kept the declined app out of /Applications. The placement assertion is not measuring the park."
 fi
 
 # ── MUTATION B: blind the scanner ───────────────────────────────────────────
-# Hand the extractor a file with no phase in it. It must report CANNOT-RUN,
-# never a pass: scanning nothing is not evidence of anything.
 echo "── mutation B: the scanner blinded ──"
 printf '%s\n' '# a file with no RemoteCapture phase at all' > "${WORK}/blind.sh"
 _r="$(_run_arm "${WORK}/blind.sh" declined)"

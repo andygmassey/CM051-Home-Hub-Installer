@@ -272,3 +272,144 @@ set-aside calendar (written as `type: other, include: false`) as ordinary diary.
 Proven by `tests/test_calendar_set_aside_classification.py` (RED with the `other`
 mapping alone: `test_consumer_withholds_a_set_aside_calendar` returns L1). A sync
 that drops either change turns that test red.
+
+## 2026-10-14: `cm041/contact_syncer` `instagram_social.py` `_username_to_display_name`
+
+Location only: a bare handle (no separator) now returns `"@" + handle`
+instead of the handle itself, so a handle is never stored as a person's name
+(walk #27 shape sweep S9 row 3). Same edit in the shipped `contact_syncer/`
+copy. Hand-grafted; the tree is `regenerate_forbidden`.
+
+## Added 2026-10-19, CM051 v1.0.111: Apple Contacts photos on the abcddb path
+
+`vendor/cm041/contact_syncer/syncer.py`, hand-grafted (this tree is
+`regenerate_forbidden`, so the patch cannot record it). `_read_abcddb_as_vcards`
+is itself a CM051-side divergence with no CM041 counterpart, so there is no
+upstream commit to graft from.
+
+- `_read_abcddb_as_vcards` now selects `ZIMAGEDATA` and `ZTHUMBNAILIMAGEDATA`
+  through the existing `_col` (absent column -> NULL). It also emits
+  `PHOTO;ENCODING=b:<base64>` on the synthesised card, so the existing
+  `vcard_parser` -> `_persist_photo` -> `write_photo` path writes PHOTO_DIR
+  and `foaf:img` / `profile_photo_path` follow. It logs one counter line per
+  store: `abcddb photos in <store>: columns=... external= images_dir= inline=
+  none= not_image=`.
+- New module-level helpers `_is_image`, `_abcddb_blob_image` and
+  `_abcddb_photo_bytes` try every known storage shape:
+  - a raw image blob;
+  - CoreData framing, `0x01` inline or `0x02` + UUID into
+    `.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/`;
+  - the per-store `Images/<uid>` file.
+
+WHY: before this the abcddb reader selected no image column, so no customer
+install ever wrote a contact photo. The walk box had no PHOTO_DIR on
+2026-10-19.
+
+NOT GRAFTED into the repo-root dev twin `./contact_syncer/syncer.py`, which is
+not what `gui/project.yml` bundles. The walk box's installed `syncer.py` is
+byte-identical to the vendored copy (sha256 measured 2026-10-19).
+
+### What a future sync must preserve
+
+The two `_col` entries, the PHOTO line, the counter line and the three helpers.
+Guarded by `tests/test_address_book_photos_reach_photo_dir.py`. Which storage
+shape a real Mac uses is NOT INSTRUMENTED until a walk reads the counter line
+from `contact-resync.log`.
+
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin f83d5aee -> 07a22b4c)
+
+Method: per-file 3-way merge (base source@f83d5aee, ours this tree, theirs
+source@07a22b4c), conflicts resolved by hand, decisions below. The ban on
+regeneration is retired with this re-pin (see the manifest comment): the pin is
+past the upstream scrub a0f3ca19.
+
+TAKEN FROM UPSTREAM (no longer a divergence): #84 module logger, #149
+trust_env formatting, #120 contact_type into the Qdrant payload, #138
+qdrant_collection.py self-create (new file), #164 last_contact bare-index fix,
+#172 a failed read never overwrites richer data.
+
+NOT VENDORED, now declared in `exclude`: the #109 modules given_name_variants,
+identifier_quality, name_election, role_addresses. Nothing in the vendored
+contact_syncer imports them (0 importers), as recorded at the v1.0.19 hold.
+
+KEPT (CM051-side, still needed):
+- #108 settling producer is NOT taken. install.sh owns the `contacts` settling
+  channel (`settling_report contacts`), and upstream's top-level import
+  `_vendor.ostler_settling_progress` is not vendored, so taking it would be an
+  ImportError at syncer import. syncer.py has no settling import, helper or call.
+- RULE 2 icloud_contact_uid write guard, F6 facebook source_key reuse, the
+  v1.0.111 address-book photos, the BW-1 phone normalisation through
+  `self.resolver.default_country_code` (with the #182 seen_phones dedupe and the
+  #186 is_possible_phone gates in the vendored shape), usage.py's nested
+  `_vendor` import, requirements.txt (rapidfuzz plus pins).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (PII
+shape on the MINUS side: upstream syncer.py carries a US-format example number
+in a comment the vendored copy does not take). The checked-in patch is stale
+against the new pin and does not apply; the content gate reads RED for this
+tree, as it did on main before this change.
+
+## 2026-10-29, NEW-119, board row 963: a failed read never overwrites
+
+Tree: cm041/contact_syncer (vendor/cm041/contact_syncer). Location and shape only.
+
+| file | change |
+|---|---|
+| `syncer.py` | `_upsert_qdrant` reads the existing point through `qdrant_collection.read_existing_payload` (the bare `except Exception: pass` is gone). An unreadable store skips the upsert, logs, increments `qdrant_writes_skipped_unreadable`, returns False. Both callers add a `stage: qdrant_read` row to `skipped`. A missing collection is still a readable "no point". |
+| `facebook_friends.py`, `linkedin_connections.py` | the preservation block read an undefined name `existing` (NameError once a point was readable); now reads `_existing.payload`. |
+
+UPSTREAM ROW: CM041 `contact_syncer/syncer.py` still carries the bare `pass`
+(its #172 fixed only the social writers); the same change is owed to CM041.
+Retires when CM041 takes it and the tree is re-pinned.
+
+NOT FIXED HERE (separate cause): in all three social writers the
+`PointStruct` is built BEFORE the preservation block mutates `payload`, and
+pydantic copies the dict, so the preserved fields never reach the store.
+
+
+## 2026-10-29, NEW-119 (same PR): the social writers store the fields they preserve
+
+Tree: cm041/contact_syncer (vendor/cm041/contact_syncer). Location and shape only.
+
+| file | change |
+|---|---|
+| `facebook_friends.py`, `linkedin_connections.py`, `instagram_social.py` | `upsert_qdrant` built its `PointStruct` BEFORE the preservation block. pydantic validates `payload` into its own dict, so every preserved field (last_contact pair, source, and in instagram_social the close_friend hint, names, organisation, job title, emails, phones) never reached the store. The `PointStruct` is now built after preservation, directly before the upsert. |
+
+UPSTREAM ROWS (owed to CM041; retire when CM041 takes them and the tree is re-pinned):
+- CM041 `contact_syncer/{facebook_friends,linkedin_connections,instagram_social}.py`: the same PointStruct-before-preservation order.
+- CM041 `contact_syncer/syncer.py` `_upsert_qdrant`: the bare `except Exception: pass` after a failed retrieve (row 963 above).
+
+NON-VENDORED COPY IN THIS REPO, same two defects, NOT changed here: the
+top-level `contact_syncer/` (not under vendor/) carries the bare pass at
+`contact_syncer/syncer.py:1044` and the PointStruct-before-preservation order
+at `facebook_friends.py:319`, `linkedin_connections.py:553`,
+`instagram_social.py:375`. It is owed the same two changes, or its removal if
+nothing stages it.
+
+## 2026-10-30 (v1.0.121): a two-card survivor is its own cards' node
+
+Tree `cm041/contact_syncer`, file `syncer.py`, `_node_holds_a_different_canonical_key`.
+The ASK now also requires that the node does NOT hold the incoming card's
+`icloud_contact_uid`. Before, a node holding BOTH of one person's cards (made
+by the converge path's ratified exception, `identity_resolver/exact_identifier.py`)
+was refused for each of its own cards on every contact-resync, and a fresh
+node was minted per card per tick. Measured on the v1.0.120 walk box (Mini16,
+shapes only): one person, 8 live Person nodes, 2 uids between them, creation
+stamps spread across resync ticks. A node holding only a different card still
+refuses. The same change is applied to the non-vendored top-level
+`contact_syncer/syncer.py` twin.
+
+Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py` (wired in
+`.github/workflows/rule-2-holds-on-the-write.yml`).
+
+UPSTREAM ROW: none owed. CM041 main (fe3290d) has no write-side RULE 2 guard
+in `contact_syncer/syncer.py` at all; it lives only in this tree.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.

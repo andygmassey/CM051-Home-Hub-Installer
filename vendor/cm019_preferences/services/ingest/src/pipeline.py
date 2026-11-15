@@ -14,6 +14,7 @@ from .loaders.qdrant_loader import (
     COMPARTMENT_AT_OR_ABOVE as QdrantLoader_COMPARTMENT_AT_OR_ABOVE,
 )
 from .filters import PreferenceFilter
+from .minors import MinorsRegistry, MinorsRegistryError
 from .parsers import (
     BaseParser,
     ParsedPreference,
@@ -39,7 +40,8 @@ from .parsers import (
     NetflixParser,
     AppleTVParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    FoodEvidenceParser,
 )
 from .rml import RMLMapper
 
@@ -83,6 +85,7 @@ class IngestPipeline:
             UberParser(),
             WhoopParser(),
             FoursquareParser(),  # Before Netflix - both may match venueRatings
+            FoodEvidenceParser(),  # exact FDA extract names + *.mbox.txt only
             # AFTER AppleParser, deliberately, and the previous comment here
             # said the exact opposite. MEASURED on a real Apple Media Services
             # export: only TWO files are contested and Apple yields MORE on
@@ -187,6 +190,8 @@ class IngestPipeline:
             "preferences_date_excluded": 0,
             "triples_inserted": 0,
             "vectors_inserted": 0,
+            "about_minor": 0,
+            "minors_registry_unreadable": False,
             "errors": [],
             "duration_seconds": 0
         }
@@ -207,7 +212,10 @@ class IngestPipeline:
             date_excluded_count = 0
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment,
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                ),
                 default_category=category
             ):
                 # Check date range exclusions first
@@ -227,6 +235,8 @@ class IngestPipeline:
                     result["preferences_created"] += batch_result["preferences"]
                     result["triples_inserted"] += batch_result["triples"]
                     result["vectors_inserted"] += batch_result["vectors"]
+                    result["about_minor"] += batch_result.get("about_minor", 0)
+                    result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
                     result["errors"].extend(batch_result["errors"])
                     batch = []
 
@@ -236,6 +246,8 @@ class IngestPipeline:
                 result["preferences_created"] += batch_result["preferences"]
                 result["triples_inserted"] += batch_result["triples"]
                 result["vectors_inserted"] += batch_result["vectors"]
+                result["about_minor"] += batch_result.get("about_minor", 0)
+                result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
                 result["errors"].extend(batch_result["errors"])
 
             result["preferences_filtered"] = filtered_count
@@ -306,6 +318,8 @@ class IngestPipeline:
             "preferences_capped": 0,
             "triples_inserted": 0,
             "vectors_inserted": 0,
+            "about_minor": 0,
+            "minors_registry_unreadable": False,
             "errors": [],
             "duration_seconds": 0,
             "frequency_stats": None,
@@ -337,7 +351,10 @@ class IngestPipeline:
         try:
             async for pref in parser.parse(
                 file_path,
-                default_compartment=compartment_level or settings.default_compartment
+                default_compartment=(
+                    compartment_level if compartment_level is not None
+                    else settings.default_compartment
+                )
             ):
                 # Check date range exclusions first
                 if settings.is_date_excluded(pref.source, pref.observed_at):
@@ -393,6 +410,8 @@ class IngestPipeline:
             result["preferences_created"] += batch_result["preferences"]
             result["triples_inserted"] += batch_result["triples"]
             result["vectors_inserted"] += batch_result["vectors"]
+            result["about_minor"] += batch_result.get("about_minor", 0)
+            result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
             result["errors"].extend(batch_result["errors"])
 
         result["duration_seconds"] = (datetime.utcnow() - start_time).total_seconds()
@@ -455,6 +474,8 @@ class IngestPipeline:
             "total_capped": 0,
             "total_triples": 0,
             "total_vectors": 0,
+            "total_about_minor": 0,
+            "minors_registry_unreadable": False,
             "file_results": [],
             "errors": [],
             "frequency_stats": None,
@@ -487,6 +508,8 @@ class IngestPipeline:
                 result["total_filtered"] += file_result["preferences_filtered"]
                 result["total_triples"] += file_result["triples_inserted"]
                 result["total_vectors"] += file_result["vectors_inserted"]
+                result["total_about_minor"] += file_result.get("about_minor", 0)
+                result["minors_registry_unreadable"] |= bool(file_result.get("minors_registry_unreadable"))
                 result["file_results"].append(file_result)
                 result["errors"].extend(file_result["errors"])
 
@@ -540,7 +563,10 @@ class IngestPipeline:
             try:
                 async for pref in parser.parse(
                     file_path,
-                    default_compartment=compartment_level or settings.default_compartment
+                    default_compartment=(
+                        compartment_level if compartment_level is not None
+                        else settings.default_compartment
+                    )
                 ):
                     # Check date range exclusions first
                     if settings.is_date_excluded(pref.source, pref.observed_at):
@@ -597,6 +623,8 @@ class IngestPipeline:
             result["total_preferences"] += batch_result["preferences"]
             result["total_triples"] += batch_result["triples"]
             result["total_vectors"] += batch_result["vectors"]
+            result["total_about_minor"] += batch_result.get("about_minor", 0)
+            result["minors_registry_unreadable"] |= bool(batch_result.get("minors_registry_unreadable"))
             result["errors"].extend(batch_result["errors"])
 
         duration = (datetime.utcnow() - start_time).total_seconds()
@@ -645,6 +673,20 @@ class IngestPipeline:
         if not preferences:
             return result
 
+        # Minors: stored, never derived. Stamp extra.about_minor BEFORE anything is
+        # written (Qdrant payload and the derive readers' filter both depend on it).
+        # An owner registry that exists but cannot be read fails CLOSED by
+        # stamping EVERY item about_minor (stored, never derived) and flagging
+        # the batch, never by dropping the data.
+        result["about_minor"] = 0
+        try:
+            registry = MinorsRegistry.load()
+            result["about_minor"] = registry.stamp(preferences)
+        except MinorsRegistryError as exc:
+            logger.error("minors registry unreadable, every item in this batch is treated as about a minor: %s", exc)
+            result["about_minor"] = MinorsRegistry.stamp_all(preferences)
+            result["minors_registry_unreadable"] = True
+
         # Generate embeddings
         texts = [p.embedding_text for p in preferences]
         try:
@@ -668,43 +710,15 @@ class IngestPipeline:
 
         turtle_content = "\n".join(turtle_lines)
 
-        # Insert into Oxigraph
-        #
-        # 🔴 A REFUSAL IS NOT AN ABSENCE (#953). insert_triples returns False on
-        # any non-2xx and logs the status itself; it does NOT raise. Recording
-        # only on the exception left a refusal reporting triples 0 with errors
-        # EMPTY, which is byte-identical to "this batch had nothing to write".
-        #
-        # MEASURED, two arms, one variable, nothing touching a real store:
-        #   endpoint 500 -> {"preferences": 3, "triples": 0, "vectors": 3, "errors": []}
-        #   endpoint 204 -> {"preferences": 3, "triples": 3, "vectors": 3, "errors": []}
-        # The control writes 3, so the 0 means REFUSED rather than "the harness
-        # never works". And vectors is 3 in BOTH arms, so a total graph-write
-        # failure was reported as a healthy batch with a split brain underneath
-        # it: Qdrant holds the preferences, Oxigraph does not, nothing says so.
-        try:
-            success = await self.oxigraph.insert_triples(turtle_content)
-            if success:
-                result["triples"] = len(preferences)
-            else:
-                # The loader already logged the status code. What was missing is
-                # the entry in the structure the CALLER aggregates, because
-                # ingest_file sums these into result["errors"] and the global
-                # stats count that list.
-                result["errors"].append(
-                    f"Oxigraph refused {len(preferences)} preference(s): insert_triples "
-                    f"returned False, so NO triples were written for this batch. The status "
-                    f"code is on the loader's own error line."
-                )
-        except Exception as e:
-            logger.error(f"Oxigraph insert failed: {e}")
-            result["errors"].append(f"Oxigraph error: {e}")
-
-        # Insert into Qdrant
+        # Qdrant FIRST, and the graph mirror only after the points are in. The
+        # vector is what every reader needs; writing the typed node first left a
+        # preference in Oxigraph with no Qdrant point whenever the upsert failed
+        # (returned False, or raised, and nothing rolled the graph back).
+        # Ported from personal-world-graph #471 (d9797d88) onto this tree's
+        # CM051 divergence (the #953 refusal-is-not-absence error entries).
+        ids = [p.id for p in preferences]
         try:
             payloads = [p.to_payload(user_id) for p in preferences]
-            ids = [p.id for p in preferences]
-
             success = await self.qdrant.upsert_vectors(
                 vectors=embeddings,
                 payloads=payloads,
@@ -726,6 +740,42 @@ class IngestPipeline:
         except Exception as e:
             logger.error(f"Qdrant insert failed: {e}")
             result["errors"].append(f"Qdrant error: {e}")
+
+        if result["vectors"] != len(preferences):
+            return result
+
+        # Graph mirror: REPLACE each preference node's owned triples so a
+        # re-ingest with a changed subject does not leave two values behind
+        # (the Qdrant upsert already replaced its point's payload).
+        # 🔴 A REFUSAL IS NOT AN ABSENCE (#953). The graph write returns False on
+        # any non-2xx and logs the status itself; it does NOT raise. Recording
+        # only on the exception left a refusal reporting triples 0 with errors
+        # EMPTY, which is byte-identical to "this batch had nothing to write".
+        #
+        # MEASURED, two arms, one variable, nothing touching a real store:
+        #   endpoint 500 -> {"preferences": 3, "triples": 0, "vectors": 3, "errors": []}
+        #   endpoint 204 -> {"preferences": 3, "triples": 3, "vectors": 3, "errors": []}
+        # The control writes 3, so the 0 means REFUSED rather than "the harness
+        # never works". And vectors is 3 in BOTH arms, so a total graph-write
+        # failure was reported as a healthy batch with a split brain underneath
+        # it: Qdrant holds the preferences, Oxigraph does not, nothing says so.
+        try:
+            success = await self.oxigraph.replace_preference_triples(ids, turtle_content)
+            if success:
+                result["triples"] = len(preferences)
+            else:
+                # The loader already logged the status code. What was missing is
+                # the entry in the structure the CALLER aggregates, because
+                # ingest_file sums these into result["errors"] and the global
+                # stats count that list.
+                result["errors"].append(
+                    f"Oxigraph refused {len(preferences)} preference(s): replace_preference_triples "
+                    f"returned False, so NO triples were written for this batch. The status "
+                    f"code is on the loader's own error line."
+                )
+        except Exception as e:
+            logger.error(f"Oxigraph insert failed: {e}")
+            result["errors"].append(f"Oxigraph error: {e}")
 
         return result
 

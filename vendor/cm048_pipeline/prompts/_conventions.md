@@ -22,9 +22,19 @@ prompt says "follow the conventions," these apply.
   - *Examples (when `{target_locale} = en-US`):* `color`,
     `organization`, `realize`. Double quotes throughout. Dates
     `MM/DD/YYYY` or `April 15, 2026`.
-  - When the transcript itself was in a different language from
-    `{target_locale}`, preserve direct quotes in the original
-    language; narrative prose follows `{target_locale}`.
+  - **Output language.** The OUTPUT LANGUAGE block in the input says
+    which language to write narrative prose in. By default that is the
+    language the conversation was held in; the owner can pin a
+    preferred language with the `summary_language` setting. When it
+    names a non-English language, `{target_locale}` spelling rules do
+    not apply to the prose.
+  - **Structure stays English.** Section headings (`## Action items`),
+    table column names (Owner, Action, Deadline, Priority, Notes) and
+    JSON keys are read by software and are never translated. Only the
+    prose inside them is written in the output language.
+  - **Never drop non-English content.** A commitment made in any
+    language is an action item. Direct quotes and proper nouns stay as
+    written; never translate a quote.
 - **Third person throughout**, using participants' names. Write
   "`{user_name}` said..." / "`{other_name}` suggested...", NOT
   "I said..." / "You said...".

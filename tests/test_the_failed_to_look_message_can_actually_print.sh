@@ -90,14 +90,14 @@ while IFS= read -r entry; do
 
         case "$arm" in
             absent|empty)
-                if printf '%s' "$out" | grep -q REACHED_THE_GUARD; then
+                if grep -q REACHED_THE_GUARD <<< "$out"; then
                     ok "cut.yml:${lineno} ${arm}: the guard is reached"
                 else
                     bad "cut.yml:${lineno} ${arm}: the guard was NOT reached -- the step dies on the assignment and prints nothing. Output: [${out}]"
                 fi
                 ;;
             present)
-                if printf '%s' "$out" | grep -q '^FOUND:dist/'; then
+                if grep -q '^FOUND:dist/' <<< "$out"; then
                     ok "cut.yml:${lineno} present (CONTROL): the dmg is located"
                 else
                     bad "cut.yml:${lineno} present (CONTROL): did not locate the dmg. Output: [${out}]"

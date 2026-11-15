@@ -286,3 +286,54 @@ struct OutputLineBuffer {
         return String(decoding: u[start...], as: UTF8.self)
     }
 }
+
+// MARK: - Homebrew untrusted-tap warning
+
+/// Homebrew prints a multi-line "taps are not trusted" warning block that
+/// links to docs.brew.sh/Tap-Trust. It is not an Ostler failure and no
+/// customer action helps, but it landed in the customer-visible log and the
+/// support email and read as an error. This drops that one block from the
+/// in-app buffers ONLY. The full text still reaches ~/.ostler/logs/install.log
+/// (install.sh tees every byte there) which is the diagnostics file.
+///
+/// Stateful because the block spans lines. It starts at the line naming
+/// "taps are not trusted" and runs through the line containing "Tap-Trust".
+/// Between those, every line is swallowed except one starting "Error",
+/// "==>" or "Warning:", which ends the block and is KEPT, so a real error
+/// is never eaten. A block that never
+/// reaches its Tap-Trust line is also bounded by `maxBlockLines`.
+struct BrewTapWarningFilter {
+    static let maxBlockLines = 30
+    private var inBlock = false
+    private var swallowed = 0
+
+    /// Returns true when the line should be shown/kept.
+    mutating func keep(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        if !inBlock {
+            if lower.contains("taps are not trusted") || lower.contains("tap is not trusted") {
+                inBlock = true
+                swallowed = 1
+                if lower.contains("tap-trust") { inBlock = false }
+                return false
+            }
+            return true
+        }
+        // Real block (Homebrew 5) is ~19 lines mixing indented, blank and
+        // flush-left prose; it ends at the Tap-Trust URL. Only a line that
+        // starts a new message ends it early, so a real error is kept.
+        let startsNewMessage = line.hasPrefix("Error") || line.hasPrefix("==>")
+            || line.hasPrefix("Warning:")
+        if startsNewMessage || swallowed >= Self.maxBlockLines {
+            inBlock = false
+            swallowed = 0
+            return true
+        }
+        swallowed += 1
+        if lower.contains("tap-trust") {
+            inBlock = false
+            swallowed = 0
+        }
+        return false
+    }
+}

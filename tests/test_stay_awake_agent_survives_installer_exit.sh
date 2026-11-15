@@ -124,17 +124,17 @@ plist_flags=$(awk '/<<.?STAYAWAKEEOF/,/^STAYAWAKEEOF/' "$INSTALL_SCRIPT" \
 if [[ -z "$plist_flags" ]]; then
     bad "no caffeinate flags found inside the stay-awake plist heredoc"
 else
-    if printf '%s' "$plist_flags" | grep -q 's'; then
+    if grep -q 's' <<< "$plist_flags"; then
         ok "caffeinate -s present (AC-only system-sleep assertion)"
     else
         bad "caffeinate -s missing -- the agent would not prevent system sleep"
     fi
-    if printf '%s' "$plist_flags" | grep -q 'i'; then
+    if grep -q 'i' <<< "$plist_flags"; then
         bad "caffeinate -i present -- would prevent idle sleep ON BATTERY and flatten a MacBook Hub"
     else
         ok "caffeinate -i absent (battery-aware posture preserved)"
     fi
-    if printf '%s' "$plist_flags" | grep -q 'd'; then
+    if grep -q 'd' <<< "$plist_flags"; then
         bad "caffeinate -d present -- would hold the customer's display on indefinitely"
     else
         ok "caffeinate -d absent (display still sleeps)"

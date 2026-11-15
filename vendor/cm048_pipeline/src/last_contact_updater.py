@@ -203,7 +203,7 @@ def update_last_contact_for_bundle(
         )
         return []
 
-    date_str = _to_date_str(bundle.ended_at)
+    date_str = _to_date_str(bundle.ended_at) or _to_date_str(getattr(bundle, "date", ""))
     if date_str is None:
         logger.debug(
             "Bundle %s has no usable timestamp; skipping lastContact upsert",

@@ -124,8 +124,61 @@ internal func buildAuthorizationAppleScript(innerShell: String, prompt: String) 
     """
 }
 
+/// The root work of the ONE admin shell. Exposed at file scope so the
+/// test target asserts the shell production actually runs, not a copy.
+///
+/// The loopback guard (lib/ostler-loopback-guard.sh, v1.0.126): a pf
+/// anchor plus the com.ostler.loopback-guard LaunchDaemon that refuse other
+/// accounts on the Mac a connection to the local AI engine (:11434 and its
+/// ephemeral runner ports). Installed here because install.sh under
+/// OSTLER_GUI=1 never holds root. Its outcome is NOT judged here: the guard
+/// writes a status file and install.sh FAILS CLOSED (ERR-08-LOOPBACK-GUARD-
+/// NOT-ACTIVE) unless that status is a fresh ok. A resource path containing a
+/// single quote cannot be quoted safely, so the guard step is omitted and
+/// install.sh then fails closed rather than running an unquoted path as root.
+internal func buildAdminInnerShell(resourcePath: String?) -> String {
+    // /opt/homebrew is created for the owner ONLY when it does not exist yet
+    // (a fresh Mac with no Homebrew). An existing prefix is never chowned: it
+    // is either already the owner's, or another account's, and
+    // sharedHomebrewRefusal stops the install before this shell runs in that
+    // case. /usr/local/bin is root-owned on stock macOS and is not touched.
+    var shell =
+        "/usr/bin/sudo -v ; " +
+        "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
+        "if [ ! -e /opt/homebrew ]; then " +
+        "/bin/mkdir /opt/homebrew && /usr/sbin/chown $ORIG_USER:admin /opt/homebrew && /bin/chmod 755 /opt/homebrew ; " +
+        "fi"
+    if let res = resourcePath, !res.contains("'") {
+        let lib = "'" + res + "/lib/ostler-loopback-guard.sh'"
+        shell += " ; /bin/bash " + lib + " install-root $(/usr/bin/id -u $ORIG_USER) " + lib
+    }
+    return shell
+}
+
+/// The refusal shown when the shared Homebrew prefix belongs to another account.
+/// Pure so the test target can pin it. Names no account.
+///
+/// nil means proceed: the prefix is absent (a fresh Mac; the admin shell
+/// creates it for the owner) or already owned by the current user.
+internal func sharedHomebrewRefusal(prefixOwnerUID: UInt32?, currentUID: UInt32) -> String? {
+    guard let owner = prefixOwnerUID, owner != currentUID else { return nil }
+    return "Homebrew on this Mac belongs to another account, so Ostler will not change its ownership. " +
+        "Install Ostler from that account, or ask that account's owner to do it."
+}
+
 actor AuthorizationHelper {
     static let shared = AuthorizationHelper()
+
+    /// The refusal the last call returned, for the customer to see. Set only
+    /// when the shared Homebrew check refused; cleared on every new request.
+    private(set) var lastRefusal: String? = nil
+
+    /// Reads the owner of /opt/homebrew, nil when it does not exist. Reads only; never changes ownership.
+    nonisolated static func homebrewPrefixOwnerUID() -> UInt32? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: "/opt/homebrew"),
+              let owner = attrs[.ownerAccountID] as? NSNumber else { return nil }
+        return owner.uint32Value
+    }
 
     private var grantedAt: Date? = nil
     private var inFlight: Bool = false
@@ -148,6 +201,17 @@ actor AuthorizationHelper {
         if inFlight { return false }
         inFlight = true
         defer { inFlight = false }
+
+        // Refuse before the admin prompt when another account owns Homebrew.
+        // The root shell never chowns an existing prefix, so the refusal is
+        // the only answer to that case.
+        lastRefusal = nil
+        if let refusal = sharedHomebrewRefusal(
+            prefixOwnerUID: Self.homebrewPrefixOwnerUID(), currentUID: getuid()) {
+            OstlerLog.lifecycle.error("admin authorization refused: \(refusal, privacy: .public)")
+            lastRefusal = refusal
+            return false
+        }
 
         let prompt = "Ostler needs administrator access. \(reason)"
         // Inner shell. Runs as root via `with administrator privileges`.
@@ -207,15 +271,7 @@ actor AuthorizationHelper {
         // touching the escape contract. Every command is pinned to
         // its absolute path so a hostile PATH on the customer's
         // account cannot shadow `chown` etc with a malicious binary.
-        let innerShell =
-            "/usr/bin/sudo -v ; " +
-            "ORIG_USER=$(/usr/bin/stat -f %Su /dev/console) ; " +
-            "/bin/mkdir -p /opt/homebrew ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /opt/homebrew ; " +
-            "/bin/chmod 755 /opt/homebrew ; " +
-            "/bin/mkdir -p /usr/local/bin ; " +
-            "/usr/sbin/chown $ORIG_USER:admin /usr/local/bin ; " +
-            "/bin/chmod 755 /usr/local/bin"
+        let innerShell = buildAdminInnerShell(resourcePath: Bundle.main.resourcePath)
 
         let script = buildAuthorizationAppleScript(innerShell: innerShell, prompt: prompt)
 
@@ -278,23 +334,18 @@ actor AuthorizationHelper {
     }
 
     /// CX-87: probe whether THIS app bundle currently holds Full Disk
-    /// Access. The user-domain TCC database is readable only with FDA,
-    /// so a successful read of one byte is a reliable positive signal.
-    /// Used by the front-loaded FDA gate so the quit-and-reopen happens
-    /// before any questions, not mid-install.
+    /// Access. Several protected reads are tried and any success counts;
+    /// the user TCC.db alone is not enough, it does not exist on macOS 27.
+    /// See FullDiskAccessProbe.swift. Used by the front-loaded FDA gate so
+    /// the quit-and-reopen happens before any questions, not mid-install.
+    nonisolated func fullDiskAccessReport(
+        home: String = NSHomeDirectory(),
+        access: FDAFileAccess = SystemFDAFileAccess()
+    ) -> FDAProbeReport {
+        FullDiskAccessProbe.run(home: home, access: access)
+    }
+
     nonisolated func hasFullDiskAccess() -> Bool {
-        let tccPath = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
-        guard FileManager.default.fileExists(atPath: tccPath),
-              let handle = FileHandle(forReadingAtPath: tccPath) else {
-            return false
-        }
-        defer { try? handle.close() }
-        // TCC denies the actual read (not just the open) without FDA.
-        if #available(macOS 10.15.4, *) {
-            return (try? handle.read(upToCount: 1)) != nil
-        } else {
-            return !handle.readData(ofLength: 1).isEmpty
-        }
+        fullDiskAccessReport().granted
     }
 }

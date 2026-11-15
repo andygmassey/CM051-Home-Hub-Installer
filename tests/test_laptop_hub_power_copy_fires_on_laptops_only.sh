@@ -162,7 +162,7 @@ RECAP_BLOCK="$(awk '
 for pair in "PHASE1_BLOCK:HAS_BATTERY" "RECAP_BLOCK:Hub deployment"; do
     name="${pair%%:*}"; probe="${pair#*:}"
     body="${!name}"
-    if [ -z "$body" ] || ! printf '%s' "$body" | grep -qF "$probe"; then
+    if [ -z "$body" ] || ! grep -qF "$probe" <<< "$body"; then
         echo "test_laptop_hub_power_copy: CANNOT RUN -- failed to extract $name" >&2
         echo "  from install.sh (looked for \"$probe\"). An empty extract renders" >&2
         echo "  nothing and compares clean, which is the false green this file" >&2
@@ -265,7 +265,7 @@ for k in "${PHASE1_KEYS[@]}" "${RECAP_KEYS[@]}"; do
 done
 
 # Denominator. Nothing rendered would satisfy every absence check above.
-if printf '%s' "$OUT_DESKTOP" | grep -qF "Mac Mini / Studio Hub"; then
+if grep -qF "Mac Mini / Studio Hub" <<< "$OUT_DESKTOP"; then
     pass "desktop run produced the desktop copy (absence checks had something to look at)"
 else
     fail "desktop run produced no desktop copy -- the absence checks above passed over an empty render"
@@ -337,7 +337,7 @@ if [ "$red_leaks" -gt 0 ]; then
 else
     pass "negative control: with the lines stripped, a laptop is told none of it (the predicate does fire)"
 fi
-if ! printf '%s' "$RED_OUT" | grep -qF "Now drawing"; then
+if ! grep -qF "Now drawing" <<< "$RED_OUT"; then
     :
 fi
 if [ -z "$RED_OUT" ]; then

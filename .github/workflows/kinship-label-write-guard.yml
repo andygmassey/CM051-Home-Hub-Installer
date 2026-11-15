@@ -17,6 +17,8 @@ on:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_kinship_label_write_guard_vendored.py'
+      - 'contact_syncer/instagram_social.py'
+      - 'contact_syncer/tests/test_instagram_handle_is_not_a_name.py'
       - '.github/workflows/kinship-label-write-guard.yml'
   pull_request:
     paths:
@@ -29,6 +31,8 @@ on:
       - 'vendor/cm041/contact_syncer/syncer.py'
       - 'vendor/cm041/identity_resolver/resolver.py'
       - 'tests/test_kinship_label_write_guard_vendored.py'
+      - 'contact_syncer/instagram_social.py'
+      - 'contact_syncer/tests/test_instagram_handle_is_not_a_name.py'
       - '.github/workflows/kinship-label-write-guard.yml'
 
 concurrency:
@@ -78,3 +82,6 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_kinship_label_write_guard_vendored.py -v
+      - name: A bare Instagram handle stays @handle, never a person's name (S9), both shipped copies
+        if: always()
+        run: python -m pytest contact_syncer/tests/test_instagram_handle_is_not_a_name.py -v

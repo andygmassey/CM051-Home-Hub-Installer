@@ -39,18 +39,18 @@ if [[ -z "$PREWARM_BLOCK" ]]; then
     fail "could not locate the early FDA_PREWARM block"
 else
     # 1. Safari stays.
-    if printf '%s\n' "$PREWARM_BLOCK" | grep -q 'Library/Safari/History.db'; then
+    if grep -q 'Library/Safari/History.db' <<< "$PREWARM_BLOCK"; then
         pass "early prewarm keeps the silent Safari History.db read"
     else
         fail "early prewarm no longer reads Safari History.db (registration lost)"
     fi
     # 2 + 3. Messages + Mail must NOT be prewarmed early (they pop a dialog).
-    if printf '%s\n' "$PREWARM_BLOCK" | grep -q 'Library/Messages/chat.db'; then
+    if grep -q 'Library/Messages/chat.db' <<< "$PREWARM_BLOCK"; then
         fail "early prewarm reads Messages chat.db -- fires the 'read your messages' TCC dialog 30s too early"
     else
         pass "early prewarm does NOT read Messages chat.db"
     fi
-    if printf '%s\n' "$PREWARM_BLOCK" | grep -qi 'Mail/.*Envelope Index'; then
+    if grep -qi 'Mail/.*Envelope Index' <<< "$PREWARM_BLOCK"; then
         fail "early prewarm reads the Mail Envelope Index -- fires a Mail TCC dialog early"
     else
         pass "early prewarm does NOT read the Mail Envelope Index"
@@ -61,7 +61,7 @@ fi
 #    fires there, with the assist + pane refresh). Look in the
 #    FDA_PROBE_PATHS array downstream.
 PROBE_BLOCK="$(awk '/FDA_PROBE_PATHS=\(/{f=1} f{print} f && /^[[:space:]]*\)[[:space:]]*$/{exit}' "$INSTALL_SH")"
-if printf '%s\n' "$PROBE_BLOCK" | grep -q 'Library/Messages/chat.db'; then
+if grep -q 'Library/Messages/chat.db' <<< "$PROBE_BLOCK"; then
     pass "in-context FDA probe still reads chat.db (messages prompt fires in-context)"
 else
     fail "in-context FDA probe no longer reads chat.db -- the messages prompt + registration would be lost"

@@ -81,3 +81,20 @@ class TestNormaliseChatIdentifier:
     def test_empty_raw_returns_empty(self):
         assert _normalise_chat_identifier("whatsapp", "") == ""
         assert _normalise_chat_identifier("whatsapp", None) == ""
+
+
+class TestLidSuffixIsNeverAPhone:
+    """CM048 #101: the ``@lid`` suffix alone marks an opaque linked id, even
+    when its digits happen to be a phone-valid number. Before, only the
+    digits were checked, so a phone-valid local part plus ``@lid`` came back
+    as "+<digits>"."""
+
+    def test_at_lid_suffix_with_phone_valid_digits_is_not_a_phone(self):
+        raw = _NANP_RESERVED + "@lid"
+        assert _normalise_chat_identifier("whatsapp", raw) == raw
+
+    def test_same_digits_via_the_phone_suffix_still_normalise(self):
+        assert (
+            _normalise_chat_identifier("whatsapp", _NANP_RESERVED + "@s.whatsapp.net")
+            == "+" + _NANP_RESERVED
+        )

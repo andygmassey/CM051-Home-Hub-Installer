@@ -129,3 +129,48 @@ Tree `email_source`, `vendor/email_source/pipeline.py`: new `_widen_first_window
 ### What a future sync must preserve
 
 `_widen_first_window` and its call. Guarded by `tests/test_first_window_end_to_end.py` (wired in `.github/workflows/catchup-machinery.yml`). Retire by landing the change upstream and re-pinning.
+
+## A chat.db schema mismatch fails LOUD, never returns [] (walk #30, owner-knowledge 0/80) -- `imessage_source`
+
+Tree `imessage_source`, `vendor/imessage_source/reader.py`: new `ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS` and `_raise_if_schema_mismatch()`. Both `extract_conversations` and `extract_messages` now call the helper in their `except sqlite3.OperationalError` arm: a schema-shaped error (`no such column` / `no such table` and siblings) is re-raised as `ChatDbSchemaError` instead of being logged and returned as `[]`; any other OperationalError (a transient lock while Messages writes) keeps the pre-existing degrade-to-empty. The same graft lands on the `ostler_fda` tree (`vendor/ostler_fda/imessage.py`), recorded in `WRITER_READER_MISMATCHES.UNRECORDED.md`; the two readers are kept in step.
+
+### Why
+
+Walk #30 (v1.0.108) ingested 0 of 1075 iMessages and the owner-knowledge harness scored 0 of 80. The synthetic chat.db lacked `account_login`, which both readers SELECT; sqlite raised `no such column: c.account_login`, the readers logged it and returned `[]`, and a zero-message read is indistinguishable at the consumer (`ostler_fda.extract_all`, `imessage_source.pipeline.write_reply_debt_snapshot`) from "you have not messaged anyone". Every source still reported ok. On a real macOS schema drift this would silently zero a real user's message history with nothing going red. Raising makes the consumer record the source as `error` (Doctor-visible); a benign empty store raises nothing and still returns `[]`.
+
+### What a future sync must preserve
+
+`ChatDbSchemaError`, `_SCHEMA_ERROR_MARKERS`, `_raise_if_schema_mismatch` and the two call sites. Guarded by `tests/test_reader_schema_mismatch_fails_loud.py`. Retire by landing the change upstream (andygmassey/conversation-memory, services/imessage_source) and re-pinning.
+
+Recorded in `imessage_source.patch` (its `reader.py` section), spliced the same way as the `ostler_fda` twin: since CM051 #2969 that patch, not this file, is the tree's record.
+
+## 2026-11-05: the WhatsApp feed writes the reply-debt snapshot (tree whatsapp_source)
+
+Tree `whatsapp_source`, file `pipeline.py`. New `reply_debt_snapshot_path`,
+`build_reply_debt_snapshot`, `write_reply_debt_snapshot`; `process_whatsapp` writes the
+snapshot FIRST (a new `snapshot_path` argument; beside `state_path` when that is
+moved). Per in-tier chat: an opaque chat id, group flag, the DM partner's JID, the
+last message's author JID, text (500 chars), time, direction, whether the owner wrote
+in the recent tail, and the operator's labels. Never a push name or group subject.
+An unreadable store is `status: unreadable`, never an empty list. Read by CM048
+`reply_debt_sources` (cm048_pipeline record, same date). Proof:
+`tests/test_reply_debt_whatsapp_email.py`. Owed upstream: HR015 whatsapp_source.
+Regeneration not used: the dry run would also record unrelated drift (catchup.py).
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), whatsapp_source
+
+Not in any patch: `whatsapp_source` has `divergence_patch` pointing at `whatsapp_source.patch`, which #3429 does not change. Each edit is one line of path text, `~/Documents/Ostler` becoming `~/Ostler`:
+
+- `INSTALL_HANDOFF_SPEC.md`, `__init__.py`, `pipeline.py`.
+- `bin/whatsapp-bundle-tick.sh`.
+- `launchd/com.creativemachines.ostler.whatsapp-bundle.plist`.
+
+Upstream: NO PR. The pin `af4ae658` is not reachable from HR015's `main`, so the same archive problem as email_source applies. Not done here.
+
+## 2026-11-14: live WhatsApp index written after each successful bundle
+
+Edited in `vendor/whatsapp_source/pipeline.py`: `_record_live_index` is called
+after `_dispatch_to_cm048` returns 0 and not in dry run. It writes the chat's
+message keys (hashes only) to `whatsapp_live_message_keys.json` in the state dir,
+so the export supplement can dedupe against them. A write failure is reported on
+stderr. Re-vendor must keep this hook. Proof: `tests/test_whatsapp_export_dedupe.py`.

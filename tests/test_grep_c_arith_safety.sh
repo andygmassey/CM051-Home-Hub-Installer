@@ -109,7 +109,7 @@ for marker in 'DOCTOR_ERRORS=' 'TOTAL_STEPS='; do
     line="$(grep -nE "^[[:space:]]*${marker}\"?\\\$\(" "$INSTALL_SH" | head -1 || true)"
     if [[ -z "$line" ]]; then
         bad "could not find the ${marker} assignment -- renamed? re-point this test"
-    elif printf '%s' "$line" | grep -q '|| *echo'; then
+    elif grep -q '|| *echo' <<< "$line"; then
         bad "${marker} assignment still uses '|| echo'"
     else
         ok "${marker} assignment is free of the broken fallback"

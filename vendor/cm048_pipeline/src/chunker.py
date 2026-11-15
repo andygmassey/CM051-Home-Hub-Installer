@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterator
 
+from .language import scale_char_budget
+
 
 @dataclass
 class Chunk:
@@ -27,8 +29,18 @@ class Chunk:
     char_end: int
 
 
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-_SPEAKER_LINE = re.compile(r"^\s*(?:\*\*)?\[?[A-Z][^:\n]{0,40}\]?(?:\*\*)?\s*:\s", re.MULTILINE)
+# CJK sentence enders (U+3002, U+FF01, U+FF1F) are not followed by a
+# space, so they need their own zero-width alternative or a Japanese /
+# Chinese transcript has no sentence boundary to overlap on.
+_SENTENCE_END = re.compile("(?<=[.!?])\\s+|(?<=[\u3002\uff01\uff1f])\\s*")
+# A speaker label starts with any letter that is not a lower-case ASCII
+# one: that admits "Élodie:", "Müller:", "田中:" and "Иван:" as well as
+# "Alice:". The old ``[A-Z]`` start meant a non-Latin speaker never
+# registered as a turn boundary. Full-width colon (U+FF1A) is accepted.
+_SPEAKER_LINE = re.compile(
+    r"^\s*(?:\*\*)?\[?[^\W\d_a-z][^:\uff1a\n]{0,40}\]?(?:\*\*)?\s*(?::\s|\uff1a\s*)",
+    re.MULTILINE,
+)
 
 
 def chunk_transcript(
@@ -42,6 +54,9 @@ def chunk_transcript(
     If the transcript fits in one chunk, returns a single Chunk.
     """
     transcript = transcript.strip()
+    # The budget is calibrated for English (~4 chars/token). Scale it down
+    # for CJK / other dense scripts so a chunk still fits the context.
+    max_chars_per_chunk = scale_char_budget(transcript, max_chars_per_chunk)
     if len(transcript) <= max_chars_per_chunk:
         return [
             Chunk(

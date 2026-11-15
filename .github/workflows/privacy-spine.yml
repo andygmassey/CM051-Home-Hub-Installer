@@ -53,7 +53,7 @@ jobs:
       - name: Install python deps for the vendored-module tests
         # ostler_fda pwg_ingest (httpx/nameparser), cm041 identity_resolver
         # (rapidfuzz/httpx/phonenumbers), cm052 wire (pyyaml/httpx).
-        run: python3 -m pip install --quiet httpx nameparser rapidfuzz phonenumbers pyyaml
+        run: python3 -m pip install --quiet httpx "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
 
       # Each test is an INDIVIDUAL step with the path and an execution verb on
       # one line. NOT entries in a `for t in ...` loop: verify_new_tests_are_wired.sh
@@ -124,6 +124,13 @@ jobs:
         run: |
           python3 -m pip install --quiet beautifulsoup4
           python3 tests/test_automated_senders_are_not_people.py
+
+      # Andy #30 console walk: a notification SUBJECT ("~~\"Unusual sign-in
+      # on your iCloud.") and gibberish strings became People. Exercises the
+      # shipped vendor/cm021/src/cli.py name-validity predicate.
+      - name: Notification subjects and gibberish strings do not become people
+        if: always()
+        run: python3 tests/test_junk_names_are_not_people.py
 
       - name: AI conversations are private by default in BOTH pinning places
         if: always()

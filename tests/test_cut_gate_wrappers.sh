@@ -132,8 +132,8 @@ while [ "$i" -lt "${#TARGETS[@]}" ]; do
     for rc in 2 3; do
         run_target "$target" "$var" "$(mk_stub "$rc")"
         if [ "$RC" -ne 0 ] && [ "$RECIPE_RC" -eq "$rc" ] \
-           && printf '%s' "$OUT" | grep -q "COULD NOT RUN" \
-           && ! printf '%s' "$OUT" | grep -qF "$defect"; then
+           && grep -q "COULD NOT RUN" <<< "$OUT" \
+           && ! grep -qF "$defect" <<< "$OUT"; then
             ok "$target: script exit $rc -> CANNOT RUN, aborts with $rc, no defect named"
         else
             bad "$target: script exit $rc -> recipe_rc=$RECIPE_RC make_rc=$RC (expected recipe $rc + CANNOT RUN + no defect text)"
@@ -144,8 +144,8 @@ while [ "$i" -lt "${#TARGETS[@]}" ]; do
     # --- rc=1: the gate found the thing it looks for ----------------------
     run_target "$target" "$var" "$(mk_stub 1)"
     if [ "$RC" -ne 0 ] && [ "$RECIPE_RC" -eq 1 ] \
-       && printf '%s' "$OUT" | grep -qF "$defect" \
-       && ! printf '%s' "$OUT" | grep -q "COULD NOT RUN"; then
+       && grep -qF "$defect" <<< "$OUT" \
+       && ! grep -q "COULD NOT RUN" <<< "$OUT"; then
         ok "$target: script exit 1 -> names the defect, aborts with 1, no CANNOT RUN"
     else
         bad "$target: script exit 1 -> recipe_rc=$RECIPE_RC make_rc=$RC (expected recipe 1 + defect text + no CANNOT RUN)"
@@ -176,7 +176,7 @@ for pair in "verify_cut_provenance.sh:CUT_MARKER_MANIFEST" \
     script="${pair%%:*}"; envvar="${pair##*:}"
     OUT="$(env "$envvar=$WORK/definitely-not-here.tsv" \
            bash "$REPO_ROOT/scripts/$script" 2>&1)"; RC=$?
-    if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "CANNOT RUN"; then
+    if [ "$RC" -eq 2 ] && grep -q "CANNOT RUN" <<< "$OUT"; then
         ok "$script: missing input -> exit 2 CANNOT RUN (not a defect claim)"
     else
         bad "$script: missing input -> rc=$RC (expected 2 + CANNOT RUN)"

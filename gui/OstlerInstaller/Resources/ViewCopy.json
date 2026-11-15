@@ -3,6 +3,19 @@
     "note": "Customer-facing strings for the SwiftUI installer GUI. Lifted from inline Text()/Button()/Label() literals per Rule 0.9 (strings extractable from day one). v1.0 ships English-only; v1.2 translation drops a parallel ViewCopy.{lang}.json next to this file. Interpolation uses Python-style {name} placeholders; the ViewCopy loader's string(for:fills:) helper substitutes them at render time. Do NOT add em-dashes – use ASCII '--' or en-dash with spaces."
   },
 
+  "system_requirements": {
+    "_meta": "F006 (2026-10-24): first screen on a Mac below the hardware floor (16 GB memory, Apple Silicon, macOS 14; the same floors install.sh enforces). Shown before Full Disk Access, permissions, licence, device registration, admin and the Command Line Tools download, so nothing has been installed or changed. Only the lines for the floors this Mac misses are shown.",
+    "heading": "Ostler can't run on this Mac",
+    "body": "Ostler needs a Mac with Apple Silicon and at least {min_gb} GB of memory, running macOS {min_macos} or later.",
+    "memory_line": "This Mac has {gb} GB of memory.",
+    "chip_line": "This Mac has an Intel processor.",
+    "macos_line": "This Mac is running macOS {version}.",
+    "nothing_changed": "Nothing has been installed or changed.",
+    "requirements_link": "See the system requirements",
+    "requirements_url": "https://ostler.ai/faq#requirements",
+    "quit_button": "Quit"
+  },
+
   "device_registration_error": {
     "heading": "We could not register this Mac",
     "quit_button": "Quit installer"
@@ -89,6 +102,7 @@
 
   "footer": {
     "cancel_button": "Cancel",
+    "finish_pair_later_button": "Finish and pair later",
     "reveal_in_finder_button": "Reveal in Finder",
     "done_button": "Done",
     "quit_button": "Quit",
@@ -159,11 +173,17 @@
     "step_2": "Switch on OstlerInstaller in the list.",
     "step_3": "macOS will ask you to quit. Quit and reopen, and setup carries on automatically.",
     "open_settings_button": "Open System Settings",
-    "recheck_button": "I've switched it on, continue"
+    "recheck_button": "I've switched it on, continue",
+    "unconfirmed_note": "Ostler could not confirm Full Disk Access. You can continue; Messages, Mail and Safari history will import once access is on.",
+    "continue_anyway_button": "Continue anyway",
+    "quit_reopen_button": "Quit and reopen"
   },
 
   "log_drawer": {
-    "header_label": "LOG"
+    "header_label": "LOG",
+    "copy_log": "Copy log",
+    "copied": "Copied",
+    "copy_help": "Copy the whole log buffer to the clipboard"
   },
 
   "onboarding_question": {
@@ -182,12 +202,12 @@
     "yes_label_per_prompt": {
       "reuse_settings": "Use my previous answers",
       "calendar_review": "Yes, these look right",
-      "calendar_set_aside_include": "Use it for my brief"
+      "calendar_set_aside_include": "Include in my brief"
     },
     "no_label_per_prompt": {
       "reuse_settings": "Start over from the first question",
       "calendar_review": "Let me change something",
-      "calendar_set_aside_include": "Keep it set aside"
+      "calendar_set_aside_include": "Include in my brief"
     },
     "secret_review_placeholder": "(hidden)",
     "error_empty_text": "Please enter a value to continue.",
@@ -221,6 +241,10 @@
     "folder_picker_no_selection_placeholder": "(no folder selected – will skip)",
     "consent_install_primary": "Install Ostler",
     "consent_install_cancel": "Cancel",
+    "consent_install_cancel_confirm_title": "Stop the install?",
+    "consent_install_cancel_confirm_body": "Nothing has been installed yet. You can run the installer again whenever you are ready.",
+    "consent_install_cancel_confirm_stop": "Stop install",
+    "consent_install_cancel_confirm_keep": "Keep going",
     "consent_install_terms_link_label": "terms",
     "consent_install_terms_url": "https://ostler.ai/terms",
     "_meta_consent_install_body": "CX-18 (Studio retest #13, 2026-05-23): Q20 body was duplicating the headline ('Ready to install?' / 'Ready to install. By clicking...') AND rendered the type-INSTALL action as plain body copy AND rendered 'terms' as plain text. Split into five runs so the SwiftUI view can render INSTALL bold + terms as an underlined link, with no headline repetition. consentInstallBody() in OnboardingQuestionView.swift composes prefix + bold(install_token) + middle + link(terms_link_label) + suffix.",
@@ -230,6 +254,7 @@
     "consent_install_body_suffix": ".",
     "consent_install_typed_placeholder": "Type INSTALL",
     "consent_install_typed_mismatch": "Type INSTALL exactly (case does not matter) to confirm, or click Cancel to go back.",
+    "yesno_switch_on_to_continue": "Turn this on to continue. To stop, use Quit.",
     "preinstall_status_caption": "STATUS"
   },
 
@@ -250,14 +275,17 @@
 
   "hint_panel": {
     "_meta": "Main content area copy. CX-14 D5 (2026-05-23): watchdog overlay shown when subprocess silence >= 15s without finishing -- pre-fix the watchdog only logged into the hidden-by-default LogDrawer so a wedged install looked identical to a slow one.",
-    "watchdog_still_going": "Still going, please wait..."
+    "watchdog_still_going": "Still going, please wait...",
+    "clt_waiting": "Waiting for Apple's developer tools. Click Install in the macOS dialog when it appears.",
+    "clt_waiting_timeout": "Still waiting for Apple's developer tools. Click Install developer tools if you don't see the dialog.",
+    "clt_install_button": "Install developer tools"
   },
 
   "passkey_ack": {
     "_meta": "Q12 (passkey-ack) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (DEFIB_2026-05-22_late_afternoon_passkey_fallback.md): Studio retests #10 + #11 confirmed Apple's framework excludes Apple Watch as user verification for Secure-Enclave-backed passkeys. Mac Studio (no Touch ID) literally cannot register an ASAuthorizationPlatformPublicKeyCredentialProvider passkey regardless of Watch state. v1.0 ships passphrase-primary: customer's typed passphrase IS the primary unlock, works on every Mac. Passkey convenience returns in v1.0.1 as a Touch-ID-only layer. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready.",
-    "help_optic_id": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready.",
-    "help_password_or_watch": "Ostler's sensitive databases are encrypted with SQLCipher using a passphrase you choose on the next screen. You will type this passphrase each time you start the Hub UI. A separate recovery key is also generated and shown once at the end of the install. For full at-rest protection of everything on your Mac, keep macOS FileVault turned on. Press Continue when you're ready."
+    "help_touch_id": "Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready.",
+    "help_optic_id": "Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready.",
+    "help_password_or_watch": "Ostler uses a passphrase you choose on the next screen to set up the key for some of its internal records. A separate recovery key is also generated and shown once at the end of the install. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption. Press Continue when you're ready."
   },
 
   "consent_third_party": {
@@ -267,26 +295,35 @@
   },
 
   "consent_article_9": {
-    "_meta": "EU/UK Article-9 special-category consent (install.sh region==eu branch, gui_read id=consent_article_9). Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary, so before this entry the GUI rendered just that line while the full special-category disclosure was echoed to stdout and filtered out of the window -- a compliance gap. The SwiftUI view now overrides the default help-text render exactly like consent_third_party: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Wording mirrors legal/consent_strings.py (ARTICLE_9_EU_CONSENT, v1.1-2026-07-15) reflowed for the GUI medium: the TTY-only 'Your decision' [Y]/[N] block and the 'click Read the Privacy Policy below' button reference are omitted because the GUI carries a yes/no toggle + Continue instead. The ostler.ai/privacy reference stays plain text (linkifyHelpText only auto-links https:// and docs.ostler.ai/... substrings).",
-    "intro_body": "One last thing – what Ostler will look at on your Mac\n\nOstler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.\n\nWhere the data lives. Everything Ostler reads stays on this Mac, in encrypted folders only you can unlock. We never get a copy. There is no \"cloud\" version of your data.\n\nWhat's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as \"special category\" data:\n\n- Health information that you mention in emails, messages, calendar entries or transcribed conversations\n- Religious or philosophical beliefs mentioned in any of the above\n- Sexual orientation mentioned in any of the above\n- Trade union membership\n- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iPhone Companion app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)\n- Mentions of criminal offences – your own or other people's – in any of the above\n\nWe do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.\n\nThe categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services).\n\nYou can change your mind any time. You can:\n\n- turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source\n- delete everything Ostler has stored using \"Reset Ostler\" in the menu\n- completely uninstall Ostler using the uninstaller at ~/Documents/Ostler/Uninstall Ostler.app\n\nWithdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.",
+    "_meta": "EU/UK Article-9 special-category consent (install.sh region==eu branch, gui_read id=consent_article_9). Bash-side MSG_PROMPT_CONSENT_ARTICLE_9_HELP is only a one-line summary, so before this entry the GUI rendered just that line while the full special-category disclosure was echoed to stdout and filtered out of the window -- a compliance gap. The SwiftUI view now overrides the default help-text render exactly like consent_third_party: a primary intro_body in standard body copy + a subordinated legal_note in smaller italic with reduced contrast. Wording mirrors legal/consent_strings.py (ARTICLE_9_EU_CONSENT, v1.2-2026-11-05) reflowed for the GUI medium: the TTY-only 'Your decision' [Y]/[N] block and the 'click Read the Privacy Policy below' button reference are omitted because the GUI carries a yes/no toggle + Continue instead. The ostler.ai/privacy reference stays plain text (linkifyHelpText only auto-links https:// and docs.ostler.ai/... substrings).",
+    "intro_body": "One last thing – what Ostler will look at on your Mac\n\nOstler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.\n\nWhere the data lives. Everything Ostler reads stays on this Mac. Your Ostler data is protected by FileVault, Apple's full-disk encryption. We never get a copy. There is no \"cloud\" version of your data.\n\nWhat's in scope. Depending on which connectors you turn on, Ostler may process the following kinds of information that the law treats as \"special category\" data:\n\n- Health information that you mention in emails, messages, calendar entries or transcribed conversations\n- Religious or philosophical beliefs mentioned in any of the above\n- Sexual orientation mentioned in any of the above\n- Trade union membership\n- Voice - labelling *who* is speaking on calls (speaker identification). This is done only by the optional Ostler iOS app, on your iPhone, under a separate consent screen in that app - not on this Mac. This Mac never receives voice captures or voice fingerprints. (We do not infer mood, emotion, sentiment, stress or deception from voice.)\n- Mentions of criminal offences – your own or other people's – in any of the above\n\nWe do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.\n\nThe categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: software update checks and a handful of public metadata services).\n\nYou can change your mind any time. You can:\n\n- turn individual connectors (email, calendar, WhatsApp, etc.) off in Settings, which stops Ostler reading that source\n- delete everything Ostler has stored using \"Reset Ostler\" in the menu\n- completely uninstall Ostler using the uninstaller at ~/Ostler/Uninstall Ostler.app\n\nWithdrawing consent stops processing from that point forward. It does not undo work Ostler already did with your earlier consent.",
     "legal_note": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
   },
 
   "consent_spoken_capture": {
-    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline.",
-    "intro_body": "Ostler can turn spoken audio you capture – calls and meetings – into searchable text. Typing and messaging are unaffected. Getting any consent the law requires is your responsibility, not ours.",
+    "_meta": "BW3-8 (box-walk-v4, 2026-07-24): the spoken-audio recording-consent screen (gui_read id=consent_spoken_capture) had NO dedicated SwiftUI renderer, so the whole MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP blob -- intro + a 'What we ask of you' bullet list + the 'Legal note:' fine-print -- fell through to the generic single-Text() help path and rendered as one 14pt run with the bullets and the legal note mashed into the same paragraph flow, no block separation, no subordinated legal styling. This split copy powers a dedicated consentSpokenCaptureBody() that mirrors consent_third_party / consent_article_9 (primary intro_body + subordinated italic legal_note) but adds a real bulleted 'What we ask of you' list. Bash-side MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP is unchanged so the TTY install path still renders the full text inline. REGION (2026-10-24): the single legal_note is split into legal_prefix + legal_core + legal_local + legal_region_{gb,eu,de,fr,hk,us} + legal_responsibility, composed by LegalRegion.spokenCaptureLegalNote (ViewCopy.swift) from the Mac's REGION (the country part of AppleLocale, never the language), the same rule install.sh uses. Every legal_region_* line is a best-effort draft, not legal advice, and needs local professional sign-off. Consent / legal keys: translations need human legal review; English prevails. Every value except legal_local equals its MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_* twin (tests/test_spoken_capture_legal_note_follows_region.sh).",
+    "intro_body": "Ostler can turn calls and meetings you capture into searchable text, here on your Mac.",
     "ask_heading": "What we ask of you:",
-    "bullet_1": "Obtain whatever consent your local law requires before you capture a spoken conversation.",
-    "bullet_2": "Make it clear to the people you are with that audio is being captured – say so, or keep a visible indicator on.",
+    "bullet_1": "Get any consent your local law requires before you capture a conversation.",
+    "bullet_2": "Tell people audio is being captured, or keep a visible indicator on.",
     "bullet_3": "If in doubt, leave this off. You can turn it on later in Settings.",
-    "legal_note": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Keeping the captured audio on your own Mac does not remove this duty – Ostler never sends it anywhere, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+    "legal_prefix": "Legal note:",
+    "legal_core": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere.",
+    "legal_local": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac.",
+    "legal_region_gb": "UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_eu": "The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope.",
+    "legal_region_de": "In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes).",
+    "legal_region_fr": "In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code.",
+    "legal_region_hk": "In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful.",
+    "legal_region_us": "In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in.",
+    "legal_responsibility": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
   },
 
   "recovery_passphrase": {
     "_meta": "Q14 (recovery_passphrase) help-copy. v1.0 LAUNCH BLOCKER fix 2026-05-22 (sister to passkey_ack): the typed passphrase is now the SOLE primary unlock factor, not a fallback. All three variants collapsed to the same passphrase wording; modality branching kept for v1.0.1 reintroduction without a schema change.",
-    "help_touch_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
-    "help_optic_id": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended.",
-    "help_password_or_watch": "This passphrase encrypts your knowledge graph and unlocks the Hub UI at each start. At least 12 characters. We cannot recover it for you. Storing it in a password manager is recommended."
+    "help_touch_id": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption.",
+    "help_optic_id": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption.",
+    "help_password_or_watch": "Ostler uses this passphrase to set up the key for some of its internal records. Your Ostler data as a whole is protected by FileVault, Apple's full-disk encryption."
   },
 
   "recovery_key_reveal": {
@@ -386,5 +423,90 @@
     "connect_now_button": "Connect now",
     "no_phone": "WhatsApp is switched on, but Ostler does not have your WhatsApp number, so it cannot make a code here. To connect it, open Terminal and run:",
     "later_command": "~/.ostler/OstlerAssistant.app/Contents/MacOS/ostler-assistant setup channels --interactive whatsapp"
+  },
+  "legal": {
+    "_meta": "owner ruling 2026-10-24: 'localisation with English prevails'. Shown under every legal/consent screen ONLY when this line is itself translated for the installer's language (ViewCopy.englishPrevailsNote). l10n/ostler_l10n.py ships a translation of it, and of any legal key, only once a native reviewer has passed it (l10n/legal_reviews.tsv).",
+    "english_prevails": "This is a translation. If it differs from the English version, the English version prevails."
+  },
+
+  "relocator": {
+    "_meta": "Alerts before the installer's first screen (Bootstrap/SelfRelocator.swift), in the Mac's own language.",
+    "move_title": "Move Ostler Installer to your Applications folder?",
+    "move_body": "Ostler Installer should live in your Applications folder. Would you like to move it now?",
+    "move_button": "Move to Applications",
+    "dont_move_button": "Don't Move",
+    "replace_title": "An older Ostler Installer is already installed.",
+    "replace_body": "Replace it with this copy? The older copy will be moved to the Trash.",
+    "replace_button": "Replace",
+    "cancel_button": "Cancel",
+    "ok_button": "OK",
+    "replace_failed_title": "Could not replace existing Ostler Installer",
+    "move_failed_title": "Could not move Ostler Installer"
+  },
+
+  "uninstaller": {
+    "_meta": "The standalone Ostler Uninstaller app (gui/Uninstaller). Paths and commands stay exactly as written.",
+    "window_title": "Uninstall Ostler",
+    "heading": "Uninstall Ostler",
+    "intro": "This removes the Ostler app, its background services, its Docker data stores, and the Ostler folder in your home directory. Your generated content in ~/Ostler is kept.",
+    "not_found": "The Ostler uninstaller was not found. Ostler may already be uninstalled.",
+    "not_found_at": "The Ostler uninstaller was not found at {path}. Ostler may already be uninstalled.",
+    "remove_colima": "Also delete the shared Docker VM (about 30 GB)",
+    "remove_colima_help": "Only if Ostler was the only thing using Docker on this Mac. This is the shared colima ‘default’ VM and may hold Docker data unrelated to Ostler.",
+    "purge_knowledge": "Also delete my imported knowledge data",
+    "purge_knowledge_help": "Wipes the knowledge-staging cache (imported notes and images). Left in place by default so a reinstall can reuse it.",
+    "cancel": "Cancel",
+    "uninstall_button": "Uninstall Ostler",
+    "running": "Uninstalling…",
+    "working": "Working",
+    "starting": "Starting",
+    "phase_launchagents": "Removing background services",
+    "phase_remotecapture": "Removing RemoteCapture",
+    "phase_hub_app": "Removing the Ostler app",
+    "phase_safari_extension": "Removing the Safari extension",
+    "phase_colima": "Checking the shared Docker VM",
+    "phase_knowledge_staging": "Handling knowledge data",
+    "phase_user_content": "Applying your content choice",
+    "failed_start": "Could not start the uninstaller: {error}",
+    "failed_consent": "The uninstaller could not confirm consent and removed nothing.",
+    "failed_exit": "The uninstaller exited with code {code} before finishing.",
+    "done_failed": "Uninstall did not finish",
+    "done_removed": "Ostler has been removed",
+    "done_stores_kept": "Ostler removed, but your data stores were NOT",
+    "row_stores": "Data stores",
+    "row_colima": "Shared colima VM",
+    "row_knowledge": "Knowledge data",
+    "stores_removed": "removed",
+    "stores_not_removed": "NOT removed. Start Docker and run: cd ~/.ostler && docker compose down -v",
+    "colima_removed": "deleted",
+    "colima_kept": "kept (still on disk)",
+    "colima_absent": "none present",
+    "colima_delete_failed": "delete failed. Remove manually with: colima delete default",
+    "colima_no_binary": "not deleted (colima not found)",
+    "colima_default": "kept",
+    "knowledge_preserved": "kept for a reinstall",
+    "knowledge_purged": "deleted",
+    "knowledge_absent": "none present",
+    "knowledge_preserve_failed": "removed (could not be set aside)",
+    "knowledge_default": "kept",
+    "quit": "Quit"
+  },
+
+  "recovery_app": {
+    "_meta": "The standalone Recover Ostler app (gui/Recovery). A frightened, non-technical reader: plain words.",
+    "window_title": "Recover Ostler",
+    "heading": "Recover Ostler",
+    "intro": "If Ostler has stopped opening your data, you can unlock it yourself with the recovery key you were shown when Ostler was set up. It's a code made of groups of four letters and numbers, like ABCD-EFGH-JKLM-NPQR. Type it in below, exactly as it was shown to you.",
+    "key_placeholder": "Recovery key",
+    "unlock_button": "Unlock my data",
+    "checking": "Checking your recovery key…",
+    "success_title": "You're unlocked",
+    "success_message": "Ostler can open your data again. Quit and reopen the Ostler app to keep going.",
+    "wrong_key_title": "That key wasn't accepted",
+    "wrong_key_message": "The most common reason is a small typo. Check each group of letters and numbers and try again.",
+    "tool_missing_title": "Couldn't check your key",
+    "tool_missing_message": "Ostler's recovery tool couldn't be found on this Mac. If you've just installed Ostler, try again in a minute. If this keeps happening, email {email}.",
+    "done": "Done",
+    "try_again": "Try again"
   }
 }

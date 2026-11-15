@@ -1,0 +1,62 @@
+name: reader-schema-fails-loud
+
+# CM051 walk #30 (v1.0.108 owner-knowledge). Both shipped iMessage readers
+# (vendor/imessage_source/reader.py, vendor/ostler_fda/imessage.py) SELECT
+# c.account_login. The synthetic chat.db lacked it, sqlite raised
+# "no such column: c.account_login", and the readers logged it and returned
+# []. A zero-message read is indistinguishable at the consumer from "you have
+# not messaged anyone", so every source reported ok and the owner-knowledge
+# harness scored 0 of 80 on a BROKEN HARNESS. On a real macOS schema drift the
+# same swallow would silently zero a real user's history with nothing red.
+#
+# This suite proves the OperationalError arm now re-raises a schema-shaped
+# error as ChatDbSchemaError (loud, Doctor-visible via the consumer's recorded
+# status), that a benign EMPTY store still returns [] without raising (no
+# over-raise), and that the real consumer write_reply_debt_snapshot records
+# status "error" where it used to record "ok".
+#
+# macOS runner and Python 3.11: the platform and interpreter the Hub ships.
+# British English. No em dashes.
+
+on:
+  pull_request:
+    paths:
+      - 'vendor/imessage_source/reader.py'
+      - 'vendor/imessage_source/pipeline.py'
+      - 'vendor/ostler_fda/imessage.py'
+      - 'tests/test_reader_schema_mismatch_fails_loud.py'
+      - 'tests/TEST_WIRING.tsv'
+      - '.github/workflows/reader-schema-fails-loud.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  reader-schema:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest and the pipeline runtime dependency
+        run: python -m pip install --quiet pytest pyyaml
+      # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE: a suite that collected
+      # zero tests must not read as green.
+      - name: A chat.db schema mismatch fails loud, a benign empty does not
+        run: |
+          n="$(python -m pytest tests/test_reader_schema_mismatch_fails_loud.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 7 ]; then
+            echo "REFUSING: expected at least 7 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_reader_schema_mismatch_fails_loud.py -v -rs

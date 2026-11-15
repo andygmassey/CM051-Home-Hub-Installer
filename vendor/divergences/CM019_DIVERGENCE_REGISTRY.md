@@ -209,6 +209,94 @@ Oxigraph. UPSTREAM since 4e023299 (personal-world-graph #409); this tree is
 pinned there, so this is no longer a divergence. Detail and proof:
 `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-17 v1.0.108".
 
+### smart-prefs (build after v1.0.108) -- the derive engine is grafted; filters.py does NOT delegate to strength.py
+
+The pin stays at 5622a763, which already carries the preference-derivation engine
+("What you like"). Seventeen files arrive BYTE-IDENTICAL to upstream@5622a763
+(cmp-verified; the same bytes as at 96ff272d): `services/enrich/src/derive/` (11 `.py`, `dimensions.yaml`,
+`readers.yaml`, `contract/derived_preferences_response.example.json`),
+`services/common/strength.py`, `ontology/shacl/derived-preference-shapes.ttl`
+and `ontology/upper/pwg-derived.ttl`. Those are not divergences.
+
+**The divergence this re-pin CREATES**, and it is deliberate: upstream aae370bc
+also rewrote `services/ingest/src/filters.py` so `_calculate_strength` delegates
+to `strength.calculate_strength` via a top-level `from strength import ...`.
+That edit is NOT grafted. On the box nothing puts `services/common` on the
+ingest path's `sys.path`, so the delegation would make
+`services.ingest.src.filters` fail to import and take every preference ingest
+with it. The vendored file keeps its inline copy of the same math, which
+upstream's own golden test (`services/common/tests/test_strength_golden.py`)
+asserts is byte-identical in output. So the two copies agree today and this
+row is the record that they are two copies.
+
+**Also not vendored, on purpose:** `services/enrich/scripts/store_derived_preferences.py`
+(upstream's CLI). Its `--user-id` default is the operator's first name, which
+cannot enter this public repository; the box gets its own runner instead.
+
+**Upstream status:** nothing owed for the engine. For `filters.py`, retire by
+grafting the delegation once the box's ingest entrypoint puts `services/common`
+on `sys.path` (or upstream packages `strength` under `services/ingest`).
+
+### smart-prefs -- the derive registry spans all of life (ahead of the pin; personal-world-graph #422)
+
+`services/enrich/src/derive/{config,engine,model,query,readers}.py`,
+`dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are AHEAD
+of the pin: they carry upstream #422 (open). Not a divergence from intent: the
+same diff, to be re-pinned when #422 merges. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-22 smart-prefs".
+
+### T0j -- smart-prefs at personal-world-graph 5af9f5b5 (the pin since T0j)
+
+`services/enrich/src/derive/**`, `services/common/recency.py`, `services/enrich/src/hierarchy.py`,
+`services/ingest/src/minors.py` and the two derive ontology files are byte-identical to
+upstream@5af9f5b5 except comment-only paraphrases (public names) in `derive/engine.py`,
+`derive/sensitive.py`, `derive/sensitive_terms.yaml`, `derive/patterns.py` and `ingest/src/minors.py`. `enricher.py`,
+`cli.py` (QID pass) and `ingest/src/pipeline.py` (minors stamp) carry upstream hunks grafted
+onto the existing CM051 divergence. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`,
+"2026-10-24 T0j", which also lists the upstream hunks past the old pin that are
+NOT carried (food #432 -> CM051 #3124, representative-first CLI #431 -> CM051 #3120).
+
+### food evidence -- restaurants, cuisines, what you buy (personal-world-graph #432; CM051 #3124)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`
+(`derive/{cuisine_vocab,cuisine_local_model}.py` and `derive/vocab/cuisine.yaml` are on main via T0j).
+Changed: `enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
+### smart-prefs -- stated conversation preferences (ahead of the pin; personal-world-graph #423, stacked on #427)
+
+`derive/stated.py`, `derive/stated_messages.py`, `derive/stated_model.py` and `derive/stated_vocab.yaml` are new, and `derive/{config,engine,model,query,endpoint,consume,writer}.py`, `dimensions.yaml`, `readers.yaml` and `ontology/upper/pwg-derived.ttl` are changed again, byte-identical to #423's head. Cuisines map through the shared `vocab/cuisine.yaml` (#427). Not a divergence from intent: re-pin when #423 merges. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-23 smart-prefs stated".
+
+### food evidence -- restaurants, cuisines, what you buy (ahead of the pin; personal-world-graph food PR on #422)
+
+New: `services/ingest/src/parsers/food_evidence.py`, `services/enrich/src/clients/osm_cuisine.py`,
+`services/enrich/src/derive/{cuisine_vocab,cuisine_local_model}.py`. Changed: `derive/vocab/cuisine.yaml`
+(more spellings and menu words; the ONE shared cuisine table), `derive/{readers,dimensions}.yaml`
+(food.cuisine lexicon rows on `extra.cuisine`/`extra.cuisine_inferred`, new food.item),
+`enricher.py` (route category `food` to the OSM client), `models/enrichment.py` (OSM source),
+`ingest/src/{pipeline,parsers/__init__}.py` (register the parser). Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 food evidence".
+
+### smart-prefs -- trend, say-vs-do contradiction, time-of-day context (wiring only; CM051 #3130)
+
+`derive/patterns.py` and the optional-field edits under `derive/` are on main byte-equal to
+upstream@5af9f5b5 (T0j #3160). This PR carries only the vendor-only `derive_runner.py`,
+which registers the derivers and prints their counts. Detail:
+`cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 patterns wiring".
+
+### food routing -- one `food` key, restaurant points only to OSM (CM051 #3130)
+
+`enricher.py`: `CATEGORY_CLIENTS` keeps the single `"food": "wikidata"` key; a food point with
+`extra.restaurant` and no `extra.cuisine` routes to `osm_cuisine`, any other falls through to
+wikidata as on main. Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-28 food routing".
+
+**Upstream status:** not ported. Owed upstream (personal-world-graph #432, CM019): the PR's second
+`"food"` key and its None return for a non-restaurant point lose the Wikidata enrichment.
+### smart-prefs -- representative-first CLI wiring (personal-world-graph #431; CM051 #3120)
+
+`services/enrich/src/cli.py` gains `--representative-first/--no-representative-first`
+(default on) and runs `derive/representatives.py` (on main since T0j, equal to
+upstream@5af9f5b5) before the long tail, with the same `deadline=` as the sweep.
+Detail: `cm019_preferences_usage_journal.UNRECORDED.md`, "2026-10-25 representative-first CLI".
+
 ## How to add a row
 
 When you change anything under `vendor/cm019_preferences`, add a row here in
@@ -221,3 +309,22 @@ Flipping `verify = "skip"` to `verify = "full"` with a real
 `divergence_patch`, which the manifest ack says needs the CM019 owner and a
 reconciliation of the full shared-file delta. Until then this registry is the
 only record that exists.
+
+## 2026-10-21: Facebook watched rows emit `facebook_watched` (personal-world-graph #419, 5d1cdf13)
+
+Tree `cm019_preferences`. Pin HELD at 7fd66daf; 5d1cdf13 added to `hold_ack_shas` (grafted, pin held).
+
+- `services/ingest/src/parsers/meta.py`: the single upstream hunk (the movie_tv Like rows from Facebook watched history use `source="facebook_watched"`), applied by exact replacement because the vendored file carries earlier CM051 grafts. Measured: the changed lines equal upstream's for this file. The upstream test file is not in the vendored set.
+- Why not re-pin: main is 10 commits past the pin, nine of them the smart-prefs derive engine this row holds.
+- Paired in the same CM051 change: the data_conservation `expected.json` movie_tv row moves from `facebook` to `facebook_watched`, and cm059_editor is re-pinned to 5f3e94ce (#36), which pins `facebook_watched` as observed and local-only.
+- Retire: a re-pin past 5d1cdf13 once the smart-prefs hold is lifted.
+
+## 2026-10-23: per-item privacy gate on online enrichment (personal-world-graph fix/enrich-privacy-gate)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. `privacy_gate.py` byte-identical; `enricher.py` changed lines equal upstream's; `derive/readers.py` SCROLL_FIELDS not carried (the vendored derive tree predates it and drives no online lookup). Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
+
+## 2026-10-23: an explicit L0 survives ingest (personal-world-graph fix/ingest-explicit-l0-survives)
+
+Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
+- Retire: re-pin past the upstream merge commit.
