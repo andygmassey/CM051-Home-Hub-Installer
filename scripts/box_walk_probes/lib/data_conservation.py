@@ -796,9 +796,19 @@ def collect_people_graph(facts, meta, hdr):
     n = _sparql("SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <%sPerson> ; <%sdisplayName> ?dn }" % (P_NS, P_NS), hdr)
     if n:
         facts["g.person.named"] = int(n[0]["n"]["value"])
-    t = _sparql("SELECT (COUNT(*) AS ?n) WHERE { ?s <%smergedInto> ?t . ?t a <%sPerson> }" % (P_NS, P_NS), hdr)
+    # (e) IN = DISTINCT live identities: named Persons that are NOT merged away.
+    # Overlapping hydrate sources are not summed; a merged-away node is one identity, not two.
+    i = _sparql("SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <%sPerson> ; <%sdisplayName> ?dn . "
+                "FILTER NOT EXISTS { ?p <%smergedInto> ?t } }" % (P_NS, P_NS, P_NS), hdr)
+    if i:
+        facts["g.person.identities"] = int(i[0]["n"]["value"])
+    t = _sparql("SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <%smergedInto> ?t . ?t a <%sPerson> }" % (P_NS, P_NS), hdr)
     if t:
         facts["g.mergedinto.person_targets"] = int(t[0]["n"]["value"])
+    # The non-Person targets (measured: all pwg:RetiredPerson), declared apart by the product.
+    u = _sparql("SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <%smergedInto> ?t . FILTER NOT EXISTS { ?t a <%sPerson> } }" % (P_NS, P_NS), hdr)
+    if u:
+        facts["g.mergedinto.non_person_targets"] = int(u[0]["n"]["value"])
 
 
 def _qdrant_points(coll, hdr):
@@ -1015,12 +1025,14 @@ def _people_selftest(fails):
     shipped = json.load(open(os.path.join(here, "..", "fixtures", "data_conservation", "expected.json"),
                              encoding="utf-8"))
     rows = [r for r in shipped["profiles"]["chain"]["rows"] if str(r.get("id", "")).startswith("people/")]
-    if sorted(r["id"] for r in rows) != ["people/declared-merges", "people/identities", "people/shown", "people/vectors"]:
+    if sorted(r["id"] for r in rows) != ["people/declared-merges", "people/identities", "people/non-person-merges", "people/shown", "people/vectors"]:
         fails.append("shipped chain profile does not carry the four people rows: %s" % [r.get("id") for r in rows])
         return
     base = {
-        "g.person.named": 100, "cnt.merged.fold_people": 5, "cnt.merged.graph_merged_into": 3,
-        "g.mergedinto.person_targets": 3, "cnt.loaded": 95,
+        "g.person.named": 100, "g.person.identities": 100, "cnt.merged.fold_people": 5,
+        "cnt.merged.graph_merged_into": 3, "g.mergedinto.person_targets": 3,
+        "cnt.merged.graph_merged_into_non_person": 5, "g.mergedinto.non_person_targets": 5,
+        "cnt.loaded": 95,
         "cnt.skip.empty_profile": 3, "cnt.skip.org_as_person": 2, "cnt.skip.junk_single_token": 0,
         "w.pages.People": 90, "q.people.total": 100,
     }
@@ -1054,6 +1066,18 @@ def _people_selftest(fails):
     v = run(f)
     if v.get("people/vectors") != "NOT-MEASURED":
         fails.append("vector lag did not give NOT-MEASURED (CANNOT-RUN): %s" % v)
+    # (f) a declared non-Person merge with no triple behind it (the store holds 4 of 5).
+    f = dict(base); f["g.mergedinto.non_person_targets"] = 4
+    v = run(f)
+    if v.get("people/non-person-merges") != "LOST":
+        fails.append("MUTANT (f) declared non-Person merge with no triple did not FAIL: %s" % v)
+    # (g) IN counts DISTINCT live identities. Mutant: merged-away nodes counted as a
+    #     second identity (101 where 100 are live). The 5 folded records must not reappear
+    #     as IN: 101 - 5 folded = 96 expected from 95 loaded, so the row must be LOST.
+    f = dict(base); f["g.person.identities"] = 101
+    v = run(f)
+    if v.get("people/identities") != "LOST":
+        fails.append("MUTANT (g) merged-away counted as a second identity did not FAIL people/identities: %s" % v)
     # (e) the counts file absent: no product facts, so identities/shown are NOT-MEASURED.
     f = {k: x for k, x in base.items() if not k.startswith("cnt.")}
     v = run(f)

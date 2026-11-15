@@ -24,7 +24,7 @@
       "category": "person",
       "unit": "people",
       "facts": {
-        "in": "g.person.named",
+        "in": "g.person.identities",
         "stored": "cnt.loaded"
       },
       "exclusions": [
@@ -43,6 +43,16 @@
       "facts": {
         "in": "cnt.merged.graph_merged_into",
         "stored": "g.mergedinto.person_targets"
+      }
+    },
+    {
+      "id": "people/non-person-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into_non_person",
+        "stored": "g.mergedinto.non_person_targets"
       }
     },
     {
@@ -144,7 +154,7 @@
       "category": "person",
       "unit": "people",
       "facts": {
-        "in": "g.person.named",
+        "in": "g.person.identities",
         "stored": "cnt.loaded"
       },
       "exclusions": [
@@ -163,6 +173,16 @@
       "facts": {
         "in": "cnt.merged.graph_merged_into",
         "stored": "g.mergedinto.person_targets"
+      }
+    },
+    {
+      "id": "people/non-person-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into_non_person",
+        "stored": "g.mergedinto.non_person_targets"
       }
     },
     {
