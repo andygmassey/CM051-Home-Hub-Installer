@@ -4282,7 +4282,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:9732, :17778) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20787 / :20965 / :21122 / :21567 path. There the
+    # :20814 / :20992 / :21149 / :21594 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -18974,6 +18974,33 @@ TOMLPREAMBLE
     echo "backend = \"sandbox-exec\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
+# ── "What you like" reader switch (walk 132, dislike_respected_in_brief) ──
+# The assistant's pwg_derived_preferences reader is OFF by default in the
+# daemon schema, and this file never wrote the table, so the brief could not
+# see the derived graph the producer builds. Flip it on AFTER the regenerate
+# above: edit the key in place when the table is already present (an existing
+# config.toml with enabled = false would otherwise get a second table, which
+# is invalid TOML and stops the assistant starting), and add the table only
+# when it is absent. Other keys inside the table are kept.
+_ostler_ensure_pwg_derived_enabled() {
+    local cfg="${1:-}" tmp
+    [[ -n "$cfg" && -f "$cfg" ]] || return 1
+    tmp="$(mktemp "${cfg}.derived.XXXXXX")" || return 1
+    if ! awk '
+        BEGIN { hdr = "[pwg_derived_preferences]" }
+        $0 == hdr { in_s = 1; seen = 1; print; next }
+        in_s && /^[ \t]*\[/ { if (!done) { print "enabled = true"; done = 1 }; in_s = 0 }
+        in_s && /^[ \t]*enabled[ \t]*=/ { if (!done) { print "enabled = true"; done = 1 }; next }
+        { print }
+        END {
+            if (seen && in_s && !done) print "enabled = true"
+            else if (!seen) printf "\n[pwg_derived_preferences]\nenabled = true\n"
+        }
+    ' "$cfg" > "$tmp"; then rm -f "$tmp"; return 1; fi
+    chmod 600 "$tmp" && mv -f "$tmp" "$cfg"
+}
+_ostler_ensure_pwg_derived_enabled "$ASSISTANT_CONFIG" \
+    || warn "Could not switch on the preference reader in config.toml."  # i18n-exempt
 umask "$umask_orig"
 
 # Scrub the plaintext password from the bash environment as soon as

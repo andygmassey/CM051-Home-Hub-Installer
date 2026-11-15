@@ -1,0 +1,34 @@
+name: pwg-derived-preferences-enabled
+
+# v1.0.133, walk 132 dislike_respected_in_brief: install.sh must switch the
+# assistant's [pwg_derived_preferences] reader on, on fresh AND existing
+# config.toml shapes. Parsed by python tomllib in the test (a real TOML parser).
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'tests/test_pwg_derived_preferences_enabled.sh'
+      - '.github/workflows/pwg-derived-preferences-enabled.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'tests/test_pwg_derived_preferences_enabled.sh'
+      - '.github/workflows/pwg-derived-preferences-enabled.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  derived-preferences-enabled:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the shipped helper flips the reader on, on all three config shapes
+        run: /bin/bash tests/test_pwg_derived_preferences_enabled.sh
+
+      - name: the gate itself parses
+        if: always()
+        run: /bin/bash -n tests/test_pwg_derived_preferences_enabled.sh
