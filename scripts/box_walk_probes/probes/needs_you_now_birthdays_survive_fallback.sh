@@ -34,7 +34,13 @@ self_test() {
 BOX_SIDE='
 export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
 W="$HOME/Ostler/Wiki"
-if pgrep -u "$(id -u)" -f "[w]iki-compiler" >/dev/null 2>&1; then echo "BUSY"; exit 0; fi
+# Walk 132: a wiki compile live during the probe was read as BUSY at once. Wait for it to
+# finish (bounded, polled), then compile. Racing it is still refused: BUSY only if it never ends.
+_nyn_w=0
+while pgrep -u "$(id -u)" -f "[w]iki-compiler" >/dev/null 2>&1; do
+  [ "$_nyn_w" -ge "${OSTLER_NYN_WIKI_WAIT_S:-900}" ] && { echo "BUSY"; exit 0; }
+  sleep 15; _nyn_w=$((_nyn_w + 15))
+done
 cd "$HOME/.ostler" || exit 1
 OSTLER_PUBLIC_LOOKUPS=0 docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 -e OSTLER_FRONT_PAGE_JSON=/nonexistent/front_page.json wiki-compiler </dev/null >/tmp/ostler-probe-nyn-compile.log 2>&1 || { echo "COMPILE_FAILED"; exit 0; }
 python3 - "$W/birthdays.md" <<PY > /tmp/ostler-probe-nyn-expected.json

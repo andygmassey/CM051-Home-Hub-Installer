@@ -62,6 +62,12 @@ run_probe() {
     resetf="$(mktemp)"
     box_run "'${venv_py}' ${remote} reset" > "${resetf}" 2>/dev/null
 
+    # Residue first. Walk 132 left two reminders behind because nothing ever
+    # retried the reminders earlier walks recorded: reset was never called.
+    # Each recorded identifier is deleted and counted before this walk writes
+    # its own. Printed, not judged; anything still standing is named below.
+    box_run "'${venv_py}' ${remote} reset" 2>/dev/null | sed 's/^/  residue before write: /'
+
     facts="$(mktemp)"
     box_run "'${venv_py}' ${remote} run --token '${token}' --text '${text}' --wait-s '${OSTLER_TODO_PROBE_WAIT_S:-90}'" > "${facts}" 2>/dev/null
 
