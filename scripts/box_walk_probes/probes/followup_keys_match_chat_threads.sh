@@ -68,7 +68,10 @@ run_probe() {
     # never touches chat.db. Its result is judged by lib/followup_keys_probe.py.
     local seed_py seed_remote seed_out
     seed_remote="/tmp/ostler-probe-followup-seed-$$.py"
-    seed_py="$(box_run "CLI=\${OSTLER_CONVO_SEED_CLI:-/usr/local/bin/pwg-convo}; [ -e \"\$CLI\" ] && head -1 \"\$CLI\" | sed -n 's/^#!//p'")"
+    # Where install.sh puts pwg-convo (install.sh:24724-24725 and the ${OSTLER_DIR}/bin link it
+    # falls back to under a GUI install): the first executable of these candidates. The shebang
+    # of that file names the venv interpreter that has the shipped CM048 package. Never one path.
+    seed_py="$(box_run "D=\"\${OSTLER_DIR:-\$HOME/.ostler}\"; for c in \"\${OSTLER_CONVO_SEED_CLI:-}\" \"\$D/bin/pwg-convo\" /usr/local/bin/pwg-convo \"\$D/services/cm048/.venv/bin/pwg-convo\"; do [ -n \"\$c\" ] && [ -x \"\$c\" ] && { head -1 \"\$c\" | sed -n 's/^#!//p'; break; }; done")"
     if [ -n "${seed_py}" ] && box_run "[ -x '${seed_py}' ]" && \
        box_run "printf %s '$(base64 < "${_HERE}/lib/todo_reminders_box.py" | tr -d '\n')' | base64 -d > ${seed_remote}" >/dev/null 2>&1; then
         seed_out="$(box_run "'${seed_py}' ${seed_remote} seed-1to1 --token ostler-walk-todo-fk-$$" 2>/dev/null)"
