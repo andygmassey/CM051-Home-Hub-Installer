@@ -18738,7 +18738,8 @@ TOMLPREAMBLE
     # config.web_search.vane_url, and reqwest's RequestBuilder already takes
     # basic auth from a URL's userinfo automatically (see MEASURED note
     # below) -- `[tools.web_search]` -> `[web_search]` is the whole fix.
-    if declare -F ostler_weather_emit_block >/dev/null; then ostler_weather_emit_block "$_OSTLER_WEATHER_HOME"; fi; echo "[web_search]"
+    if declare -F ostler_weather_emit_block >/dev/null; then ostler_weather_emit_block "$_OSTLER_WEATHER_HOME"; fi
+    echo "[web_search]"
     echo "provider = \"vane\""
     # reqwest takes basic auth from the URL's userinfo. MEASURED against the
     # pinned nginx with the shipped server block, proxy disabled so the result

@@ -62,6 +62,9 @@ on:
       - 'tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh'
       # #30: the calendar predicate now lives in the shared loose-file table.
       - 'lib/ostler-detect-exports.sh'
+      - 'tests/test_weather_home_location.sh'
+      - 'tests/test_weather_home_location_mutant.sh'
+      - 'lib/ostler-weather-home.sh'
       - '.github/workflows/licence-permissions-and-false-promises.yml'
   push:
     branches: [main]
