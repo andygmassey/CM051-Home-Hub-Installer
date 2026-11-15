@@ -25,7 +25,12 @@ ABSTAIN = re.compile(
     r"isn'?t (in|mentioned|recorded|listed)|impossible to (determine|tell|say)|"
     r"not in (your|the) (records|data|context|fixture|information)|"
     r"not (included|specified|stated|detailed|shown|given|provided) (in|within|by) (the|your|this)|"
-    r"no specific |cannot (provide|give|share))\b", re.I)
+    r"no specific |cannot (provide|give|share)|"
+    r"(don'?t|doesn'?t) (see|include|have|say|list|hold|contain|show|state|cover)|"
+    r"nothing (about|on file|recorded|in (your|the))|"
+    r"(couldn'?t|could not|unable to) (find|tell|say|determine)|"
+    r"(isn'?t|is not|are not|aren'?t) (available|known|on file)|"
+    r"no [a-z ]{0,30}information)\b", re.I)
 
 # Every decline form a model or the gate uses. Each must grade ABSTAINED on an absent
 # question. A decline the grader calls FABRICATED makes the absent bucket measure nothing.
