@@ -2856,6 +2856,8 @@ _SOURCE_KINDS = {
 # A DECLARED SET, NOT A DIRECTORY GLOB. The row register stays a fixed list;
 # this widens it by two known names when their file is present. An arbitrary
 # file dropped into the hydrate directory still cannot invent a row.
+# CM048 forget-sweep outcome, written by CM041's forget as forget_sweep.done.
+_FORGET_SENTINEL_KINDS = {"forget_sweep": "forget"}
 _FDA_EXTRACT_KINDS = {
     "photos": "source",
     "reminders": "source",
@@ -3435,7 +3437,9 @@ def read_source_status(hydrate_dir: Path | None = None,
     # See _FDA_EXTRACT_KINDS for why these two are conditional and the rest
     # are not.
     kinds = dict(_SOURCE_KINDS)
-    for _fda_name, _fda_kind in _FDA_EXTRACT_KINDS.items():
+    # The forget sweep joins the same way: only once a forget has written its
+    # sentinel. Its absence means no forget has run, not that a sweep passed.
+    for _fda_name, _fda_kind in {**_FDA_EXTRACT_KINDS, **_FORGET_SENTINEL_KINDS}.items():
         if _fda_name in kinds:
             continue
         try:
