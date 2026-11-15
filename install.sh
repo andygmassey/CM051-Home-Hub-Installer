@@ -1565,7 +1565,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         local _conf="${HOME}/.ostler/secrets/store-curl.conf"
         [[ -f "${_src}/src/repair_pref_subjects.py" ]] || { _upg_log "pref-subject repair: no module at ${_src}; skipping"; return 0; }
         [[ -f "$_marker" ]] && { _upg_log "pref-subject repair: already applied on this box"; return 0; }
-        local _args=(--auth-conf "$_conf")
+        local _args=(--oxigraph "${OSTLER_OXIGRAPH_URL:-http://127.0.0.1:7878}" --qdrant "${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}")
+        [[ -f "$_conf" ]] && _args+=(--auth-conf "$_conf")
         local _dry _rc=0
         _dry="$(cd "$_src" && python3 -m src.repair_pref_subjects "${_args[@]}" 2>&1)" || _rc=$?
         _upg_log "pref-subject repair dry run (rc=${_rc}): $(printf '%s' "$_dry" | tr '\n' ' ' | head -c 400)"

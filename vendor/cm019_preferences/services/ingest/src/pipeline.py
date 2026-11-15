@@ -673,6 +673,15 @@ class IngestPipeline:
         if not preferences:
             return result
 
+        # PWG #477: one graph node per preference id in a batch (see origin/main pipeline.py).
+        by_id = {}
+        for pref in preferences:
+            by_id[pref.id] = pref
+        if len(by_id) != len(preferences):
+            result["same_id_collapsed"] = len(preferences) - len(by_id)
+            preferences = list(by_id.values())
+            result["preferences"] = len(preferences)
+
         # Minors: stored, never derived. Stamp extra.about_minor BEFORE anything is
         # written (Qdrant payload and the derive readers' filter both depend on it).
         # An owner registry that exists but cannot be read fails CLOSED by

@@ -328,3 +328,12 @@ Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream me
 
 Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
 - Retire: re-pin past the upstream merge commit.
+
+## Grafted by CM051 (this PR): same-id batch collapse and one-shot repair
+
+| file | delta | attributed |
+|---|---|---|
+| `services/ingest/src/pipeline.py` | +15, `_process_batch` collapses rows sharing a preference id, last wins | PWG #477 (`0d04191`), grafted by hand |
+| `services/ingest/src/repair_pref_subjects.py` | new file, dry-run-by-default repair | PWG #478 (`b51c725`), vendored whole |
+
+Test that goes with it: `tests/test_upg_repair_pref_subjects.sh` (the install.sh apply branch, against a stub store, with a mutant that removes `--apply` going red). The upstream test for #477 is `services/ingest/tests/test_pref_graph_qdrant_parity.py::test_two_rows_sharing_a_source_id_in_one_batch_leave_one_subject`.
