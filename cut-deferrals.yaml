@@ -32,6 +32,41 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.132, ORM 2026-11-15 on Archie's ruling (via Aesop), verbatim: check-pr-age RED at candidate 2
+  # (run 43674351720). FIRST so verify_pr_age.sh takes these rows.
+  - ref: "CM051-Home-Hub-Installer#3464"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3461"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3457"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3435"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3434"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3432"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3428"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3421"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3365"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3357"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
   # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
   # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
   - ref: "CM051-Home-Hub-Installer#3347"
@@ -1624,6 +1659,13 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  # v1.0.132, ORM 2026-11-15 on Archie's ruling (via Aesop), verbatim: check-orphans RED at candidate 2 (run 43674351720).
+  - ref: "CM051:feat/cm051-doctor-passkey-133"
+    reason: "DEFERRED until_cut v1.0.133 (Archie 2026-11-15): feat/cm051-doctor-passkey-133 (013cbadd) and feat/forget-sweep-doctor-row (986bdafa) are held 133 work, pushed on purpose so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Each becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.133"
+  - ref: "CM051:feat/forget-sweep-doctor-row"
+    reason: "DEFERRED until_cut v1.0.133 (Archie 2026-11-15): feat/cm051-doctor-passkey-133 (013cbadd) and feat/forget-sweep-doctor-row (986bdafa) are held 133 work, pushed on purpose so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Each becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.133"
   - ref: "CM051:archive/people-exact-identifier-merge"
     reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: archived ref superseded by #3217; no content needed"
     until_cut: "v1.0.122"
