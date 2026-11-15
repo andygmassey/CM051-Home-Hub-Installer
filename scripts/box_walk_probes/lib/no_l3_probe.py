@@ -41,11 +41,11 @@ def judge(cap, out=sys.stdout):
     if not examined:
         print("  CANNOT no tool response was examined", file=out)
         return CANNOT
+    if not control:
+        print("  CANNOT the L2 twin marker surfaced nowhere; without the control an L3 result cannot be judged", file=out)
+        return CANNOT
     if leaks:
         return FAIL
-    if not control:
-        print("  CANNOT the L2 twin marker surfaced nowhere; a silent read is not a pass", file=out)
-        return CANNOT
     print(f"  ok L2 control surfaced; {len(examined)} tool responses examined", file=out)
     return PASS
 
@@ -58,9 +58,9 @@ def _case(seeds, tools, m2_in_tool, m3_in_tool):
                                "pwg_knowledge_search")}
     if tools is not None:
         t = tools
-    if m2_in_tool:
-        t["pwg_commitments"] = {"status": 200, "text": '{"commitments":[{"action":"' + m2 + '"}]}'}
-    if m3_in_tool:
+    if m2_in_tool:  # the L2 control surfaces in topics
+        t["pwg_topics"] = {"status": 200, "text": '{"topics":[{"label":"' + m2 + '"}]}'}
+    if m3_in_tool:  # the leak is in commitments
         t["pwg_commitments"] = {"status": 200, "text": '{"commitments":[{"action":"' + m3 + '"}]}'}
     good = {"cli_rc": 0, "bundle": "present"}
     return {"markers": {"l3": m3, "l2": m2},
@@ -75,6 +75,7 @@ def self_test():
         ("known-bad: L3 marker in commitments", _case(None, None, True, True), FAIL),
         ("clean: L2 surfaces, L3 absent", _case(None, None, True, False), PASS),
         ("no L2 control anywhere", _case(None, None, False, False), CANNOT),
+        ("L3 leak but no L2 twin: CANNOT, never FAIL", _case(None, None, False, True), CANNOT),
         ("seed incomplete", _case({"l3": {"cli_rc": 1, "bundle": "absent"},
                                    "l2": {"cli_rc": 0, "bundle": "present"}}, None, True, False), CANNOT),
         ("every tool errored", _case(None, {k: {"error": "refused"} for k in (

@@ -35,7 +35,16 @@
 # The oa boundary filter (ostler-assistant PR #716) drops them on the oa side;
 # the Hub-side fix belongs to CM041.
 #
-# WALK_READ_ONLY: no. This probe seeds two conversations. It is a seeding probe.
+# WALK_WRITES: seeds two conversations on the box, and the writer has no forget
+# route for a conversation, so the rows PERSIST. Refuses unless
+# OSTLER_NO_L3_ALLOW_WRITE=1 is set, the same gate the other writing probes use
+# (hub_screens_render_for_a_customer.sh OSTLER_SCREENS_ALLOW_WRITE).
+#
+# WHAT IT MEASURES: the Hub's loopback routes (CM041 ical-server.py, :8090),
+# so a FAIL is a CM041 source defect, not an oa #716 defect. The one exception
+# is pwg_knowledge_search: no Hub route exists for notes, so the probe replays
+# the tool's own Qdrant request (fail-closed filter included) and measures that
+# request, not oa #716 code.
 # ============================================================================
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
@@ -85,6 +94,10 @@ JSON
 }
 
 run_probe() {
+    # WALK_WRITES gate: this probe writes two conversations to the box. Refuse
+    # on a read-only walk rather than write silently.
+    [ "${OSTLER_NO_L3_ALLOW_WRITE:-0}" = "1" ] \
+        || probe_cannot_run "WALK_WRITES probe refused on a read-only walk: set OSTLER_NO_L3_ALLOW_WRITE=1 to seed two synthetic conversations"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
     local remote cap
     remote="/tmp/ostler-probe-no-l3-$$.py"

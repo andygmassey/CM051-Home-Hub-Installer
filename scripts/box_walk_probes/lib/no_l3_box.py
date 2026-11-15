@@ -12,7 +12,7 @@
 #               metadata privacy_level wins); processor.py:240-258 (L3 skips the
 #               gist sinks); ingest.py:861-872 (todo privacy from metadata).
 #   tools       crates/zeroclaw-tools/src/pwg_*.rs (paths listed in TOOLS).
-import base64, json, os, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import base64, json, os, subprocess, sys, tempfile, time, urllib.parse, urllib.request, uuid
 
 API = "http://127.0.0.1:8090"
 OLLAMA = "http://127.0.0.1:11434"
@@ -129,7 +129,8 @@ def _tools(m3, m2, token):
 
 def main():
     token = _token()
-    stamp = str(os.getpid())
+    # Unique per run: a second run must not be fooled by the first run's rows.
+    stamp = uuid.uuid4().hex[:12]
     m3, m2 = "ZEPHYR" + stamp, "QUARTZ" + stamp
     seeds = {
         "l3": _seed(f"ostler-walk-l3-{stamp}", m3, "L3"),
