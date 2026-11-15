@@ -41,6 +41,7 @@ on:
       - 'vendor/cm041/meeting_syncer/brief.py'
       - 'vendor/cm048_pipeline/src/candidates.py'
       - 'tests/test_a_forget_must_reach_every_named_graph.py'
+      - 'tests/test_forget_writer_dir_equals_scrub_dir.py'
       # THE THIRD HALF, and the one the other two cannot see. They test the
       # graph SCOPE of the delete and the honesty of its REPORT; both take the
       # delete PATTERN as given, and the pattern is where rows 960 and 2217 live.
@@ -184,3 +185,11 @@ jobs:
         run: |
           python3 -m pip install --quiet pytest
           python3 -m pytest tests/test_vendored_gws_never_spawned_without_consent.py -q
+
+      # The bundle writer and the forget scrub must resolve ONE conversations root.
+      # The derive plist's env once moved the writer into the transcript mirror.
+      # RED on origin/main's vendored settings.py: the writer root is the mirror.
+      - name: The bundle writer and the forget scrub resolve one conversations root
+        if: always()
+        run: |
+          python3 tests/test_forget_writer_dir_equals_scrub_dir.py
