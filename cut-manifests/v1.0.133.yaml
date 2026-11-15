@@ -1,0 +1,15 @@
+# cut-manifests/v1.0.133.yaml
+# Rows added by the v1.0.132 CANNOT-RUN resolution (ORM carries the rest of the 133 manifest from v1.0.132.yaml at prep).
+# NOT BLOCKING, EXPIRING AFTER ONE CUT (launch directive item 5): these rows expire after v1.0.133.
+# Backlog owns the real fix for 134 (~/walkdriver/CANNOT_RUN_132_RESOLUTION.md, section BACKLOG_134).
+open_issues:
+
+  - issue: 3553
+    repo: CM051
+    title: "box-walk-followup-keys-match-chat-threads: the chat.db thread match cannot be seeded on a walk box (one cut, non-blocking)"
+    gate: 'NOT BLOCKING FOR v1.0.133 ONLY, EXPIRES AFTER v1.0.133. The product key builder IS now measured: the probe seeds one synthetic 1:1 through the shipped writer and FAILs a 1:1 that carries no thread key. The MATCH arm (keys_matching_one_to_one) still needs a real chat.db thread: the probe never seeds chat.db (owner data), so on a walk box the denominator is zero by construction and the probe reads CANNOT. Backlog 134 owns the fix.'
+
+  - issue: 3553
+    repo: CM051
+    title: "box-walk-fda-rerun-second-tick-lands-a-new-row: no configurable walk-owned source exists for the rerun tick (one cut, non-blocking)"
+    gate: 'NOT BLOCKING FOR v1.0.133 ONLY, EXPIRES AFTER v1.0.133. The probe proves the second tick with the Safari source only, and Mini16 is not a throwaway, so the Safari seed is correctly refused. Grepped vendor/ostler_fda: no extract_all source reads a walk-owned path the rerun tick is given. The fda-rerun plist (install.sh:21482 onward) injects no source path env, so apple_notes (OSTLER_NOTES_DB_PATH), google_takeout (OSTLER_TAKEOUT_ZIP_PATH) and apple_mail (OSTLER_MAIL_ENVELOPE_INDEX) cannot be pointed at a walk file by the tick. Backlog 134 owns a configurable test source.'

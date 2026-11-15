@@ -521,7 +521,20 @@ def cmd_forget(argv, runner=None):
     return 0
 
 
+def cmd_seed_1to1(argv):
+    """Seed ONE synthetic 1:1 through the shipped writer, for the follow-up key check.
+    Prints counts and the todo id only: never the counterpart's name or text."""
+    a = dict(zip(argv[0::2], argv[1::2]))
+    token = a.get("--token") or ("ostler-walk-todo-%d" % os.getpid())
+    facts, _ids = _write_one_to_one(token)
+    facts.pop("counterpart", None)
+    print(json.dumps({"seed_1to1": facts}))
+    return 0
+
+
 def main(argv):
+    if argv[:1] == ["seed-1to1"]:
+        return cmd_seed_1to1(argv[1:])
     if argv[:1] == ["run"]:
         return cmd_run(argv[1:])
     if argv[:1] == ["forget"]:
