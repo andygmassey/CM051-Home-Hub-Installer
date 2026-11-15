@@ -638,7 +638,6 @@ test_morning_brief_repeat_evidence.py	WIRED	.github/workflows/wow-moment-probes.
 test_morning_brief_repeat_not_digits.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_morning_reply_naming_top_n.py	WIRED	.github/workflows/wow-moment-probes.yml
 test_music_services_score_on_one_scale.py	WIRED	.github/workflows/music-scoring-one-scale.yml
-test_name_repair.sh	WIRED	.github/workflows/name-repair.yml
 test_nameless_filter_applies_to_the_hub_people_count.py	WIRED	.github/workflows/privacy-spine.yml
 test_nameless_records_sharing_a_number_are_one_person.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_new_cut_checks_what_preflight_checks.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -698,7 +697,6 @@ test_osascript_sites_are_deadlined.sh	WIRED	.github/workflows/osascript-deadline
 test_ostler_fda_facebook_routing_unchanged_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_fda_instagram_dms_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_fda_staging_cleanup_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
-test_ostler_fda_subscription_gate_parity_vendored.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_gui_sudo_gates.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_ostler_home_is_owner_only_on_every_path.sh	WIRED	.github/workflows/secrets-dir-mode.yml
 test_ostler_home_root_is_one_class.sh	WIRED	.github/workflows/hydrate-sentinel.yml
