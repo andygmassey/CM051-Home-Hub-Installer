@@ -107,6 +107,86 @@ wiki_compile_output_summary() {
 }
 export -f wiki_compile_output_summary
 
+# --- A KILLED COMPILE IS A CUSTOMER-VISIBLE FAULT (v1.0.126, 125 walk) ----
+#
+# On the 125 walk the compiler's python was killed by the kernel inside the
+# container VM (dmesg global_oom, 883 MB anon-rss in a 4 GiB VM). The compile
+# exited 137, this tick logged it as a WATCHDOG timeout, skipped the publish,
+# and the wiki silently stopped refreshing. Nothing a customer could see said
+# so. Now a compile that dies on a signal (exit 137 SIGKILL / 143 SIGTERM)
+# writes a marker the Doctor reads (diagnostic_rules.check_wiki_health), one
+# per phase, carrying WHEN and WHY:
+#   cause=oom      the VM's kernel log shows an OOM kill inside the compile window
+#   cause=timeout  this tick's own watchdog fired (phase 1 only)
+#   cause=killed   killed, and neither of the above could be shown
+# The marker IS the wiki's stale flag: it stays until a compile of the same
+# phase finishes, so "stopped updating at <time>" holds until it is untrue.
+wiki_kill_state_dir() {
+    printf '%s/wiki-recompile\n' "${OSTLER_STATE_DIR:-${HOME}/.ostler/state}"
+}
+export -f wiki_kill_state_dir
+
+# wiki_vm_oom_within SECONDS -> prints "oom" when the container VM's kernel log
+# shows an OOM kill in the last SECONDS, "none" when it was read and shows
+# none, and NOTHING when it could not be read (no colima, ssh failed, dmesg
+# refused). Never a guess: "could not look" must not read as "no OOM". The ssh
+# is bounded so a wedged VM cannot hang the tick.
+wiki_vm_oom_within() {
+    local _win="$1" _out _tmp _pid _t=0
+    command -v colima >/dev/null 2>&1 || return 0
+    _tmp="$(mktemp -t wiki-oom.XXXXXX)" || return 0
+    colima ssh -- sh -c 'cat /proc/uptime; sudo -n dmesg 2>/dev/null || dmesg 2>/dev/null' >"$_tmp" 2>/dev/null </dev/null &
+    _pid=$!
+    while kill -0 "$_pid" 2>/dev/null; do
+        [ "$_t" -lt "${WIKI_OOM_PROBE_SECS:-20}" ] || { kill "$_pid" 2>/dev/null || true; break; }
+        sleep 1; _t=$((_t + 1))
+    done
+    wait "$_pid" 2>/dev/null || true
+    _out="$(awk -v w="$_win" '
+        NR == 1 { up = $1 + 0; next }
+        { n++ }
+        /oom-kill:|Out of memory: Killed process/ {
+            if (match($0, /^\[ *[0-9]+\.[0-9]+\]/)) {
+                t = substr($0, RSTART + 1, RLENGTH - 2) + 0
+                if (t >= up - w) hit = 1
+            }
+        }
+        END { if (up > 0 && n > 0) print (hit ? "oom" : "none") }' "$_tmp" 2>/dev/null)" || _out=""
+    rm -f "$_tmp"
+    printf '%s' "$_out"
+}
+export -f wiki_vm_oom_within
+
+# wiki_record_compile_kill PHASE RC STARTED_EPOCH [WATCHDOG_FIRED]
+# Only 137/143 are recorded: an ordinary non-zero exit is the compiler
+# reporting its own error, which the existing log lines already carry.
+wiki_record_compile_kill() {
+    local _phase="$1" _rc="$2" _start="$3" _wd="${4:-}" _now _cause _oom _d
+    case "$_rc" in 137|143) : ;; *) return 0 ;; esac
+    _now="$(date -u +%s)"
+    if [ -n "$_wd" ]; then
+        _cause=timeout
+    else
+        _oom="$(wiki_vm_oom_within $(( _now - _start + 60 )) || true)"
+        case "$_oom" in oom) _cause=oom ;; *) _cause=killed ;; esac
+    fi
+    _d="$(wiki_kill_state_dir)"
+    mkdir -p "$_d" 2>/dev/null || return 0
+    printf '{"phase": "%s", "exit": %d, "cause": "%s", "oom_probe": "%s", "at": "%s"}\n' \
+        "$_phase" "$_rc" "$_cause" "${_oom:-unread}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        > "${_d}/compile-killed.${_phase}.json.tmp" 2>/dev/null \
+        && mv -f "${_d}/compile-killed.${_phase}.json.tmp" "${_d}/compile-killed.${_phase}.json" 2>/dev/null || true
+    printf '[%s] ERROR: wiki-compile %s was KILLED (exit %s, cause %s, VM OOM probe: %s); recorded for the Doctor; the wiki is stale until a compile finishes\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$_phase" "$_rc" "$_cause" "${_oom:-could not read the VM kernel log}"
+    return 0
+}
+export -f wiki_record_compile_kill
+
+wiki_clear_compile_kill() {
+    rm -f "$(wiki_kill_state_dir)/compile-killed.${1}.json" 2>/dev/null || true
+}
+export -f wiki_clear_compile_kill
+
 # --- Adaptive resource governor (v1.0.3 first-run-storm fix) ----------
 # The wiki recompile is ESSENTIAL on first run (People + Wiki are the
 # first-impression surfaces), so it is NOT deferred by the load gate the
@@ -378,6 +458,8 @@ log "wiki-recompile tick start (phase 1: fast baseline, OSTLER_WIKI_SKIP_LLM=1)"
 # still surfaces its last lines without holding a TTY.
 WIKI_COMPILE_TIMEOUT="${WIKI_COMPILE_TIMEOUT:-1800}"
 _compile_log="$(mktemp -t wiki-recompile.XXXXXX)"
+_wd_fired="${_compile_log}.watchdog-fired"
+_compile_start="$(date -u +%s)"
 _public_lookups="$(ostler_public_lookups_flag "$OSTLER_DIR")"
 log "public look-ups for this compile: ${_public_lookups}"
 OSTLER_PUBLIC_LOOKUPS="$_public_lookups" docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 wiki-compiler </dev/null >"$_compile_log" 2>&1 &
@@ -388,6 +470,7 @@ _compile_pid=$!
 {
     sleep "$WIKI_COMPILE_TIMEOUT"
     if kill -0 "$_compile_pid" 2>/dev/null; then
+        : > "$_wd_fired"
         kill -TERM "$_compile_pid" 2>/dev/null
         sleep 5
         kill -KILL "$_compile_pid" 2>/dev/null
@@ -401,8 +484,17 @@ wait "$_watchdog_pid" 2>/dev/null || true
 # A summary of shape, never the output itself (S8, 118; see the helper).
 wiki_compile_output_summary "wiki-compile baseline" < "$_compile_log" 2>/dev/null || true
 rm -f "$_compile_log"
-if [ "$COMPILE_RC" -eq 137 ] || [ "$COMPILE_RC" -eq 143 ]; then
-    log "ERROR: wiki-compiler (baseline) exceeded ${WIKI_COMPILE_TIMEOUT}s and was killed by the watchdog (exit $COMPILE_RC)."
+_wd_flag=""; [ -f "$_wd_fired" ] && _wd_flag=1; rm -f "$_wd_fired"
+if [ "$COMPILE_RC" -eq 0 ]; then
+    wiki_clear_compile_kill baseline
+elif [ "$COMPILE_RC" -eq 137 ] || [ "$COMPILE_RC" -eq 143 ]; then
+    # Was "exceeded the timeout and was killed by the watchdog" for EVERY
+    # 137/143, which is how a kernel OOM kill on the 125 walk read as a slow
+    # compile. Only the watchdog's own marker says timeout now.
+    if [ -n "$_wd_flag" ]; then
+        log "ERROR: wiki-compiler (baseline) exceeded ${WIKI_COMPILE_TIMEOUT}s and was killed by the watchdog (exit $COMPILE_RC)."
+    fi
+    wiki_record_compile_kill baseline "$COMPILE_RC" "$_compile_start" "$_wd_flag"
 fi
 if [ "$COMPILE_RC" -ne 0 ]; then
     log "ERROR: wiki-compiler baseline failed (exit $COMPILE_RC); skipping wiki-site refresh."
@@ -666,7 +758,7 @@ else
                 sleep 10
             done
             printf "%s wiki-summaries: slot acquired via the shared library, compiling.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            _rc=0
+            _rc=0; _p2_start="$(date -u +%s)"
             # Compile output goes to a private temp file and only its
             # summary reaches this log (S8, 118). `sh -c exec` keeps the
             # watched pid the docker client itself.
@@ -679,6 +771,7 @@ else
             wiki_compile_output_summary "wiki-summaries" < "$_out" 2>/dev/null || true
             rm -f "$_out"
             if [ "$_rc" = "0" ]; then
+                wiki_clear_compile_kill summaries || true
                 printf "%s wiki-summaries: compile finished OK.\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 # Floor is keyed on this, not on when the attempt STARTED
                 # (Archie review round 2): only a compile that actually
@@ -687,6 +780,7 @@ else
             else
                 printf "%s wiki-summaries: compile FAILED (exit %s). The wiki will show pages without summaries until the next daily compile.\n" \
                     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_rc"
+                wiki_record_compile_kill summaries "$_rc" "$_p2_start" || true
             fi
             exit "$_rc"
         fi
@@ -706,7 +800,7 @@ else
         # Pass the tier-capped parallel summary worker count to the compile
         # container only when the governor resolved one; otherwise let the
         # compiler use its own default (pre-governor behaviour).
-        _rc=0
+        _rc=0; _p2_start="$(date -u +%s)"
         _out="$(mktemp -t wiki-summaries.XXXXXX)"
         if [ -n "$_workers" ]; then
             docker compose --profile compile run --rm -T -e "WIKI_LLM_WORKERS=$_workers" wiki-compiler >"$_out" 2>&1 || _rc=$?
@@ -717,6 +811,9 @@ else
         rm -f "$_out"
         if [ "$_rc" = "0" ]; then
             date -u +%s > "$_complete_file" 2>/dev/null || true
+            wiki_clear_compile_kill summaries || true
+        else
+            wiki_record_compile_kill summaries "$_rc" "$_p2_start" || true
         fi
         exit "$_rc"
     ' _ "$_slot" "$OSTLER_DIR" "$WIKI_TIER_WORKERS" "$_slot_lib" "$_phase2_last_complete_file" >"$_bg_log" 2>&1 &

@@ -26,6 +26,9 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 REGION="$(awk '/up --hostname=ostler-hub/{f=1} f&&/^        else$/{exit} f{print}' "$INSTALL_SH")"
 grep -q 'TS_UP_PID=\$!' <<< "$REGION" || fail "could not extract launch region (no TS_UP_PID capture)"
 printf '%s\n' "$REGION" > "$WORK/region.sh"
+# v1.0.124: the region calls the bounded-call helper defined earlier in install.sh.
+awk '/^    _ts_bounded\(\) \{$/{f=1} f{print} f&&/^    \}$/{exit}' "$INSTALL_SH" > "$WORK/helper.sh"
+[[ -s "$WORK/helper.sh" ]] || fail "could not extract _ts_bounded"
 echo "PASS: extracted the real launch-to-reap region ($(wc -l < "$WORK/region.sh") lines)"
 
 mkdir -p "$WORK/bin"
@@ -62,6 +65,7 @@ run_case() {
         MSG_INFO_TAILSCALE_SIGN_IN_URL=x; MSG_INFO_WAITING_YOU_SIGN_TAILSCALE_UP_3=x
         # The fake carries the tag in argv via the socket path.
         # shellcheck disable=SC1091
+        source "$WORK/helper.sh"
         source "$WORK/region.sh"
         echo "$OSTLER_TAILSCALE_IP" > "$WORK/ip-$name"
     ) >"$WORK/out-$name" 2>&1 || fail "$name: region exited non-zero: $(tail -3 "$WORK/out-$name")"

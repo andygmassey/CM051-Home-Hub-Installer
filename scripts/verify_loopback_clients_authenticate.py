@@ -95,7 +95,7 @@ BUILDS_REQUEST = re.compile(
     # CLEAN about code it never considered.
     r"urlopen\s*\(|urllib\.request\.Request|Request\s*\("
     r"|requests\.(?:get|post|put|delete|patch|head|request|Session)"
-    r"|\.(?:get|post|put|delete|patch|head|request)\s*\(\s*[\"'f]?(?:https?://|url|base|endpoint)"
+    r"|\.(?:get|post|put|delete|patch|head|request)\s*\(\s*[\"'f]?(?:https?://|url|base|endpoint(?!s\b))"
     r"|httpx\.(?:get|post|put|delete|patch|Client|AsyncClient|request)"
     r"|http\.client\.|HTTPConnection|HTTPSConnection"
     r"|\bfetch\s*\(|XMLHttpRequest|axios\."

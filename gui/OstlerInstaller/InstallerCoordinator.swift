@@ -241,6 +241,11 @@ final class InstallerCoordinator: ObservableObject {
     /// exits non-zero on a fresh Mac with no warm sudo timestamp.
     @Published var needsAdminRetry: Bool = false
 
+    /// The reason the pre-launch admin grant was refused on purpose (another
+    /// account owns Homebrew). Rendered on the retry gate, so the customer
+    /// reads it on screen. Nil for an ordinary cancel.
+    @Published var adminRefusal: String? = nil
+
     /// True between bootstrap's initial gate-pass and the moment the
     /// customer presses "Continue and enter your password". Set by
     /// `bootstrapAsync()` after the licence + registration gates
@@ -784,6 +789,7 @@ final class InstallerCoordinator: ObservableObject {
         let granted = await adminAuthorizationProvider(reason)
         if !granted {
             preInstallStatus = nil
+            adminRefusal = await AuthorizationHelper.shared.lastRefusal
             needsAdminRetry = true
             error = ViewCopy.shared.string(for: "admin_access_required.retry_message")
             appendLog(level: "warn", msg: "Administrator access not granted -- holding install at retry gate")
@@ -792,6 +798,7 @@ final class InstallerCoordinator: ObservableObject {
         }
         // Clear any retry state left over from a prior cancel.
         needsAdminRetry = false
+        adminRefusal = nil
         if error == ViewCopy.shared.string(for: "admin_access_required.retry_message") {
             error = nil
         }
@@ -1413,6 +1420,28 @@ final class InstallerCoordinator: ObservableObject {
                 msg: "Could not write fingerprint cache: \(error.localizedDescription)"
             )
         }
+    }
+
+    /// F&F item 6: the single entry point for the footer's Cancel and the
+    /// "Finish and pair later" button. At a pairing step it asks install.sh to
+    /// skip the sign-in wait and carry on to the end; it never terminates the
+    /// subprocess there. Elsewhere it is the old cancel(). The caller quits the
+    /// app only for `.terminate`.
+    @discardableResult
+    func requestCancel(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> LateStepPolicy.CancelAction {
+        let action = LateStepPolicy.cancelAction(stepId: currentStepId)
+        switch action {
+        case .terminate:
+            cancel()
+        case .finishWithoutPairing:
+            let wrote = LateStepPolicy.writeSkipSentinel(home: home)
+            appendLog(level: "info", msg: wrote
+                ? "Finishing without pairing; pairing can be done later from Settings or Doctor."
+                : "Could not write the pair-later marker; the install continues and will time out the sign-in wait on its own.")
+        }
+        return action
     }
 
     func cancel() {

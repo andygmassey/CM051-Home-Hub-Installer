@@ -3,11 +3,10 @@
 
 WHY (v1018-D658/D659 fallout, 2026-08-15)
 =========================================
-``vendor/ostler_fda/repair_placeholder_names.py`` is 378 lines, merged, tested
-by ``tests/test_name_repair.sh``, gated by ``.github/workflows/name-repair.yml``,
-registered in ``vendor/VENDOR_ONLY.tsv``, and PRESENT in the shipped DMG --
-verified byte-identical to main inside
-``OstlerInstaller.app/Contents/Resources/ostler_fda/`` on v1.0.26.
+``vendor/ostler_fda/repair_placeholder_names.py`` was merged, tested, registered
+and PRESENT in the shipped DMG (v1.0.26) while nothing called it. It was removed
+from the payload on 2026-11-15 (BACKLOG.yaml: fda-repair-placeholder-names-household-split).
+The example is kept as the case that motivated this gate.
 
 Nothing calls it. Not install.sh, not a LaunchAgent, not a tick script, not the
 doctor. It ships and cannot run, and every signal above reads as a shipped fix.

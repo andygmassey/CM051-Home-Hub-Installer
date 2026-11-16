@@ -17,10 +17,3 @@ graph those read, so without a guard a dietary point would be shown.
   is RED with the guard removed, and arm 4 proves the scanner goes red on a fake reader row
   and on fake card code.
 - Retire: when the same two lines land in CM059 and the tree is re-pinned past them.
-
-## 2026-11-05: the editor hands the Hub's owed list to the wiki (graft of CM059 #39)
-
-Tree `cm059_editor`, file `compiler/emit_frontpage.py`, BYTE-IDENTICAL to CM059 main
-at 8b37a5e0 (the merge of #39). Each tick writes the /api/v1/reply-debt payload to
-`~/.ostler/editor/reply_debt.json` for the CM044 Reply Debt wing (CM044 #421); a
-failed fetch is `status: unavailable`. Retire: re-pin cm059_editor to 8b37a5e0 or later.

@@ -271,3 +271,190 @@ dedupe-merge-rule-2.yml.
 
 Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
 source this tree is cut from.
+
+## 2026-11-06: the people index embeds only who is new or changed (v1.0.126, item h)
+
+Regeneration not attempted, for the reason recorded in the sections above (the
+source has advanced past the pin, and HR015's `ingest_people_to_qdrant` is a
+different, older implementation), so this hand edit is recorded here.
+
+`vendor/ostler_fda/pwg_ingest.py`:
+
+- New `PEOPLE_EMBED_HASH_KEY` ("embed_text_sha256"), `PEOPLE_INDEX_CHUNK` (200,
+  env-overridable), `_embed_text_hash`, `_people_payload` (the payload block moved
+  out of the loop unchanged), `_qdrant_set_payloads` (POST
+  `/collections/{c}/points/payload`, the call vendored CM041 browsing_enrich already
+  makes), and the backlog record helpers `_people_index_state_path`,
+  `_people_index_record`, `_people_index_finish` (state/people-index.json, or
+  `OSTLER_PEOPLE_INDEX_STATE`).
+- `ingest_people_to_qdrant`: reads the stored points FIRST; a person whose stored
+  hash equals the hash of the text it would embed is not embedded (its payload is
+  still merged and written, payload only, when a non-embedded field moved). New
+  people (no point) are embedded before changed ones (hash absent or different), in
+  chunks that land as they go. `sent` keeps its meaning for install.sh: people
+  whose point is current after the pass. New result keys: `embedded`,
+  `already_current`, `payload_refreshed`, `backlog`. Deleted people: the PRUNE is
+  unchanged; it now projects from every person in the graph rather than from the
+  upserted points, the same set as before.
+
+Why: v1.0.125 walk, the people without a vector grew 240 -> 1789 in 4200 s on a
+first-run box because every hourly pass re-embedded every person. Proof:
+`tests/test_people_index_embeds_only_what_changed.py`, wired in
+dedupe-merge-rule-2.yml.
+
+Owed upstream: yes, HR015 `ostler_fda/pwg_ingest.py`, if HR015 is ever again the
+source this tree is cut from.
+
+## 2026-11-06: the people prune runs on a partial landing (v1.0.126, Archie on #3367)
+
+`vendor/ostler_fda/pwg_ingest.py`, `ingest_people_to_qdrant`: the PRUNE block moved
+unchanged (bar its guard 1 comment) from after the zero-landing and partial-landing
+returns to just before them, and `pruned` joins every result through `counts`. The
+prune reads the graph only (snapshot and fresh read), so a person whose embed failed
+is never stale; holding it back kept deleted and merged-away people searchable while
+any backlog persisted. Failed Qdrant calls (ensure, upsert) still return earlier and
+prune nothing. Proof: `tests/test_people_index_embeds_only_what_changed.py` (two
+prune arms) and the reversed arm in
+`tests/test_people_sweep_partial_landing_is_not_success.py`. Owed upstream: as above.
+
+## 2026-11-11: a dropped WhatsApp chat export is parsed and persisted (CM051 #3423, owner direction 2026-11-08)
+
+`vendor/ostler_fda/whatsapp_export.py` is a NEW file (the per-chat WhatsApp
+parser, iOS and Android line shapes, L2 payload, CM048 conversation shape).
+`vendor/ostler_fda/universal_import.py` gains `_dispatch_whatsapp_export`, which
+persists through the same `_stage_then_persist` sink the Messenger leg uses, and a
+`"whatsapp_export"` entry in `_DISPATCH`. The `recognised_no_parser` comment that
+stood where that entry now is goes with it.
+
+Why: owner direction 2026-11-08 (Andy) reversed the 2026-10-25 skip. Before this
+graft a dropped chat export was answered skip and never parsed. The regeneration
+was not attempted, for the reason recorded in the sections above (the source has
+advanced past the pin, so `regenerate_divergence_patch.sh` refuses), so this hand
+edit is recorded here.
+
+Proof: `tests/test_whatsapp_export_autoprocess.py` (six arms, RED on origin/main,
+GREEN on this graft), and `tests/test_no_whatsapp_chat_export_instruction.sh`
+section 3, which gates the watcher's import answer on the WhatsApp consent record.
+
+Owed upstream: no. The file has no HR015 counterpart at this pin.
+## 2026-11-11: every Python settling writer emits an explicit terminal marker (CM051 #3426, CM044 #429)
+
+`vendor/ostler_fda/calendar.py`, `imessage.py`, `whatsapp_history.py` (and, in the same
+PR, the shared helper `settling_progress.py`: `complete` / `skip_reason` params, the
+terminal-state block, `status`). CM044's reader now counts ONLY `complete` and `skip_reason`
+as terminal, so a final `done == total` emit left the Setting-up bar at 99 on a real box.
+
+- calendar: final emit `complete=True` (only when N > 0). `skip_reason`: `no_calendar`
+  (db missing), `permission_denied` (FDA refusal), `no_events` (zero rows). `_emit_settling`
+  gains `complete` and `skip_reason`.
+- imessage: final emit `complete=True`. `skip_reason`: `no_chat_db`, `permission_denied`,
+  `no_messages`. `_emit_settling` gains `complete`.
+- whatsapp: final emit `complete=True`. `needs_source=True` on a missing db or FDA denial
+  replaced by `skip_reason` `whatsapp_not_installed` / `permission_denied` (a customer
+  action nobody revisits must not hold the bar). `_emit_settling` gains `complete`.
+- Closes B3 in `docs/setup_progress_terminal_map.md`: a run that finished its window is
+  terminal even when `since_days` excluded older rows.
+
+Proof: `tests/test_settling_writers_end_to_end.py` (every writer over a synthetic input in a
+temp HOME; the CM044 reader reads exactly 100; with markers stripped it reads 99) and
+`tests/test_settling_denominator_terminal_writes.sh` (no Python allowlist).
+
+Owed upstream: yes, HR015 `ostler_fda/` (same four files plus tests): andygmassey/HR015-Gaming-PC#1418, linked from #3426.
+Retire this section when it lands and the tree is re-pinned past it.
+
+## v1.0.132: notification and organisation senders are left out of the people index
+
+Walk 131 triage item 2. Not captured by `ostler_fda.patch`; recorded here by hand.
+
+### `vendor/ostler_fda/pwg_ingest.py`
+
+- New module-level block after `DEFAULT_PRIVACY`: the `_SVC_*` regexes and
+  `service_sender_reason(name, phones)`, a copy of the rule the walk's
+  people-phrasing probe measures (`scripts/box_walk_probes/lib/customer_read.py`
+  `service_sender`). A row with a phone is exempt.
+- `ingest_people_to_qdrant()`: rows the rule flags are removed from `people`
+  right after `_load_people_from_oxigraph()`, BEFORE the embed. The existing
+  prune then removes any point they already held. Logged as a count only.
+
+Shape: one helper block, one filter. No I/O boundary moved, no collection,
+point id or vector size changed.
+
+### Why
+
+On the 131 walk box one People row named "<Shop> Receipts"-shaped was a
+`pwg:Person` in Oxigraph, was embedded, and surfaced as a person (the probe
+read 1 of 8063 at walk time; live 2 of 8571, both two-word, one with an email).
+
+### Owed upstream
+
+Yes: the source of `ostler_fda/pwg_ingest.py` (HR015 `ostler_fda/`). The same
+filter is to be made there so the next sync does not revert it. Retire this
+section when the upstream commit lands and `sync_vendor.sh ostler_fda` re-pins.
+
+### Pinned by
+
+`tests/test_people_projection_service_senders.py`: the end-to-end projection
+drops service senders, keeps synthetic real names and keeps a phone-carrying
+card. On the unfixed vendor tree the projection test is red.
+
+### Product rule is narrower than the probe's display rule (v1.0.132, Archie review of #3506)
+
+The projection's `service_sender_reason` (pwg_ingest.py) DROPS a row only on a
+strong signal: an unambiguous phrase, a plural keyword form, a legal form, a
+marketplace or domain, "the <x> team", or a service mailbox local part on an
+email. A SINGULAR ambiguous word (gift, deal, card, bank, club, shop, team, ...)
+drops nothing on its own, because it is a given name or surname.
+
+The walk probe (`scripts/box_walk_probes/lib/customer_read.py` `service_sender`)
+keeps its display rule unchanged. Where they differ, the probe flags a row the
+product keeps: a singular ambiguous word with no second signal (a given name plus a singular ambiguous surname, and a given name Gift). Those rows are real people by design. A probe FAIL on such a row
+is a probe-side false positive, not a product defect.
+
+Pinned by `tests/test_people_projection_service_senders.py`: the negative
+controls (a given name plus each ambiguous surname, the given name Gift, one CJK
+personal name, and email-only people with personal addresses) must stay.
+
+## 2026-11-14: CLI defaults resolve the owner-side link first, universal_import.py
+
+`vendor/ostler_fda/universal_import.py`: `_owner_side_or(name, fallback)`, used by `_DEFAULT_KNOWLEDGE_BIN` and `_DEFAULT_PWG_CONVO_BIN`. Order: the `OSTLER_KNOWLEDGE_BIN` / `PWG_CONVO_BIN` env vars (unchanged, checked first at the call sites), then `${OSTLER_DIR}/bin/<name>` if it exists, then `/usr/local/bin/<name>`.
+
+Why: a GUI install links these CLIs into the owner's `${OSTLER_DIR}/bin` because `/usr/local/bin` is root-owned on a stock Mac (install.sh `_ostler_link_cli`). The default ran `/usr/local/bin/...`, which does not exist there, so the import path could not find the CLI. Tests: the same owner-side-first check as `tests/test_pwg_convo_bin_owner_side_first.py` covers the ical-server copy; this file has no separate test, so it is covered by the reasoning above and by that test's pattern only. Named as such, not claimed as tested here.
+## 2026-11-14: supplement dedupe against the live WhatsApp store (CM051 #3423)
+
+Edited in `vendor/ostler_fda/whatsapp_export.py`: message keys (`message_key`,
+`_plain`, `live_messages_from_transcript`), the live index
+(`record_live_transcript`, `live_key_counts`, `default_live_index_path`) and the
+export filter (`drop_already_live`), plus `chat_to_payload(chat, cid=)`.
+Edited in `vendor/ostler_fda/universal_import.py`: `_dispatch_whatsapp_export`
+drops messages the live store holds, keeps the full chat's conversation id, and
+persists nothing when every message is already live.
+
+Why not upstream: the export importer exists only in CM051 (the 2026-11-08 owner
+direction); HR015 has no WhatsApp export parser. Re-vendor must keep these or the
+dedupe is silently gone. Proof: `tests/test_whatsapp_export_dedupe.py`.
+
+## 2026-11-14: the WhatsApp export pins no privacy level; labels come from the contacts file
+
+`vendor/ostler_fda/whatsapp_export.py`: the `privacy_level: L2` pin is removed,
+along with the `PRIVACY_L2` constant. `chat_to_payload` adds the DM's operator labels
+(`contact_label`, and an explicit `privacy_level` if the operator set one) through
+`export_labels`, which reads `OSTLER_WHATSAPP_CONTACTS`. The chat name must equal
+exactly one contact's display name. Group exports get no label. A configured file
+that cannot be read raises, so the import reports it.
+
+CM048's `_whatsapp_resolve_privacy` (vendored, `vendor/cm048_pipeline/src/channel_adapter.py`)
+is the one resolver for both channels. The change there is a guard: with no
+classification, or one with no sensitivity level, it returns L3 (after the explicit
+override, as before). Proof: `tests/test_whatsapp_privacy_parity.py`. RED on
+b2553556: family, highly-sensitive and sensitive arms give L2, and the labelled and
+sensitive parity arms differ.
+
+## 2026-11-14: group exports resolve their labels through the live index
+
+`vendor/ostler_fda/whatsapp_export.py`: the live index (`whatsapp_live_message_keys.json`)
+now stores, per live chat, whether it is a group and a SHA-256 of its title (never the
+name). A group export has no chat id, so `export_chat_labels` matches its name to live
+group entries by that hash: exactly one takes that chat id's `group:<id>` labels from
+`OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
+one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
+`is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).

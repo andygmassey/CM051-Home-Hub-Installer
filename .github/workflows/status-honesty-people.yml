@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers nameparser qdrant-client vobject pyyaml
+      - run: python -m pip install --quiet pytest pyoxigraph httpx rapidfuzz phonenumbers "nameparser>=2.1.0,<3.0" qdrant-client vobject pyyaml
       - name: People ingest status honesty
         run: |
           set -eu

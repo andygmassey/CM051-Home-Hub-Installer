@@ -42,6 +42,12 @@ States, each distinct, none folded into another:
                      many ticks in a row had no pass, and the last completed
                      pass carried forward (its time and node count).
 * ``yielded``        the tick did not run the pass: the ingest slot was busy.
+* ``in_progress``    a pass is running now (or was killed part-way). The
+                     runner rewrites the file as each reader finishes; the
+                     reason carries how many readers are done.
+* ``stale``          an ``in_progress`` record whose last stamp is more than
+                     3 hours old: the pass was killed part-way and will not
+                     finish. Shown amber, never "still learning" forever.
 * ``unreadable``     a record exists and could not be parsed. "Could not
                      check", never "nothing".
 
@@ -55,9 +61,42 @@ import html
 import json
 import os
 import plistlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 LABEL = "com.ostler.derive-preferences"
+
+# An in_progress record older than this has stopped moving. A real reader pass
+# rewrites the record after every reader, so 3 hours with no stamp means the
+# pass was killed. Mirrored in assistant_api/ical-server.py (_DERIVE_STALE_AFTER_S).
+STALE_AFTER_S = 3 * 3600
+
+
+def _parse_stamp(stamp) -> datetime | None:
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        t = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def pass_is_stale(rec: dict, now: datetime | None = None) -> bool:
+    """True when an in_progress record has stopped moving.
+
+    The freshest stamp is the progress record's updated_at, then its
+    started_at, then the record's last_run_at. A record with no usable stamp
+    cannot show it is moving, so it counts as stale."""
+    if not isinstance(rec, dict) or rec.get("outcome") != "in_progress":
+        return False
+    prog = rec.get("progress") if isinstance(rec.get("progress"), dict) else {}
+    stamp = _parse_stamp(prog.get("updated_at")) or _parse_stamp(prog.get("started_at")) \
+        or _parse_stamp(rec.get("last_run_at"))
+    if stamp is None:
+        return True
+    now = now or datetime.now(timezone.utc)
+    return now - stamp > timedelta(seconds=STALE_AFTER_S)
 
 
 def _ostler_dir() -> Path:
@@ -114,13 +153,19 @@ def read_derived_preferences_status(
     outcome = str(rec.get("outcome") or "")
     out["status"] = outcome if outcome in {
         "written", "empty", "not_written", "cannot_start", "failed",
-        "deferred", "yielded"} else "unreadable"
+        "deferred", "yielded", "in_progress"} else "unreadable"
     if out["status"] == "failed":
         out["status"] = "not_written"
+    if out["status"] == "in_progress" and pass_is_stale(rec):
+        out["status"] = "stale"
     out["last_run_at"] = rec.get("last_run_at")
     n = rec.get("graph_node_count")
     out["node_count"] = int(n) if isinstance(n, int) else None
     out["reason"] = str(rec.get("reason") or "")
+    prog = rec.get("progress")
+    if out["status"] == "in_progress" and isinstance(prog, dict):
+        out["reason"] = "{} of {} sources read so far".format(
+            _num_or(prog.get("readers_done")), _num_or(prog.get("readers_total")))
     c = rec.get("consecutive")
     out["consecutive"] = int(c) if isinstance(c, int) and not isinstance(c, bool) else None
     if not out["scheduled"]:
@@ -140,6 +185,8 @@ _WORDS = {
     "cannot_start": "could not start",
     "deferred": "waiting for a quieter moment",
     "yielded": "waiting for an import to finish",
+    "in_progress": "still learning",
+    "stale": "last preferences pass did not finish",
     "unreadable": "record unreadable",
 }
 _COLOUR = {
@@ -151,6 +198,8 @@ _COLOUR = {
     "cannot_start": "#7A1F1F",
     "deferred": "#5C4611",
     "yielded": "#5C4611",
+    "in_progress": "#5C4611",
+    "stale": "#5C4611",
     "unreadable": "#7A1F1F",
 }
 _EXPLAIN = {
@@ -163,7 +212,13 @@ _EXPLAIN = {
              "look-ups you can turn on in setup.",
     "not_written": "The previous results were kept.",
     "cannot_start": "Re-running the installer reinstalls what it needs.",
+    "stale": "It started a pass that stopped before it finished. The next "
+             "scheduled pass runs again; the previous results stay in place.",
 }
+
+
+def _num_or(v) -> int:
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) else 0
 
 
 def _every(interval_s) -> str:

@@ -36,6 +36,12 @@
 # the collect in its own process group and TERM then KILLs that group at the deadline
 # (an ssh session has no pty, so killing the client would orphan the remote work).
 # A budget hit is CANNOT-RUN-BUDGET, never PASS and never FAIL.
+# Phase 2 (verify_cut_manifest.py _data_conservation_timeout_seconds) caps this probe at the budget it
+# will read plus a margin, so this budget, not the flat per-probe cap, is what ends it.
+# NOT A NUMBER PROBLEM ON A LARGE BOOK: the SHOWN stage runs is_shown once per stored item per group
+# (up to SHOWN_SAMPLE_CAP each), and each call scans the whole normalised wiki. Cost is items x corpus.
+# v1.0.125 book: 512 MB of markdown over 61k pages, 118k preferences, ~0.23 s per scan measured on the
+# MBP: it did not finish in 5400 s, and no fixed budget scales with the book.
 #
 # EXIT: 0 PASS, 1 FAIL (any LOST), 78 CANNOT-RUN (an instrument could not read,
 # or no rows, or CANNOT-RUN-BUDGET). CANNOT-RUN is not a pass.

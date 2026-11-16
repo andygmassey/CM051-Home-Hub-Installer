@@ -31,7 +31,7 @@
 #
 # Exit 0 all pass, 1 any FAIL, 2 CANNOT-RUN.
 #
-# TO UPDATE A PIN (e.g. gemma4:e2b replaced in v1.0.109): resolve the new tag's
+# TO UPDATE A PIN (e.g. gemma4:e2b replaced by qwen3.5:4b for the 16 GB tier): resolve the new tag's
 # manifest from https://registry.ollama.ai/v2/library/<name>/manifests/<tag>
 # with `Accept: application/vnd.docker.distribution.manifest.v2+json`, read
 # .config.digest, do it direct (`--noproxy '*'`) AND default-routed and require
@@ -105,14 +105,14 @@ else
     else
         bad "A coverage: examined ${n:-0} (need >=3); $(tr '\n' ';' <<<"$miss")"
     fi
-    # Mutant: delete the gemma4:e2b row; the arm must go RED for that model.
-    grep -v '^    "gemma4:e2b ' "$INSTALL" > "$W/mutant.sh"
+    # Mutant: delete the qwen3.5:4b row; the arm must go RED for that model.
+    grep -v '^    "qwen3.5:4b ' "$INSTALL" > "$W/mutant.sh"
     if cmp -s "$INSTALL" "$W/mutant.sh"; then
-        bad "A mutant did not apply (no gemma4:e2b row to delete)"
-    elif grep -q '^MISSING gemma4:e2b$' <<<"$(coverage "$W/mutant.sh")"; then
-        pass "A mutant: deleting the gemma4:e2b pin turns coverage RED"
+        bad "A mutant did not apply (no qwen3.5:4b row to delete)"
+    elif grep -q '^MISSING qwen3.5:4b$' <<<"$(coverage "$W/mutant.sh")"; then
+        pass "A mutant: deleting the qwen3.5:4b pin turns coverage RED"
     else
-        bad "A mutant: deleting the gemma4:e2b pin was NOT caught"
+        bad "A mutant: deleting the qwen3.5:4b pin was NOT caught"
     fi
 fi
 

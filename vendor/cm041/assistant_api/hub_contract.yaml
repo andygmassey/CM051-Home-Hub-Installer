@@ -160,13 +160,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -197,13 +202,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "install.sh"
@@ -464,10 +473,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -495,10 +507,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -615,6 +632,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -983,13 +1001,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -1037,10 +1061,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "install.sh"
   },
@@ -1410,10 +1443,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -1527,6 +1563,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -1773,7 +1810,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "install.sh"
   },
@@ -3005,13 +3043,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3043,13 +3086,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -3323,10 +3370,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3508,13 +3560,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3602,10 +3660,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3820,6 +3887,42 @@
     "device_bearer"
    ],
    "body_limit_bytes": null,
+   "id": "gateway GET /api/v1/people/timeline",
+   "listener": "gateway",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:GET:/api/v1/people/timeline",
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
    "id": "gateway GET /api/v1/people/{slug}/enrichment",
    "listener": "gateway",
    "method": "GET",
@@ -3836,6 +3939,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -3867,10 +3971,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -3964,7 +4071,9 @@
    "response_fields": [
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "match_count",
     "nodes_matched",
     "person_uris",
     "reason",
@@ -4247,7 +4356,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4998,13 +5108,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5034,13 +5149,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5198,10 +5317,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -5228,10 +5350,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5392,6 +5519,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -5414,7 +5542,20 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "found"
+    "confidence",
+    "conflict",
+    "conflicting_employers",
+    "corroboration",
+    "corroboration_available",
+    "employer",
+    "former_employers",
+    "found",
+    "identity_fragmented",
+    "job_title",
+    "signal",
+    "source_fact",
+    "start_date",
+    "verified"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5517,13 +5658,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5545,8 +5692,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "considered",
     "count",
     "degraded",
+    "filtered",
     "meetings",
     "reason",
     "within_minutes"
@@ -5595,10 +5744,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5869,6 +6027,39 @@
     "service_token"
    ],
    "body_limit_bytes": null,
+   "id": "ical GET /api/v1/people/timeline",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
    "id": "ical GET /api/v1/people/{slug}/enrichment",
    "listener": "ical",
    "method": "GET",
@@ -5883,6 +6074,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -5911,10 +6103,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -5999,7 +6194,9 @@
    "response_fields": [
     "degraded",
     "error",
+    "found",
     "identifiers_recorded",
+    "match_count",
     "nodes_matched",
     "person_uris",
     "reason",
@@ -6036,6 +6233,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -6098,7 +6296,8 @@
     "degraded",
     "error",
     "generated_at",
-    "items"
+    "items",
+    "still_learning"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6290,7 +6489,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

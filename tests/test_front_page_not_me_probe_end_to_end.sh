@@ -50,9 +50,11 @@ mkdir -p "${TMP}/edA"; start_doctor "${REPO}/vendor/doctor/agent" "${TMP}/edA"; 
 [ "$RC" = 0 ] && ok "A: real route + real store -> probe PASS" || bad "A: rc=$RC"
 grep -q 'walkprobe-' "${TMP}/edA/interest_corrections.json" 2>/dev/null \
   && bad "A: synthetic ids left in the store after the probe" || ok "A: the probe cleaned its synthetic ids"
-# Expected editor emit artefact (exact name only): CM059 #39 writes reply_debt.json on every front-page emit.
+# Expected editor emit artefacts (exact names only): CM059 #39 writes reply_debt.json on every
+# front-page emit; CM059 #40 writes signals_last_good.json beside it after a good Hub fetch.
 ALLOWED_EMIT="reply_debt.json"
-left_unexpected() { ls -A "$1" | grep -vx -- "${ALLOWED_EMIT}"; }   # prints files that are NOT the allowed artefact
+ALLOWED_LAST_GOOD="signals_last_good.json"
+left_unexpected() { ls -A "$1" | grep -vx -e "${ALLOWED_EMIT}" -e "${ALLOWED_LAST_GOOD}"; }   # prints files that are NOT an allowed artefact
 LEFT="$(left_unexpected "${TMP}/edA")"
 [ -z "$LEFT" ] && ok "I: no unexpected files left (only the allowed editor emit artefact, if any)" \
   || bad "I: the probe left files that did not exist before it ran: $(echo $LEFT)"
@@ -63,9 +65,10 @@ else
   bad "I: reply_debt.json was not written by the emit (expected editor artefact absent)"
 fi
 # mutant: a stray file (and a near-name) must still be caught
-mkdir -p "${TMP}/edM"; : > "${TMP}/edM/${ALLOWED_EMIT}"; : > "${TMP}/edM/stray.json"; : > "${TMP}/edM/reply_debt.json.bak"
-[ "$(left_unexpected "${TMP}/edM" | sort | tr '\n' ' ')" = "reply_debt.json.bak stray.json " ] \
-  && ok "I-mutant: stray.json and reply_debt.json.bak are still flagged as litter" || bad "I-mutant: litter check blind to a stray file"
+mkdir -p "${TMP}/edM"; : > "${TMP}/edM/${ALLOWED_EMIT}"; : > "${TMP}/edM/${ALLOWED_LAST_GOOD}"
+: > "${TMP}/edM/stray.json"; : > "${TMP}/edM/reply_debt.json.bak"; : > "${TMP}/edM/signals_last_good.json.tmp"
+[ "$(left_unexpected "${TMP}/edM" | sort | tr '\n' ' ')" = "reply_debt.json.bak signals_last_good.json.tmp stray.json " ] \
+  && ok "I-mutant: both allowed artefacts pass; stray.json and two near-names are still flagged as litter" || bad "I-mutant: litter check blind to a stray file"
 
 echo "== B fake no-persist server =="
 cat > "${TMP}/fake.py" <<'PYF'

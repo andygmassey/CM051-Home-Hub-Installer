@@ -86,7 +86,10 @@ concurrency:
 jobs:
   probe-tests:
     runs-on: macos-latest
-    timeout-minutes: 60
+    # 90, not 60: on 2026-11-06/07 this job was cancelled at exactly 60 min on
+    # #3352 #3364 #3367 #3368 alike, and successful runs took 61-78 min wall.
+    # The cap was cutting a slow suite, not catching a hang. Split owed (r25).
+    timeout-minutes: 90
     steps:
       # fetch-depth 0: test_ingest_coverage_probe.sh pins its negative control
       # to the pre-fix blob (git show ae5707d4:...), the tree whose parser read

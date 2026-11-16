@@ -166,6 +166,9 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "scripts/repair_netflix_rating_polarity.py": [
         '${SRCROOT}/../scripts/repair_netflix_rating_polarity.py'
     ],
+    "scripts/remotecapture_transcription.sh": [
+        '${SRCROOT}/../scripts/remotecapture_transcription.sh'
+    ],
     # ⚠️ THIS ONE IS STILL COVERAGE-BLIND AND I AM SAYING SO RATHER THAN
     # HIDING IT. A cp-unique needle for this asset would have to be the cp
     # LINE itself, because its source is assigned three lines earlier as
@@ -198,6 +201,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # ostler-conversations-mirror.sh: sourced by bin/ostler-fda each tick (the derive
     # tick's ~/Documents mirror); bundled by the same postBuildScript.
     "lib/ostler-conversations-mirror.sh": ['${SRCROOT}/../lib/ostler-conversations-mirror.sh'],
+    # ostler-loopback-guard.sh: install.sh FAILS CLOSED without it, and the
+    # installer's admin shell runs its install-root from the bundle.
+    "lib/ostler-loopback-guard.sh": ['${SRCROOT}/../lib/ostler-loopback-guard.sh'],
+
+    # v1.0.126: the container VM size table, sourced before `colima start`;
+    # bundled by the same postBuildScript. Missing = the old fixed 4 GiB VM.
+    "lib/ostler-vm-size.sh": ['${SRCROOT}/../lib/ostler-vm-size.sh'],
     "bin": ['${SRCROOT}/../bin/ostler-engine-supervisor.sh'],
     # settling_progress.sh: install.sh sources
     # ${SCRIPT_DIR}/lib/settling_progress.sh so CM041 contact_syncer and CM021
@@ -210,6 +220,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # above. The needle asserts the bundling reference, so removing the cp line
     # goes red instead of shipping a silent no-op.
     "lib/settling_progress.sh": ['${SRCROOT}/../lib/settling_progress.sh'],
+    # settling_channels.json: the fixed Setting-up channel set (CM051 #3426).
+    # install.sh copies it to ~/.ostler/state/; gui/project.yml cp's it into
+    # Resources/lib/. The needle asserts the bundling reference.
+    "lib/settling_channels.json": ['${SRCROOT}/../lib/settling_channels.json'],
     # #399: the end-of-install confirmation helpers. install.sh's
     # confirmation block probes ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py
     # and ${SCRIPT_DIR}/lib/ostler-confirm-identity.py and SILENTLY skips the
@@ -339,6 +353,9 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     # line itself is unique to the copy actually happening.
     "scripts/repair_netflix_rating_polarity.py": [
         'cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"'
+    ],
+    "scripts/remotecapture_transcription.sh": [
+        'cp "${SRC_RCT}" "${DEST}/scripts/remotecapture_transcription.sh"'
     ],
     # SRC is assigned above the cp, so the source path survives deleting the
     # copy; only the cp line is unique to the copy actually happening.

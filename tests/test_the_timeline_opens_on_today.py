@@ -84,6 +84,8 @@ for i in range(50):
 
 
 def fake_sparql(query):
+    if "PhotoEvent" in query:
+        return []  # this synthetic box has no Photos events
     start = re.search(r'> "(\d{4}-\d{2}-\d{2})"\)', query)
     end = re.search(r'< "(\d{4}-\d{2}-\d{2})"\)', query)
     limit = int(re.search(r"LIMIT (\d+)", query).group(1))

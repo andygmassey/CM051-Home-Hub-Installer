@@ -103,7 +103,7 @@ TMP="$(mktemp -d)"
 SERVER_PIDS=""
 # shellcheck disable=SC2329  # invoked by the EXIT trap below
 cleanup() {
-    for p in $SERVER_PIDS; do kill "$p" 2>/dev/null; done
+    for p in $SERVER_PIDS $(cat "$TMP/llama.pids" 2>/dev/null); do kill "$p" 2>/dev/null; done
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -271,7 +271,47 @@ ARMS=""   # set by an arm to override OSTLER_PROBE_ARMS; empty = the default
 # Class 3 (S1). Empty CRED/KNOWN = class 3 off, so arms 1-17 measure what they
 # always did. SECOND "env" runs the "second identity" as this account (a test
 # cannot sudo); the fake decides refuse/serve, which is what is adjudicated.
-CRED=""; OWNERR=""; SECOND=""; KNOWN=""; MATCH=""
+CRED=""; OWNERR=""; SECOND=""; KNOWN=""; MATCH=""; OGUARD=""
+# 3c (v1.0.126 loopback guard). A second identity BEHIND the guard: every
+# connect the probe makes with --connect-timeout (3c only) is dropped, which
+# curl reports as http 000, rc 28. Anything else runs as asother does.
+cat > "$TMP/asother_guard" <<'STUB'
+#!/bin/bash
+if [ "$*" = "/usr/bin/id -u" ]; then echo 4242; exit 0; fi
+case "$*" in *--connect-timeout*) printf 000; exit 28 ;; esac
+exec "$@"
+STUB
+chmod +x "$TMP/asother_guard"
+# A guard that holds on 127.0.0.1 but NOT on ::1 (e.g. rules pinned to inet).
+cat > "$TMP/asother_guard_v4only" <<'STUB'
+#!/bin/bash
+if [ "$*" = "/usr/bin/id -u" ]; then echo 4242; exit 0; fi
+case "$*" in *--connect-timeout*127.0.0.1*) printf 000; exit 28 ;; esac
+exec "$@"
+STUB
+chmod +x "$TMP/asother_guard_v4only"
+# A stand-in Ollama runner: its command line names llama-server (what 3b/3c
+# key on) and fake.py (LISTENER_MATCH). It answers 200 to anyone, as Ollama
+# does: Ollama has no auth, so only the guard can refuse.
+cat > "$TMP/llama-server-fake.py" <<'PY'
+import http.server, socketserver, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+s = socketserver.TCPServer(("127.0.0.1", 0), H)
+open(sys.argv[1], "w").write(str(s.server_address[1]))
+s.serve_forever()
+PY
+start_llama() {   # prints the port
+    local pf="$TMP/llama.$RANDOM"
+    python3 "$TMP/llama-server-fake.py" "$pf" >/dev/null 2>&1 &
+    echo "$!" >> "$TMP/llama.pids"   # a file: start_llama runs inside $( ), a variable would die with it
+    for _ in $(seq 1 100); do [[ -s "$pf" ]] && break; sleep 0.1; done
+    [[ -s "$pf" ]] || { echo "CANNOT-RUN: the fake runner never bound" >&2; exit 2; }
+    cat "$pf"
+}
+stop_llamas() { local p; for p in $(cat "$TMP/llama.pids" 2>/dev/null); do kill "$p" 2>/dev/null; done; rm -f "$TMP/llama.pids"; }
 # A stand-in second identity: it reports a uid that is not ours to `id -u`
 # (the probe refuses a "second identity" with the owner's uid) and otherwise
 # runs the command as this account. The fake server decides refuse/serve.
@@ -292,6 +332,7 @@ run_probe() {
         OSTLER_PROBE_CRED_ROUTES="${CRED:-}" OSTLER_PROBE_OWNER_ROUTE="${OWNERR:-}" \
         OSTLER_PROBE_SECOND_ID_CMD="${SECOND:-$TMP/asother}" \
         OSTLER_PROBE_KNOWN_LISTENERS="${KNOWN:-}" OSTLER_PROBE_LISTENER_MATCH="${MATCH:-fake.py}" \
+        OSTLER_PROBE_OLLAMA_GUARD_PORT="${OGUARD:-}" OSTLER_PROBE_OLLAMA_GUARD_CONNECT_S=1 \
         OSTLER_PROBE_WIKI_GATE_CONF="${GATE:-$TMP/no-such-gate.conf}" \
         OSTLER_GATEWAY_PORT="$ctrl" \
         OSTLER_PROBE_MUST_NOT_LISTEN="" \
@@ -454,7 +495,7 @@ STUB
            OSTLER_PROBE_SURFACES="$HTTP:wiki:/query?query=ASK%7B%7D" \
            OSTLER_PROBE_CRED_ROUTES="$HTTP:POST:/api/v1/auth/chat-token" OSTLER_PROBE_OWNER_ROUTE="" \
            OSTLER_PROBE_SECOND_ID_CMD="$TMP/asother" OSTLER_PROBE_KNOWN_LISTENERS="$CTRL $HTTP" \
-           OSTLER_PROBE_LISTENER_MATCH="fake.py" \
+           OSTLER_PROBE_LISTENER_MATCH="fake.py" OSTLER_PROBE_OLLAMA_GUARD_PORT="" \
            OSTLER_PROBE_WIKI_PASSWORD_FILE="$TMP/wiki_password" \
            OSTLER_PROBE_STORE_CURL_CONF="$TMP/store-curl.conf" \
            bash "$1" 2>&1)"; rc=$?; LAST_OUT="$out"
@@ -722,6 +763,72 @@ arm_declared_listeners_is_pass() {       # 23 control for 22: the same box, port
     return 0
 }
 
+# ── class 3c (v1.0.126): Ollama has no auth; only the loopback guard refuses ──
+arm_ollama_guard_holds_is_pass() {      # 24
+    local out rc g r
+    start_server refuse "" ""; g="$(start_llama)"; r="$(start_llama)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP $g"; OGUARD="$g"; SECOND="$TMP/asother_guard"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; SECOND=""; LAST_OUT="$out"
+    stop_llamas; stop_server
+    [[ "$rc" -eq 0 ]] || return 1
+    [[ "$(count 'VERDICT: PASS' "$out")" -eq 1 ]] || return 1
+    [[ "$(grep -o 'dropped-by-guard' <<<"$out" | wc -l | tr -d ' ')" -ge 3 ]] || return 1
+    [[ "$(count "[::1]:${g}/api/version(dropped-by-guard)" "$out")" -ge 1 ]] || return 1
+    [[ "$(count '1 runner port(s)' "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_ollama_no_guard_is_fail() {         # 25 RED CONTROL: the same box with no guard
+    local out rc g r
+    start_server refuse "" ""; g="$(start_llama)"; r="$(start_llama)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP $g"; OGUARD="$g"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; LAST_OUT="$out"
+    stop_llamas; stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${g}/api/version(200,second-identity,ollama-has-no-auth)" "$out")" -eq 1 ]] || return 1
+    [[ "$(count "${r}/health(200,second-identity,ollama-has-no-auth)" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_ollama_owner_locked_out_is_fail() { # 26 the guard drops the OWNER too
+    local out rc g
+    start_server refuse "" ""; g="$(closed_port)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP"; OGUARD="$g"; SECOND="$TMP/asother_guard"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; SECOND=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${g}/api/version(owner-cannot-connect:rc7)" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_ollama_kernel_refused_is_fail() {   # 27 no guard in the path at all
+    local out rc g
+    start_server refuse "" ""; g="$(closed_port)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP"; OGUARD="$g"; ARMS=1
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; ARMS=""; LAST_OUT="$out"
+    stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "kernel-refused:no-guard-in-path" "$out")" -eq 1 ]] || return 1
+    return 0
+}
+arm_ollama_v6_unguarded_is_fail() {     # 29 the guard holds on 127.0.0.1 but not on ::1
+    local out rc g
+    start_server refuse "" ""; g="$(start_llama)"
+    CRED="$HTTP:GET:/x"; KNOWN="$CTRL $HTTP $g"; OGUARD="$g"; SECOND="$TMP/asother_guard_v4only"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; CRED=""; KNOWN=""; OGUARD=""; SECOND=""; LAST_OUT="$out"
+    stop_llamas; stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "[::1]:${g}/api/version(kernel-refused-v6:no-guard-in-path,second-identity)" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+arm_runner_unmeasured_is_not_exempt() { # 28 no second identity -> a runner is NOT waved through
+    local out rc r
+    start_server refuse "" ""; r="$(start_llama)"
+    KNOWN="$CTRL $HTTP"; OGUARD="11434"
+    out="$(run_probe "$1" "$CTRL" "" "" "")"; rc=$?; KNOWN=""; OGUARD=""; LAST_OUT="$out"
+    stop_llamas; stop_server
+    [[ "$rc" -eq 1 ]] || return 1
+    [[ "$(count "${r}(unknown-listener:" "$out")" -ge 1 ]] || return 1
+    return 0
+}
+
 report() {   # $1 name, $2 rc of the arm
     if [[ "$2" -eq 0 ]]; then
         printf '  [pass] %s\n' "$1"; pass=$((pass + 1))
@@ -767,6 +874,12 @@ arm_second_identity_same_uid_is_cannot_run "$PROBE"; report "21b S1: a \"second 
 arm_second_identity_over_ssh_no_sudo "$PROBE"; report "21c S1: the non-sudo route (ssh as a walk user) runs 3a and catches a served route" $?
 arm_unknown_listener_is_fail "$PROBE";      report "22 S1: an undeclared listener -> FAIL naming it" $?
 arm_declared_listeners_is_pass "$PROBE";    report "23 S1 control: the same listener declared -> PASS" $?
+arm_ollama_guard_holds_is_pass "$PROBE";    report "24 3c: second identity dropped on :11434 and a runner, owner served -> PASS" $?
+arm_ollama_no_guard_is_fail "$PROBE";       report "25 3c RED control: no guard, Ollama answers the second identity -> FAIL naming both ports" $?
+arm_ollama_owner_locked_out_is_fail "$PROBE"; report "26 3c: the owner cannot connect -> FAIL (lock-out), never a pass" $?
+arm_ollama_kernel_refused_is_fail "$PROBE"; report "27 3c: kernel-refused for the second identity = no guard in the path -> FAIL" $?
+arm_runner_unmeasured_is_not_exempt "$PROBE"; report "28 3c control: runner with no second identity is NOT exempt (unknown-listener)" $?
+arm_ollama_v6_unguarded_is_fail "$PROBE";   report "29 3c: dropped on 127.0.0.1 but kernel-refused on ::1 (no guard in the v6 path) -> FAIL naming [::1]" $?
 
 # ---------------------------------------------------------------------------
 # Mutants. The probe sources ../lib/probe.sh relative to its own directory, so
@@ -840,6 +953,23 @@ run_mutant M5-arm1b-stops-recording-a-forged-identity-read arm_wikigate_credenti
 # shellcheck disable=SC2016
 run_mutant M6-the-wikigate-config-lines-run-together arm_wikigate_intact_is_pass \
     's/; echo; printf .header/; printf .header/'
+
+# M9 blinds 3c's record of an Ollama port that answered the second identity.
+# shellcheck disable=SC2016
+run_mutant M9-3c-stops-recording-a-served-ollama-port arm_ollama_no_guard_is_fail \
+    's/^            \[1-5\]\[0-9\]\[0-9\]:\*) readable_list=.*$/            [1-5][0-9][0-9]:*) : ;;/'
+# M10 makes the runner exemption unconditional (the #3351 shape): arm 28 must go red.
+# shellcheck disable=SC2016
+run_mutant M10-runner-exempt-without-a-measured-refusal arm_runner_unmeasured_is_not_exempt \
+    's/if (rg == 1 \&\& runner) next/if (1 \&\& runner) next/'
+# M11 reads a pf drop as a pass for the OWNER: arm 26 must go red.
+# shellcheck disable=SC2016
+# M12 reads a v6 kernel refusal as a guard drop: arm 29 must go red.
+# shellcheck disable=SC2016
+run_mutant M12-v6-kernel-refusal-reads-as-dropped arm_ollama_v6_unguarded_is_fail \
+    's/^        000:7)  readable_list="${readable_list} \[::1\]/        000:7)  refused_list="${refused_list} [::1]/'
+run_mutant M11-owner-timeout-reads-as-served arm_ollama_owner_locked_out_is_fail \
+    's/^                200) served_list="${served_list} ${port}${path}(owner)" ;;$/                200|000) served_list="${served_list} ${port}${path}(owner)" ;;/'
 
 echo ""
 echo "== ${pass} passed, ${fail} failed, ${cannot} cannot-run =="

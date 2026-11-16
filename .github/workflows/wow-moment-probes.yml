@@ -15,6 +15,8 @@ on:
       - 'scripts/box_walk_probes/probes/morning_brief_catches_me_up.sh'
       - 'tests/test_wow_moment_probes.sh'
       - 'tests/test_reply_debt_probe_names_the_missed_debt.py'
+      - 'tests/test_morning_reply_naming_top_n.py'
+      - 'tests/test_morning_brief_repeat_evidence.py'
       - '.github/workflows/wow-moment-probes.yml'
   push:
     branches: [main]
@@ -37,3 +39,9 @@ jobs:
       - name: a missed reply debt is named in the evidence (seed name, else shape only)
         if: always()
         run: python3 tests/test_reply_debt_probe_names_the_missed_debt.py
+      - name: the morning brief reply arm grades the shown top N, checks the 'and N more' count, and logs every dropped row
+        if: always()
+        run: python3 tests/test_morning_reply_naming_top_n.py
+      - name: a repeated brief line leaves hashes and line numbers on the box, never its text, and the verdict count is unchanged
+        if: always()
+        run: python3 tests/test_morning_brief_repeat_evidence.py

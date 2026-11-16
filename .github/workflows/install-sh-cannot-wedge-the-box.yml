@@ -121,10 +121,10 @@ jobs:
         run: /bin/bash tests/test_the_shipped_compose_mounts_ai_conversations.sh
 
       # 9. AND THE SAME DEFECT A FOURTH TIME, ON THE HUMAN CONVERSATIONS TREE
-      #    (#979 again). The step above guards ~/Documents/Ostler/AI
+      #    (#979 again). The step above guards ~/Ostler/AI
       #    Conversations. It could never have caught this one: the four-artefact
       #    bundles from iMessage, WhatsApp, email and calls live in the SIBLING
-      #    tree ~/Documents/Ostler/Conversations, which the shipping heredoc
+      #    tree ~/Ostler/Conversations, which the shipping heredoc
       #    did not mount and did not name. Three readers walk it, all three are
       #    called from compile.py, and all three resolved it through
       #    expanduser("~") inside an image whose HOME is /root, so each wrote an

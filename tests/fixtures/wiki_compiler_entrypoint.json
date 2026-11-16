@@ -1,0 +1,7 @@
+{
+  "_source": "CM044 docker/Dockerfile.compiler at commit 6b657c88a6471fc8a162f0a744aeb1bd961c1d1d, line 63 (ENTRYPOINT) and compiler/compile.py add_argument lines 1951-1954 at the same commit. Digest bound in scripts/wiki_image_provenance.tsv. Entrypoint re-read from the pinned image config (ghcr manifest sha256 be890cc7, Entrypoint python -m compiler).",
+  "_image_digest": "sha256:be890cc7e690de289902b1c54506ebe7045c0d0ee4e20acea2abbb8ca6037d54",
+  "_commit": "6b657c88a6471fc8a162f0a744aeb1bd961c1d1d",
+  "entrypoint": ["python", "-m", "compiler"],
+  "flags": {"--no-llm": 0, "--page": 1, "--output-dir": 1, "--settling-only": 0}
+}

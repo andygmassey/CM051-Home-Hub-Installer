@@ -62,7 +62,12 @@ _HUB = ("Hub-only route; NOT read by context-refresh or meeting_syncer.brief "
         "(grep 2026-11-03). oa-side consumers NOT audited")
 
 OUTBOUND = {
-    (ICAL, "person_context"), (ICAL, "person_enrichment"), (ICAL, "person_timeline"),
+    (ICAL, "person_context"), (ICAL, "person_enrichment"),
+    # CM041 #273: the timeline body moved out of person_timeline (slug route) into
+    # _person_timeline_body, shared with the by-URI route. The L3 filter lives in the body.
+    (ICAL, "_person_timeline_body"),
+    # CM041 #251 Photos rows, merged into api_timeline: outbound to iOS and the digest, L3 withheld.
+    (ICAL, "_timeline_photos"),
     (ICAL, "commitments_list"),
     (ICAL, "_query_operator_career_facts"),
     # /api/v1/timeline?outbound=1, read by the 7-day digest (generate_pwg_context.py _meetings_section)
@@ -77,6 +82,11 @@ ONBOX = {
     (ICAL, "_personal_identifiers_for"): _ID, (ICAL, "_suppression_reason"): _ID,
     (ICAL, "_suppressed_identity_index"): _ID, (ICAL, "_merge_aware_name_rows"): _ID,
     (ICAL, "_merged_cluster"): _ID, (ICAL, "_operator_email_domains"): _ID,
+    (ICAL, "_raw_identity_roots"): _ID,
+    # CM041 #273: this wrapper's own graph read is the displayName lookup for a URI
+    # (identifier only). Its timeline comes from _person_timeline_body, which is
+    # OUTBOUND and filters L3, so the L3 rule is enforced there.
+    (ICAL, "person_timeline_by_uri"): _ID,
     (ICAL, "_hygiene_verdicts"): "hygiene overlay verdicts (fact ids), no content",
     (ICAL, "_assert_fact_person"): "write path (resolves the subject), not a read for output",
     (ICAL, "_memory_query_facts"):

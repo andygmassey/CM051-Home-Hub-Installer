@@ -53,6 +53,7 @@ import os
 import plistlib
 import re
 import subprocess
+import time
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -188,6 +189,24 @@ class Result:
     status: str          # "PASS" | "FAIL" | "SKIP"
     detail: str = ""
     source_pr: str = ""
+    seconds: float = 0.0   # wall time of this row's check; printed as a TIMING line
+
+
+def _timing_line(r: "Result") -> str:
+    m = re.search(r"probe=([A-Za-z0-9_]+)", r.detail or "")
+    reused = "yes" if "reused the PASS" in (r.detail or "") else "no"
+    return (f"  TIMING manifest_row id={r.id} probe={m.group(1) if m else '-'} "
+            f"status={r.status} reused={reused} seconds={r.seconds:.1f}")
+
+
+def _timing_summary(results: list) -> list:
+    timed = [r for r in results if r.kind == "box_walk_probe"]
+    tot = sum(r.seconds for r in results)
+    out = [f"  TIMING manifest_total rows={len(results)} box_walk_rows={len(timed)} seconds={tot:.1f}"]
+    for r in sorted(timed, key=lambda x: -x.seconds)[:15]:
+        m = re.search(r"probe=([A-Za-z0-9_]+)", r.detail or "")
+        out.append(f"  TIMING manifest_top15 probe={m.group(1) if m else r.id} seconds={r.seconds:.1f}")
+    return out
 
 
 def emit(res: Result, colour: bool) -> None:
@@ -1358,6 +1377,51 @@ def _assistant_answers_grounded_timeout_seconds(turns, per_turn) -> int:
     return max(floor_s, min(derived, ASSISTANT_GROUNDED_TIMEOUT_CEILING_SECONDS))
 
 
+# ── data_conservation's CAP IS ITS OWN COLLECT BUDGET PLUS A MARGIN ──
+#
+# MEASURED: the probe's collect enforces its own wall-clock budget ON THE BOX
+# (probes/data_conservation.sh, OSTLER_CONSERVATION_COLLECT_BUDGET_S, default
+# 1800) and reports CANNOT-RUN-BUDGET with that reason when it hits it. Phase 2
+# gave it the flat 600 s, so on v1.0.124 phase 2 killed it at the flat cap
+# before its own budget could speak, and the row read "timed out" instead of
+# the probe's reason. The cap here follows whatever budget the probe will read,
+# plus a margin for staging, the perl TERM/KILL reap and the adjudication, so
+# the probe's own budget always fires first. This does NOT make the collect
+# finish: on the v1.0.125 book (512 MB of wiki markdown) it did not finish in
+# 5400 s, because its SHOWN stage is O(items x corpus). That is the probe's
+# scope, not this cap.
+DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS = 300
+DATA_CONSERVATION_TIMEOUT_CEILING_SECONDS = 14400
+_DC_BUDGET_RE = re.compile(r'OSTLER_CONSERVATION_COLLECT_BUDGET_S:-([0-9]+)')
+
+
+def _data_conservation_declared_budget(cm051_dir: Path):
+    """The collect budget default the probe file declares, or None if unreadable."""
+    probe = (cm051_dir / "scripts" / "box_walk_probes" / "probes"
+             / "data_conservation.sh")
+    try:
+        m = _DC_BUDGET_RE.search(probe.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    return int(m.group(1)) if m else None
+
+
+def _data_conservation_timeout_seconds(declared) -> int:
+    """Per-probe timeout for data_conservation. Pure, so the formula is driven
+    with no filesystem behind it. The env the probe itself reads moves the cap
+    with it; an unreadable declaration takes the flat cap, never a guess."""
+    explicit = os.environ.get("OSTLER_BOX_WALK_DATA_CONSERVATION_TIMEOUT_SECONDS", "")
+    if explicit.strip().isdigit():
+        return int(explicit)
+    env_budget = os.environ.get("OSTLER_CONSERVATION_COLLECT_BUDGET_S", "")
+    budget = int(env_budget) if env_budget.strip().isdigit() else declared
+    if not isinstance(budget, int) or budget <= 0:
+        return BOX_WALK_PROBE_TIMEOUT_SECONDS
+    return max(BOX_WALK_PROBE_TIMEOUT_SECONDS,
+               min(budget + DATA_CONSERVATION_TIMEOUT_MARGIN_SECONDS,
+                   DATA_CONSERVATION_TIMEOUT_CEILING_SECONDS))
+
+
 # The box-walk probes' CANNOT-RUN exit code. This is NOT a number invented here:
 # scripts/box_walk_probes/run_box_walk.sh:44 declares `EX_CANNOT_RUN=78` and 13
 # of the 17 registered probes exit with it when a prerequisite is unreadable.
@@ -1451,7 +1515,12 @@ def _phase1_summary_line() -> str:
     return (f"  box_walk_probe rows: OSTLER_PHASE1_VERDICTS={path} read, {len(rows)} row(s), "
             f"{seeded} marked seed-fixture; {len(_PHASE1_TAKEN)} row(s) took the phase 1 "
             f"verdict (fixture present then, forgotten since) and were not re-run: {taken}; "
-            f"every other probe row was measured again")
+            f"every other probe row was measured again"
+            + f"; live-state rows not on the reuse allowlist (measured again): {len(_LIVE_NOT_ALLOWLISTED)}"
+            + f"; allowlisted rows reused from this walk: {len(_LIVE_REUSE_SOURCES)}"
+            + (" (" + ", ".join(sorted(_LIVE_REUSE_SOURCES)) + ")" if _LIVE_REUSE_SOURCES else "")
+            + ("; live-state rows NOT reused: " + "; ".join(_LIVE_REUSE_REFUSED)
+               if _LIVE_REUSE_REFUSED else ""))
 
 
 def _phase1_verdict(probe: str):
@@ -1498,17 +1567,110 @@ def _phase1_verdict(probe: str):
         return None
     fixture = hit[4].strip() if len(hit) > 4 else ""
     if fixture != "seed-fixture":
-        return None          # a live-state probe: measure it again, independently
+        # A live-state probe. It used to be measured again unconditionally. It
+        # is now taken ONLY when this walk's own identity matches the file's
+        # (see _live_reuse) and the recorded verdict is a PASS.
+        return _live_reuse(probe, path, hit)
     status = hit[1].strip()
     when = hit[2].strip() if len(hit) > 2 else "?"
     why = hit[3].strip() if len(hit) > 3 else ""
     if status == "BROKEN":
         return ("FAIL", when,
                 "phase 1 marked the probe BROKEN (its negative control did not fire): "
-                + why)
+                + why, "seed")
     if status not in ("PASS", "FAIL", "CANNOT-RUN"):
         return None          # a word this reader does not know: measure, do not trust
-    return (status, when, why)
+    return (status, when, why, "seed")
+
+
+# A live-state probe row may be reused from phase 1 ONLY when it is on manifest_reuse_allowlist.tsv AND all of these hold.
+# Each is read from the SAME verdicts file header and compared with a value the
+# caller measured independently for THIS manifest run, so a file left over from
+# another walk, another box or another build can never satisfy it:
+#   walk_id            the walk log this run belongs to (post_walk_qa.sh PROBE_LOG)
+#   box_fp             sha256(box host)[0:16]
+#   installed_version  the version read off the box, re-read at manifest time
+# Any missing header, missing expected value or mismatch -> re-run, with the
+# reason kept in _LIVE_REUSE_REFUSED and printed in the summary. Only PASS is
+# ever reused for a live row: FAIL, CANNOT-RUN, BROKEN, ADVISORY or an unknown
+# word is measured again, so nothing here can turn a non-pass into a pass.
+# OSTLER_MANIFEST_REUSE_LIVE=0 switches the whole thing off.
+_LIVE_REUSE_REFUSED: list = []
+_LIVE_REUSE_SOURCES: list = []
+_LIVE_NOT_ALLOWLISTED: list = []
+
+
+def _verdict_file_headers(path: str) -> dict:
+    out: dict = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                m = re.match(r"^#\s+(walk_id|box_fp|installed_version)\s+(\S.*?)\s*$", ln)
+                if m:
+                    out[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return out
+
+
+def _expected_walk_identity() -> dict:
+    box = os.environ.get("OSTLER_BOX_HOST", "")
+    box_fp = os.environ.get("OSTLER_WALK_BOX_FP", "")
+    if not box_fp and box:
+        box_fp = hashlib.sha256(box.encode()).hexdigest()[:16]
+    return {
+        "walk_id": os.environ.get("OSTLER_WALK_ID", ""),
+        "box_fp": box_fp,
+        "installed_version": os.environ.get("OSTLER_WALK_INSTALLED_VERSION", ""),
+    }
+
+
+def _reuse_allowlist() -> dict:
+    """probe -> one-line reason, from scripts/box_walk_probes/manifest_reuse_allowlist.tsv
+    (OSTLER_MANIFEST_REUSE_ALLOWLIST overrides the path; an unreadable file is an EMPTY allowlist = reuse nothing)."""
+    path = os.environ.get("OSTLER_MANIFEST_REUSE_ALLOWLIST") or str(
+        Path(__file__).resolve().parent / "box_walk_probes" / "manifest_reuse_allowlist.tsv")
+    out: dict = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                if not ln.strip() or ln.startswith("#"):
+                    continue
+                cols = ln.rstrip("\n").split("\t")
+                if len(cols) >= 2 and cols[0].strip() and cols[1].strip():
+                    out[cols[0].strip()] = cols[1].strip()
+    except OSError:
+        pass
+    return out
+
+
+def _live_reuse(probe: str, path: str, row: list):
+    if os.environ.get("OSTLER_MANIFEST_REUSE_LIVE", "1") == "0":
+        return None
+    def refuse(why):
+        _LIVE_REUSE_REFUSED.append(f"{probe}: {why}")
+        return None
+    if probe not in _reuse_allowlist():
+        _LIVE_NOT_ALLOWLISTED.append(probe)
+        return None
+    status = row[1].strip() if len(row) > 1 else ""
+    if status != "PASS":
+        return refuse(f"phase 1 verdict was {status or 'empty'}, not PASS; measured again")
+    expected = _expected_walk_identity()
+    recorded = _verdict_file_headers(path)
+    for key in ("walk_id", "box_fp", "installed_version"):
+        if not expected[key]:
+            return refuse(f"this run has no {key}; measured again")
+        if key not in recorded:
+            return refuse(f"verdicts file has no {key} header; measured again")
+        if key == "installed_version":
+            same = recorded[key].lstrip("v") == expected[key].lstrip("v")
+        else:
+            same = recorded[key] == expected[key]
+        if not same:
+            return refuse(f"{key} mismatch (file {recorded[key]!r}, this run {expected[key]!r}); measured again")
+    when = row[2].strip() if len(row) > 2 else "?"
+    return ("PASS", when, "", "live")
 
 
 def _box_walk_evidence_dir() -> Path:
@@ -1631,7 +1793,19 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
                       entry.get("source_pr", ""))
     phase1 = _phase1_verdict(probe)
     if phase1 is not None:
-        status, when, why = phase1
+        status, when, why, kind = phase1
+        if kind == "live":
+            _LIVE_REUSE_SOURCES.append(probe)
+            src = os.environ.get("OSTLER_PHASE1_VERDICTS", "?")
+            walk_log = os.environ.get("OSTLER_WALK_ID", "?")
+            print(f"  REUSED probe={probe} PASS from this walk's full pass (recorded {when}); "
+                  f"source evidence={src} walk_log={walk_log}; same walk id, box and "
+                  f"installed version; not re-run",
+                  file=(sys.stderr if "--json" in sys.argv else sys.stdout), flush=True)
+            detail = (f"probe={probe} reused the PASS recorded by this walk's full pass at "
+                      f"{when} (same walk id, box and installed version; source={src}); not re-run")
+            return Result(entry["id"], entry["title"], "box_walk_probe", status, detail,
+                          entry.get("source_pr", ""))
         _PHASE1_TAKEN.append(probe)
         detail = (f"probe={probe} took the phase 1 verdict {status} (run_box_walk.sh at "
                   f"{when}, seed fixture present, negative control first); not re-run "
@@ -1660,6 +1834,10 @@ def check_box_walk_probe(entry: dict, ctx: dict) -> Result:
         _grounded_turns, _grounded_per_turn = _assistant_grounded_declarations(cm051_dir)
         _timeout_s = _assistant_answers_grounded_timeout_seconds(
             _grounded_turns, _grounded_per_turn
+        )
+    elif probe == "data_conservation":
+        _timeout_s = _data_conservation_timeout_seconds(
+            _data_conservation_declared_budget(cm051_dir)
         )
     try:
         result = subprocess.run(
@@ -3301,8 +3479,12 @@ def main() -> int:
                                       "skipped by --skip-source-at-sha", entry.get("source_pr", "")))
                 emit(results[-1], colour) if not args.json else None
                 continue
+            _t0 = time.monotonic()
             r = check_entry(entry, ctx)
+            r.seconds = round(time.monotonic() - _t0, 3)
             results.append(r)
+            if r.kind == "box_walk_probe":
+                print(_timing_line(r), file=(sys.stderr if args.json else sys.stdout), flush=True)
             if not args.json:
                 emit(r, colour)
                 if args.verbose and r.status == "PASS" and r.detail:
@@ -3336,6 +3518,9 @@ def main() -> int:
             cannot_run.append(
                 f"--require-kind {kind}: {len(of_kind)} entr(y/ies) of that kind, "
                 f"{len(ran)} RAN, {len(of_kind) - len(ran)} SKIPPED. {reasons}")
+
+    for _l in _timing_summary(results):
+        print(_l, file=(sys.stderr if args.json else sys.stdout), flush=True)
 
     passes = sum(1 for r in results if r.status == "PASS")
     fails = sum(1 for r in results if r.status == "FAIL")

@@ -119,6 +119,93 @@ def read_signals() -> dict | None:
         return None
 
 
+SIGNALS_LAST_GOOD_NAME = "signals_last_good.json"
+
+# Which endpoint each live signal card is built from (signals.py).
+_CARD_ENDPOINT = {"reply_debt": "reply_debt", "gone_quiet": "suggestions",
+                  "birthday": "suggestions", "commitment": "commitments"}
+
+
+def _as_of_phrase(fetched_at: str) -> str:
+    when = datetime.fromisoformat(fetched_at).astimezone()
+    return "as of " + when.strftime("%-I:%M%p").lower().replace(":00", "")
+
+
+def mark_kept_cards(feed: dict, stale: dict) -> int:
+    """Label every card built from a kept (last good) answer "as of <time>",
+    in its body and as ``as_of``, so it never reads as this tick's news.
+    Returns how many cards were marked."""
+    n = 0
+    for card in feed.get("cards", []) if isinstance(feed, dict) else []:
+        ep = _CARD_ENDPOINT.get((card.get("signal") or {}).get("type"))
+        at = stale.get(ep) if ep else None
+        if not at:
+            continue
+        phrase = _as_of_phrase(at)
+        body = card.get("body")
+        card["body"] = f"{body} ({phrase})" if body else phrase[0].upper() + phrase[1:]
+        card["as_of"] = at
+        n += 1
+    return n
+
+
+def _local_day(dt: datetime):
+    return dt.astimezone().date()
+
+
+def with_last_good(signals: dict | None, now: datetime,
+                   out_dir: str | None = None) -> tuple[dict | None, dict]:
+    """Fill each endpoint the Hub did not answer this tick from its last good
+    answer, when that answer is from the same local day. Returns
+    ``(signals, stale)`` where ``stale`` maps each filled endpoint to the time
+    the Hub actually answered it.
+
+    v1.0.125 walk, 2026-11-06: a Hub slow in its first hour timed out the
+    suggestions fetch and every birthday card left "Needs you now" without a
+    word. A card from this morning's answer is still true this afternoon; one
+    from yesterday may not be (a birthday counted in days has moved), so an
+    earlier day's answer is never reused. Every endpoint that is filled, or
+    left empty, is named on stderr: never dropped silently. Never raises."""
+    from compiler import signals as sig
+    path = os.path.join(out_dir or editor_dir(), SIGNALS_LAST_GOOD_NAME)
+    cache = _read_json(path)
+    endpoints = cache.get("endpoints") if isinstance(cache, dict) else None
+    endpoints = dict(endpoints) if isinstance(endpoints, dict) else {}
+    out = dict(signals or {})
+    stale: dict = {}
+    answered = False
+    for key in sig._ENDPOINTS:
+        if key in out:
+            endpoints[key] = {"fetched_at": now.isoformat(), "payload": out[key]}
+            answered = True
+            continue
+        entry = endpoints.get(key)
+        when = None
+        if isinstance(entry, dict) and "payload" in entry:
+            try:
+                when = datetime.fromisoformat(str(entry.get("fetched_at")))
+            except ValueError:
+                when = None
+        if when is not None and when.tzinfo is not None \
+                and now.tzinfo is not None and when <= now \
+                and _local_day(when) == _local_day(now):
+            out[key] = entry["payload"]
+            stale[key] = entry["fetched_at"]
+            print(f"front-page: {key} not answered this tick; keeping the "
+                  f"last good answer from {entry['fetched_at']}", file=sys.stderr)
+        else:
+            print(f"front-page: {key} unavailable this tick and no last good "
+                  "answer from today; its cards are absent", file=sys.stderr)
+    if answered:
+        try:
+            # names and birthdays: owner-only, like the other people artefacts
+            _atomic_write(path, json.dumps({"schema": 1, "endpoints": endpoints},
+                                           ensure_ascii=False), mode=0o600)
+        except OSError as exc:
+            print(f"front-page: last good signals not saved ({exc})", file=sys.stderr)
+    return (out or None), stale
+
+
 def read_scout_cards(profile: dict, now: datetime, ledger) -> list | None:
     """Best-effort scout cards (E3). Consent-gated fail-closed inside
     ``scouts.run_scouts`` - a scout whose flag in scout_consent.json is not
@@ -147,11 +234,18 @@ def read_scout_cards(profile: dict, now: datetime, ledger) -> list | None:
         return None
 
 
-def _atomic_write(path: str, text: str) -> str:
+def _atomic_write(path: str, text: str, mode: int | None = None) -> str:
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    if mode is not None:
+        # created with the mode, never world-readable even for an instant
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        os.fchmod(fd, mode)
+        fh_cm = os.fdopen(fd, "w", encoding="utf-8")
+    else:
+        fh_cm = open(tmp, "w", encoding="utf-8")
+    with fh_cm as fh:
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
@@ -163,7 +257,8 @@ REPLY_DEBT_NAME = "reply_debt.json"
 
 
 def write_reply_debt_list(signals: dict | None, now: datetime,
-                          out_dir: str | None = None) -> str:
+                          out_dir: str | None = None,
+                          stale: dict | None = None) -> str:
     """Save the Hub's owed list beside the feed for the wiki's Reply Debt wing.
 
     2026-11-05: the wiki listed a shop's SMS as needing a reply because it
@@ -173,14 +268,22 @@ def write_reply_debt_list(signals: dict | None, now: datetime,
     over as a file. A fetch that returned nothing is written as
     ``status: unavailable`` (never an empty list), so the wing says "couldn't
     check" rather than "all caught up". Returns the status written; never
-    raises (a hand-off failure must not cost the Front Page)."""
+    raises (a hand-off failure must not cost the Front Page).
+
+    A payload this tick filled from the last good answer (``stale``) is NOT
+    written as fresh: the status stays ``unavailable`` and the earlier answer
+    rides along as ``last_good`` with the time the Hub gave it, for a reader
+    that can say "as of" (the morning brief, 2026-11-06)."""
     payload = (signals or {}).get("reply_debt") if isinstance(signals, dict) else None
-    if isinstance(payload, dict):
+    stale_at = (stale or {}).get("reply_debt")
+    if isinstance(payload, dict) and not stale_at:
         doc = {"schema": 1, "status": "ok", "fetched_at": now.isoformat(),
                "payload": payload}
     else:
         doc = {"schema": 1, "status": "unavailable", "fetched_at": now.isoformat(),
                "reason": "reply_debt_fetch_failed"}
+        if isinstance(payload, dict):
+            doc["last_good"] = {"fetched_at": stale_at, "payload": payload}
     try:
         _atomic_write(os.path.join(out_dir or editor_dir(), REPLY_DEBT_NAME),
                       json.dumps(doc, indent=1, ensure_ascii=False))
@@ -238,8 +341,11 @@ def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
     ledger = cl.load_ledger(led_path)
     signals = read_signals()
     demo = bool(os.environ.get("OSTLER_DEMO_MODE"))
+    stale: dict = {}
     if not demo:
-        write_reply_debt_list(signals, now)
+        if not os.environ.get("OSTLER_EDITOR_DISABLE_SIGNALS"):
+            signals, stale = with_last_good(signals, now)
+        write_reply_debt_list(signals, now, stale=stale)
     # Pro entitlement (entitlement.py): None = enforcement off (default until
     # the daemon-side sidecar writer ships), else a fail-closed boolean.
     entitled = ent.front_page_entitled(now)
@@ -253,6 +359,7 @@ def emit(oxigraph_url: str | None = None, *, from_artefact: bool = False,
                                   signals=signals, scout_cards=scout_cards,
                                   demo=demo, entitled=entitled,
                                   exploration=explore)
+        mark_kept_cards(feed, stale)
     except Exception as exc:  # graph down / artefact missing -> never blank
         print(f"front-page: profile unavailable ({type(exc).__name__}: {exc}); "
               "emitting settling-only feed", file=sys.stderr)

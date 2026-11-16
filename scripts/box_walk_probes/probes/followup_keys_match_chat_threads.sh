@@ -14,7 +14,7 @@
 # or writing into the owner's chat.db, and both are forbidden. The ADVISORY
 # line is real activity only.
 #
-# WALK_READ_ONLY: one authenticated GET of the daemon's /api/status and a plain open() of the chat.db header (never sqlite, so no -wal or -shm is created); writes nothing on the box beyond its own staged script under /tmp, which it removes
+# WALK_READ_ONLY: one authenticated GET of the daemon's /api/status, a plain open() of the chat.db header (never sqlite, so no -wal or -shm is created), and a read-only (mode=ro) sqlite read of ~/.ostler/reminders_map.db that counts the walk's own residue rows (source_session_id ostler-walk-todo-*) so they are excluded from the grade. The map is WAL: measured on this sqlite, that read creates nothing while the daemon holds its -wal and -shm open, but with no sidecars present a read-only open creates empty ones. Writes nothing else on the box beyond its own staged script under /tmp, which it removes
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
@@ -41,14 +41,14 @@ decide() {
 
 self_test() {
     python3 "${_LIB}" --self-test >/dev/null || {
-        probe_examined 13 "judge cases"
-        probe_pass "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
+        probe_examined 22 "judge cases"
+        probe_fail "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
     }
     # Known-bad capture through the SAME decide() run_probe uses: five keyed
     # rows, none matching (the display-name case). Must come back FAIL.
     local cap
     cap="$(mktemp)"
-    printf '%s\n' '{"available": true, "measured": true, "enabled": true, "chat_db_readable": true, "keyed_rows": 5, "keys_matching_one_to_one": 0, "keys_matching_group": 0, "completed_by_followup": 0, "reopened": 0}' > "${cap}"
+    printf '%s\n' '{"available": true, "measured": true, "enabled": true, "chat_db_readable": true, "keyed_rows": 5, "keys_matching_one_to_one": 0, "keys_matching_group": 0, "completed_by_followup": 0, "reopened": 0, "walk_db_readable": true, "walk_synthetic_keyed": 0, "walk_synthetic_collisions": 0, "db_keyed_rows": 5}' > "${cap}"
     ( decide "${cap}" ) >/dev/null; local rc=$?
     rm -f "${cap}"
     probe_examined 1 "known-bad capture"
