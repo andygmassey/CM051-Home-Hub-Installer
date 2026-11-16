@@ -495,6 +495,7 @@ name             = "ostler_fda"
 expires = "2026-11-28"  # RE-DATED 2026-11-14 (ORM, v1.0.132 cut blocker, from 2026-11-14): cut-freshness live run RED: 3a5dae00 (HR015 #1471, grafted by open #3506) and 73a4b35c (HR015 #1439, grafted by open #3457) unacked; regenerate_forbidden (PII export). Short date on purpose.
 owner = "archie"
 vendor_path      = "vendor/ostler_fda"
+unrecorded_divergence = "vendor/divergences/ostler_fda_people_exclusion.UNRECORDED.md"  # 2026-11-16: people index card/conversation keep and declared exclusion count (pwg_ingest.py)
 source_repo      = "$HR015/ostler_fda"
 source_path      = "."
   pinned_sha = "90fb07b225fdc304932c7ee2d9c358bb7891421a"
