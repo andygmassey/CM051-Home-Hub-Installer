@@ -54,7 +54,11 @@ run_probe() {
     # before and after: "before" above zero is the positive control (the seed was there and
     # the delete acted on it); "after=0" is the removal. Anything else is reported, never silent.
     if [ "${OSTLER_OWNER_SEED_STATE:-}" = "seeded" ] && [ "${OSTLER_OWNER_SEED_KEEP:-0}" != "1" ]; then
+        # Sourcing the library resets OSTLER_OWNER_SEED_STATE to "unrun" (owner_employer_seed.sh:21),
+        # so forget returned at once and removed nothing (MBP, walk-132 re-run). Keep the real state.
+        _oes_state_kept="${OSTLER_OWNER_SEED_STATE:-}"
         . "${_HERE}/lib/owner_employer_seed.sh"
+        OSTLER_OWNER_SEED_STATE="${_oes_state_kept}"; export OSTLER_OWNER_SEED_STATE
         _oes_out="$(owner_employer_seed_forget 2>&1)"
         printf '%s\n' "${_oes_out}" | sed 's/^/  own-end: /'
         _oes_before="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES before=\([0-9]*\).*/\1/p' | tail -1)"

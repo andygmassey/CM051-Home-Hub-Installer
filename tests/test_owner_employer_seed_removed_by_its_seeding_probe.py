@@ -15,6 +15,7 @@ Checks (source-level, no box):
 Exit 0 pass, 1 fail.
 """
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +43,19 @@ def main():
     mutant = src.replace("owner_employer_seed_forget 2>&1", "owner_employer_seed_NOT_CALLED 2>&1", 1)
     if removes_own_seed(mutant):
         bad.append("CONTROL: with the removal call taken out, the check must fail")
+    # The walk-132 MBP re-run found the removal did nothing: sourcing owner_employer_seed.sh resets
+    # OSTLER_OWNER_SEED_STATE to "unrun", so forget returned at once. Prove the reset, and that the
+    # probe keeps the real state across the source. Control: without the restore the state is lost.
+    lib = os.path.join(os.path.dirname(PROBE), "..", "lib", "owner_employer_seed.sh")
+    proof = subprocess.run(["bash", "-c", 'export OSTLER_OWNER_SEED_STATE=seeded; . "$L"; echo "$OSTLER_OWNER_SEED_STATE"'],
+                           env={"L": lib, "PATH": "/usr/bin:/bin"}, capture_output=True, text=True).stdout.strip()
+    if proof != "unrun":
+        bad.append("expected sourcing the library to reset the state (the defect this guards), got %r" % proof)
+    if "OSTLER_OWNER_SEED_STATE=\"${_oes_state_kept}\"" not in src:
+        bad.append("the probe must restore the seed state after sourcing the library")
+    mutant_restore = src.replace('OSTLER_OWNER_SEED_STATE="${_oes_state_kept}"; export OSTLER_OWNER_SEED_STATE', ':', 1)
+    if "OSTLER_OWNER_SEED_STATE=\"${_oes_state_kept}\"" in mutant_restore:
+        bad.append("CONTROL: the mutant without the restore must not carry it")
     if bad:
         print("FAIL: " + "; ".join(bad))
         return 1
