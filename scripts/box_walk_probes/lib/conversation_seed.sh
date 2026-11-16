@@ -457,15 +457,14 @@ CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
 # refusal BEFORE any request, so 'we could not ask' can never be printed as
 # 'the store says no'.
 if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; exit 4; fi
-K=\"-K \$CONF\"
 Q=$(_cs_q "${_CS_QDRANT}")
-p=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \$K \"\$Q/collections/conversations\" 2>/dev/null \\
+p=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 -K \"\$CONF\" \"\$Q/collections/conversations\" 2>/dev/null \\
   | python3 -c 'import json,sys
 try:
     print(json.load(sys.stdin)[\"result\"][\"points_count\"])
 except Exception:
     print(\"x\")' 2>/dev/null)
-m=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \$K -X POST \\
+m=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 -K \"\$CONF\" -X POST \\
   -H 'Content-Type: application/json' \\
   --data '{\"exact\": true, \"filter\": {\"must\": [{\"key\": \"conversation_id\", \"match\": {\"value\": \"${CONVERSATION_SEED_ID}\"}}]}}' \\
   \"\$Q/collections/conversations/points/count\" 2>/dev/null \\
@@ -505,7 +504,6 @@ CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
 # refusal BEFORE any request, so 'we could not ask' can never be printed as
 # 'the store says no'.
 if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; exit 4; fi
-K=\"-K \$CONF\"
 a=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \"$(printf '%s' "${_CS_API}")/api/v1/topics\" 2>/dev/null \\
   | python3 -c 'import json,sys
 try:
@@ -514,7 +512,7 @@ try:
 except Exception:
     print(\"x\")' 2>/dev/null)
 q='SELECT (COUNT(?t) AS ?n) WHERE { ?t a <${_CS_PWG_NS}ConversationTopic> }'
-s=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 \$K \\
+s=\$($(_cs_q "${_CS_CURL}") -sS --noproxy '*' -m 20 -K \"\$CONF\" \\
   -H 'Content-Type: application/sparql-query' \\
   -H 'Accept: application/sparql-results+json' \\
   --data-binary \"\$q\" $(_cs_q "${_CS_OXIGRAPH}") 2>/dev/null \\
@@ -895,7 +893,8 @@ conversation_seed_forget() {
     esac
     if [ "${OSTLER_CONVO_SEED_KEEP:-0}" = "1" ]; then
         printf -- '--- CONVERSATION SEED: kept on the box (OSTLER_CONVO_SEED_KEEP=1) ---\n\n'
-        return 0
+        if [ "${_cs_forget_failed:-0}" = 1 ]; then return 1; fi
+    return 0
     fi
     printf -- '--- CONVERSATION SEED: removing the seeded conversation ---\n'
 
@@ -919,7 +918,6 @@ CONF=$(_cs_q "${_CS_STORE_CONF_PATH}")
 # which half ran.
 HAVE_CONF=1
 if [ -z \"\$CONF\" ] || [ ! -r \"\$CONF\" ]; then printf 'NO-CONF %s\n' \"\$CONF\"; HAVE_CONF=0; fi
-K=\"-K \$CONF\"
 CURL=$(_cs_q "${_CS_CURL}")
 Q=$(_cs_q "${_CS_QDRANT}")
 OXI=$(_cs_q "${_CS_OXIGRAPH}")
@@ -932,7 +930,7 @@ else
 # 1. Qdrant, filtered on the payload key the ingest writes (ingest.py:355).
 #    Counted BEFORE the delete, because a delete endpoint that reports
 #    'acknowledged' says nothing about how many rows it touched.
-before=\$(\$CURL -sS --noproxy '*' -m 20 \$K -X POST -H 'Content-Type: application/json' \\
+before=\$(\$CURL -sS --noproxy '*' -m 20 -K \"\$CONF\" -X POST -H 'Content-Type: application/json' \\
   --data '{\"exact\": true, \"filter\": {\"must\": [{\"key\": \"conversation_id\", \"match\": {\"value\": \"${CONVERSATION_SEED_ID}\"}}]}}' \\
   \"\$Q/collections/conversations/points/count\" 2>/dev/null \\
   | python3 -c 'import json,sys
@@ -940,7 +938,7 @@ try:
     print(json.load(sys.stdin)[\"result\"][\"count\"])
 except Exception:
     print(\"x\")' 2>/dev/null)
-\$CURL -sS --noproxy '*' -m 30 \$K -X POST -H 'Content-Type: application/json' \\
+\$CURL -sS --noproxy '*' -m 30 -K \"\$CONF\" -X POST -H 'Content-Type: application/json' \\
   --data '{\"filter\": {\"must\": [{\"key\": \"conversation_id\", \"match\": {\"value\": \"${CONVERSATION_SEED_ID}\"}}]}}' \\
   \"\$Q/collections/conversations/points/delete?wait=true\" >/dev/null 2>&1
 qrc=\$?
@@ -952,11 +950,11 @@ printf 'QDRANT_POINTS %s rc=%s\n' \"\${before:-x}\" \"\$qrc\"
 u1=\"DELETE { ?t ?p ?o } WHERE { ?m <\${NS}inConversation> <urn:ostler:conversation/\$ID> ; <\${NS}mentionsTopic> ?t . ?t ?p ?o . FILTER NOT EXISTS { ?m2 <\${NS}mentionsTopic> ?t ; <\${NS}inConversation> ?c2 . FILTER(?c2 != <urn:ostler:conversation/\$ID>) } }\"
 u2=\"DELETE { ?m ?p ?o } WHERE { ?m <\${NS}inConversation> <urn:ostler:conversation/\$ID> ; ?p ?o }\"
 for u in \"\$u1\" \"\$u2\"; do
-  \$CURL -sS --noproxy '*' -m 30 \$K -H 'Content-Type: application/sparql-update' \\
+  \$CURL -sS --noproxy '*' -m 30 -K \"\$CONF\" -H 'Content-Type: application/sparql-update' \\
     --data-binary \"\$u\" \"\$UPD\" >/dev/null 2>&1
   printf 'DEFAULT_GRAPH_UPDATE rc=%s\n' \"\$?\"
 done
-left=\$(\$CURL -sS --noproxy '*' -m 20 \$K -H 'Content-Type: application/sparql-query' \\
+left=\$(\$CURL -sS --noproxy '*' -m 20 -K \"\$CONF\" -H 'Content-Type: application/sparql-query' \\
   -H 'Accept: application/sparql-results+json' \\
   --data-binary \"SELECT (COUNT(?m) AS ?n) WHERE { ?m <\${NS}inConversation> <urn:ostler:conversation/\$ID> }\" \\
   \"\$OXI\" 2>/dev/null | python3 -c 'import json,sys
@@ -975,7 +973,7 @@ G=\"urn:ostler:user/\$UID_\"
 u3=\"DELETE { GRAPH <\$G> { <urn:ostler:conversation/\$ID> ?p ?o } } WHERE { GRAPH <\$G> { <urn:ostler:conversation/\$ID> ?p ?o } }\"
 u4=\"DELETE { GRAPH <\$G> { ?s ?p2 ?o2 } } WHERE { GRAPH <\$G> { ?s ?p <urn:ostler:conversation/\$ID> ; ?p2 ?o2 } }\"
 for u in \"\$u3\" \"\$u4\"; do
-  \$CURL -sS --noproxy '*' -m 30 \$K -H 'Content-Type: application/sparql-update' \\
+  \$CURL -sS --noproxy '*' -m 30 -K \"\$CONF\" -H 'Content-Type: application/sparql-update' \\
     --data-binary \"\$u\" \"\$UPD\" >/dev/null 2>&1
   printf 'NAMED_GRAPH_UPDATE rc=%s\n' \"\$?\"
 done
@@ -1034,6 +1032,14 @@ else
 fi
 " 2>&1)"
     printf '%s\n' "${_cs_fout}" | sed 's/^/    /'
+    # A delete that exits non-zero is a FAILED cleanup, reported as an error and returned
+    # non-zero. It was printed as rc=N and otherwise ignored, so the forget read as done.
+    _cs_bad="$(printf '%s\n' "${_cs_fout}" | grep -E '(_rc|rc)=[1-9][0-9]*' || true)"
+    if [ -n "${_cs_bad}" ]; then
+        printf '  ERROR: CLEANUP FAILED. A delete did not succeed; the seed rows may still be on the box:\n'
+        printf '%s\n' "${_cs_bad}" | sed 's/^/    /'
+        _cs_forget_failed=1
+    fi
     case "${_cs_fout}" in
         *NO-CONF*)
             # THE SILENT HALF OF THE SAME DEFECT. With no credential this
