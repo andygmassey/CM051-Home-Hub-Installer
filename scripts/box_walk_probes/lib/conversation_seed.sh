@@ -897,6 +897,8 @@ conversation_seed_forget() {
     return 0
     fi
     printf -- '--- CONVERSATION SEED: removing the seeded conversation ---\n'
+    # Reset per forget: a previous failed forget must never leak into this one (item 4).
+    _cs_forget_failed=0
 
     _cs_fout="$(_cs_box_exec "
 ID=$(_cs_q "${CONVERSATION_SEED_ID}")
@@ -963,6 +965,17 @@ try:
 except Exception:
     print(\"x\")' 2>/dev/null)
 printf 'MENTIONS_LEFT %s\n' \"\${left:-x}\"
+# RESIDUE ORACLE (item 2): the graph count above AND the Qdrant point count must both be 0.
+# An exit status of 0 from a delete is not evidence; the rows are.
+qn=\$(\$CURL -sS --noproxy '*' -m 20 -K \"\$CONF\" -X POST -H 'Content-Type: application/json' \\
+  --data '{\"exact\": true, \"filter\": {\"must\": [{\"key\": \"conversation_id\", \"match\": {\"value\": \"${CONVERSATION_SEED_ID}\"}}]}}' \\
+  \"\$Q/collections/conversations/points/count\" 2>/dev/null | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin)[\"result\"][\"count\"])
+except Exception:
+    print(\"x\")' 2>/dev/null)
+printf 'RESIDUE_QDRANT %s\n' \"\${qn:-x}\"
+printf 'RESIDUE_GRAPH %s\n' \"\${left:-x}\"
 
 # 3. The NAMED graph urn:ostler:user/<user_id>, where the ingest puts the
 #    conversation node and everything that points back at it (ingest.py:540-548:
@@ -1024,20 +1037,43 @@ elif ! command -v sqlite3 >/dev/null 2>&1; then
 else
   n=\$(sqlite3 \"\$DB\" \"SELECT COUNT(*) FROM observations WHERE conversation_id = '\$ID';\" 2>/dev/null)
   if [ -z \"\$n\" ]; then
-    printf 'COACH_ROW left: the database did not answer (it is encrypted when a key is set, and sqlite3 cannot read that)\n'
+    printf 'COACH_ROW CANNOT-RUN: the database did not answer (it is encrypted when a key is set, and sqlite3 cannot read that); the row was NOT verified removed\n'
   else
-    sqlite3 \"\$DB\" \"DELETE FROM observations WHERE conversation_id = '\$ID';\" >/dev/null 2>&1
-    printf 'COACH_ROW removed %s\n' \"\$n\"
-  fi
+    # Item 3: the DELETE's errors are read, and the row is re-counted. "removed n" is printed
+    # only when the re-count is 0. Any other outcome is a LEFT line the host treats as a failure.
+    sqlite3 \"\$DB\" \"DELETE FROM observations WHERE conversation_id = '\$ID';\" >/dev/null 2>&1; drc=\$?
+    after=\$(sqlite3 \"\$DB\" \"SELECT COUNT(*) FROM observations WHERE conversation_id = '\$ID';\" 2>/dev/null)
+    if [ \"\$drc\" -ne 0 ]; then printf 'COACH_ROW left: the DELETE failed (rc=%s)\n' \"\$drc\"
+    elif [ \"\${after:-x}\" = \"0\" ]; then printf 'COACH_ROW removed %s\n' \"\$n\"
+    else printf 'COACH_ROW left: the delete did not remove the row (after=%s)\n' \"\${after:-x}\"; fi
 fi
 " 2>&1)"
+    _cs_frc=$?
     printf '%s\n' "${_cs_fout}" | sed 's/^/    /'
+    # Item 1: the box exec itself. ssh down, a dead remote shell or empty output means nothing
+    # ran, so it is a failed cleanup, never a silent "done".
+    if [ "${_cs_frc}" -ne 0 ] || [ -z "$(printf '%s' "${_cs_fout}" | tr -d '[:space:]')" ]; then
+        printf '  ERROR: CLEANUP FAILED. The box did not run the cleanup (exit %s, or no output). Nothing is verified removed.\n' "${_cs_frc}"
+        _cs_forget_failed=1
+    fi
     # A delete that exits non-zero is a FAILED cleanup, reported as an error and returned
     # non-zero. It was printed as rc=N and otherwise ignored, so the forget read as done.
     _cs_bad="$(printf '%s\n' "${_cs_fout}" | grep -E '(_rc|rc)=[1-9][0-9]*' || true)"
     if [ -n "${_cs_bad}" ]; then
         printf '  ERROR: CLEANUP FAILED. A delete did not succeed; the seed rows may still be on the box:\n'
         printf '%s\n' "${_cs_bad}" | sed 's/^/    /'
+        _cs_forget_failed=1
+    fi
+    # Item 2: the RESIDUE is the oracle, not the exit status. Both stores must read 0 after the deletes.
+    _cs_qres="$(printf '%s\n' "${_cs_fout}" | sed -n 's/^RESIDUE_QDRANT //p' | tail -1)"
+    _cs_gres="$(printf '%s\n' "${_cs_fout}" | sed -n 's/^RESIDUE_GRAPH //p' | tail -1)"
+    if [ "${_cs_qres}" != "0" ] || [ "${_cs_gres}" != "0" ]; then
+        printf '  ERROR: CLEANUP FAILED. Residue after the deletes: Qdrant=%s graph=%s (both must be 0).\n' "${_cs_qres:-not measured}" "${_cs_gres:-not measured}"
+        _cs_forget_failed=1
+    fi
+    # Item 3: the coach row is never success unless re-counted at 0; CANNOT-RUN is loud, never removed.
+    if printf '%s\n' "${_cs_fout}" | grep -q '^COACH_ROW \(left\|CANNOT-RUN\)'; then
+        printf '  ERROR: CLEANUP FAILED. The coach row was not verified removed (see the COACH_ROW line).\n'
         _cs_forget_failed=1
     fi
     case "${_cs_fout}" in
@@ -1062,5 +1098,7 @@ fi
             ;;
     esac
     printf '\n'
+    # A failed cleanup is a non-zero return, whatever the deletes' exit codes said (items 1-3).
+    if [ "${_cs_forget_failed:-0}" = 1 ]; then return 1; fi
     return 0
 }
