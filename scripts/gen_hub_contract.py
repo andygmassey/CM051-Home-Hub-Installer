@@ -202,6 +202,12 @@ def _same_module_delegate_keys(fn, funcs):
                 and isinstance(n.value.func, ast.Name) and n.value.func.id in funcs \
                 and funcs[n.value.func.id] is not fn:
             keys |= _returned_keys(funcs[n.value.func.id])
+        # CM041 #273: `return _person_timeline_body(...)` returns the callee's keys
+        # directly (no local). Without this the timeline routes lost their fields.
+        if isinstance(n, ast.Return) and isinstance(n.value, ast.Call) \
+                and isinstance(n.value.func, ast.Name) and n.value.func.id in funcs \
+                and funcs[n.value.func.id] is not fn:
+            keys |= _returned_keys(funcs[n.value.func.id])
     return keys
 
 

@@ -7335,6 +7335,42 @@ def _timeline_human_date(iso_date):
         return str(iso_date)
 
 
+# A person URI is interpolated into SPARQL as <...>; allow only IRI characters
+# that cannot close the angle bracket or break the query.
+_PERSON_URI_PATTERN = re.compile(r"^[A-Za-z0-9._~:/#%+-]{1,300}$")
+
+
+def person_timeline_by_uri(person_uri, limit=50, days=None):
+    """GET /api/v1/people/timeline?uri=... : the timeline for one exact person.
+
+    Takes the person URI, not a slug, so it never runs slug resolution and
+    cannot answer 409 for a slug that several people share. Same body and
+    L3 rules as the slug route.
+
+    Returns (response_dict, status_code): 400 malformed uri, 404 unknown
+    person, 503 when the lookup store fails, else 200 like the slug route.
+    """
+    if not _PERSON_URI_PATTERN.match(person_uri or ""):
+        return {"found": False, "error": "Invalid person uri."}, 400
+    try:
+        rows = _sparql_select(
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?name WHERE {{ <{uri}> a pwg:Person ; pwg:displayName ?name . }} LIMIT 1'
+            .format(ns=PWG_NS, uri=person_uri)
+        )
+    except Exception as exc:
+        return {
+            "found": False,
+            "degraded": True,
+            "reason": f"oxigraph_lookup_failed: {exc}",
+            "error": str(exc),
+        }, 503
+    if not rows:
+        return {"found": False, "message": "No person found for that uri."}, 404
+    pname = rows[0].get("name", "")
+    return _person_timeline_body(person_uri, pname, _wiki_slug(pname), limit, days)
+
+
 def person_timeline(slug, limit=50, days=None):
     """Handle GET /api/v1/person/{slug}/timeline.
 
@@ -7411,6 +7447,15 @@ def person_timeline(slug, limit=50, days=None):
             "message": "No person found for slug '{}'.".format(slug),
         }, 404
 
+    return _person_timeline_body(person_uri, pname, slug, limit, days)
+
+
+def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
+    """Build the timeline for a person already resolved to ``person_uri``.
+
+    Shared by the slug route (which resolves first) and the by-URI route
+    (which never resolves a slug, so an ambiguous slug cannot degrade it).
+    """
     person = {
         "name": pname,
         "slug": slug,
@@ -13741,6 +13786,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result, indent=2).encode())
             return
 
+        # By exact person URI (no slug resolution, so no slug 409).
+        # GET /api/v1/people/timeline?uri=<person_uri>&limit=N&days=N
+        if parsed.path == "/api/v1/people/timeline":
+            params = parse_qs(parsed.query)
+            uri = (params.get("uri", [""])[0] or "").strip()
+            try:
+                limit = int(params.get("limit", ["50"])[0])
+            except (ValueError, TypeError):
+                limit = 50
+            days_raw = params.get("days", [None])[0]
+            try:
+                days = int(days_raw) if days_raw is not None else None
+            except (ValueError, TypeError):
+                days = None
+            result, status = person_timeline_by_uri(uri, limit=limit, days=days)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(result, indent=2).encode())
+            return
         # Unified cross-channel relationship timeline for one person.
         # GET /api/v1/person/{slug}/timeline?limit=N&days=N
         if (parsed.path.startswith("/api/v1/person/")
