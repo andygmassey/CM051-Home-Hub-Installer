@@ -50,12 +50,12 @@ def report(cap, out=sys.stdout):
     if fx.get("graph_error") or not gb or ga != 0 or sa != 0 or not ctl:
         print("  CANNOT fixture graph teardown not proven (before>0, after=0, stamp-anywhere=0, live control>0 all required)", file=out)
         rc = CANNOT
+    for k in ("free_gb_before", "free_gb_after"):
+        if fx.get(k) is None:
+            print("  CANNOT %s was not measured (a missing number is never read as 0)" % k, file=out)
+            rc = CANNOT
     print("  MBP free: %s GB before, %s GB after; L3 seed counts before any capture: %s" % (
         fx.get("free_gb_before"), fx.get("free_gb_after"), json.dumps(fx.get("l3_seed_counts"))), file=out)
-    print("  speaker_feedback files (this run's ids): before=%s after=%s" % (fx.get("sf_before"), fx.get("sf_after")), file=out)
-    if fx.get("sf_after") != 0 or not fx.get("sf_before"):
-        print("  CANNOT speaker_feedback teardown not proven (before>0 and after=0 required)", file=out)
-        rc = CANNOT
     st = fx.get("stores") or {}
     for k in ("processing", "md", "speaker_feedback", "coach", "bundle_l2", "bundle_l3"):
         v = st.get(k) or {}
@@ -102,7 +102,7 @@ def _cap(paths=None, fx=None):
                       "timeline": {"status": "captured", "control": True, "text": "x", "reply_text": "QUARTZ1 only",
                                    "api_text": J_CLEAN_API}},
             "fixture": {"graph_before": 9, "graph_after": 0, "stamp_after": 0, "control_known_live": 50,
-                        "sf_before": 1, "sf_after": 0, "disk_before": 4, "disk_after": 0,
+                        "free_gb_before": 100.0, "free_gb_after": 100.0, "disk_before": 4, "disk_after": 0,
                         "stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 0, "after": 0, "note": "not written"},
                                    "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0, "note": "db absent"},
                                    "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}},
@@ -153,8 +153,11 @@ def self_test():
         cases.append(("%s bundle never counted -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 0, "after": 0}}}), "CANNOT store %s: nothing counted" % k, CANNOT))
     cases.append(("a store left non-empty (md) -> 78", _cap(fx={"stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 1, "after": 1}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store md", CANNOT))
     cases.append(("processing never counted -> 78", _cap(fx={"stores": {"processing": {"before": 0, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store processing", CANNOT))
-    cases.append(("a speaker_feedback file left behind -> 78", _cap(fx={"sf_after": 1}), "CANNOT speaker_feedback", CANNOT))
-    cases.append(("no speaker_feedback file ever counted -> 78", _cap(fx={"sf_before": 0}), "CANNOT speaker_feedback", CANNOT))
+    cases.append(("a speaker_feedback file left behind -> 78", _cap(fx={"stores": {**good, "speaker_feedback": {"before": 1, "after": 1}}}), "CANNOT store speaker_feedback: after", CANNOT))
+    cases.append(("no speaker_feedback file ever counted -> 78", _cap(fx={"stores": {**good, "speaker_feedback": {"before": 0, "after": 0}}}), "CANNOT store speaker_feedback: nothing counted", CANNOT))
+    cases.append(("a store with no after key is CANNOT, never 0", _cap(fx={"stores": {**good, "md": {"before": 0}}}), "CANNOT store md: after-count is not 0", CANNOT))
+    cases.append(("a None after-count in a store is CANNOT, never 0", _cap(fx={"stores": {**good, "md": {"before": 0, "after": None}}}), "CANNOT store md: after-count is not 0", CANNOT))
+    cases.append(("MBP free after missing -> 78, and no 'None' is printed as a number", _cap(fx={"free_gb_after": None}), "CANNOT free_gb_after was not measured", CANNOT))
     cases.append(("stamp still on disk -> 78", _cap(fx={"disk_after": 2}), "CANNOT this run's stamp", CANNOT))
     cases.append(("disk scan never ran -> 78", _cap(fx={"disk_after": None}), "CANNOT this run's stamp", CANNOT))
     cases.append(("graph residue after teardown -> 78", _cap(fx={"graph_after": 2}), "CANNOT fixture graph", CANNOT))

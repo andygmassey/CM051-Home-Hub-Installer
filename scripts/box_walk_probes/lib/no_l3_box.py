@@ -799,9 +799,8 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     td = {}
     fx = cap["fixture"]
     try:
-        fx["sf_before"] = len(_sf_files(stamp))
         fx["disk_before"] = len(_disk_hits(stamp))
-        _note("on disk before teardown: speaker_feedback=%d, stamp-anywhere=%d" % (fx["sf_before"], fx["disk_before"]))
+        _note("on disk before teardown: stamp-anywhere=%d" % fx["disk_before"])
     except Exception as exc:  # noqa: BLE001
         _note("pre-teardown disk count failed: %s" % type(exc).__name__)
     # 1. reply-debt directory, first: the shortest window on the box
@@ -863,6 +862,9 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     for k, note in (("md", "not written on this box"),):
         if not stores[k]["before"] and "note" not in stores[k]:
             stores[k]["note"] = note
+    # ONE source of truth per number: speaker_feedback is counted in stores[] only,
+    # and MBP free is read here, after everything is removed.
+    fx["free_gb_after"] = round(shutil.disk_usage("/").free / 1e9, 1)
     # 4. LAST: the independent "stamp anywhere" count, after every writer's rows are
     # gone (the pwg-convo rows carry the stamp too; measured 2026-11-16 before this
     # move: 20 stamp rows were still there at the old position).

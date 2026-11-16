@@ -110,6 +110,22 @@ def judge(cap, out=sys.stdout):
             return CANNOT
         before = t["before_qdrant"] + t["before_graph"]
         after = t["after_qdrant"] + t["after_graph"]
+        if name == "l3":
+            # By design the L3 seed writes NO Qdrant or Oxigraph rows (the writer-side
+            # L3 short-circuit). Store rows before the delete would be the very leak
+            # this probe hunts, so that is asserted, not required. The L3 positive
+            # control is its FILES (processing dir, bundle) counted before the delete.
+            if before != 0:
+                print(f"  FAIL teardown l3: the L3 seed wrote {before} store rows (qdrant={t['before_qdrant']} graph={t['before_graph']}); an L3 conversation must write none", file=out)
+                return FAIL
+            if not t.get("files_before"):
+                print("  CANNOT teardown l3: no L3 files counted before the delete (positive control failed)", file=out)
+                return CANNOT
+            if after != 0 or t.get("files_after"):
+                print(f"  CANNOT teardown l3: residue remains after delete (rows={after} files={t.get('files_after')})", file=out)
+                return CANNOT
+            print(f"  ok teardown l3: store rows 0 -> 0 (asserted), files {t['files_before']} -> 0", file=out)
+            continue
         if before == 0:
             print(f"  CANNOT teardown {name}: no seeded rows before the delete (positive control failed)", file=out)
             return CANNOT
@@ -153,6 +169,10 @@ def judge(cap, out=sys.stdout):
     return PASS
 
 
+# The L3 seed writes NO store rows by design; its positive control is its files.
+L3_TD = {"parsed": True, "before_qdrant": 0, "before_graph": 0, "after_qdrant": 0, "after_graph": 0, "files_before": 4, "files_after": 0}
+
+
 def _case(seeds, tools, m2_in_tool, m3_in_tool):
     m3, m2 = "ZEPHYR1", "QUARTZ1"  # the L0 marker lives in the markers dict
     ok = {"status": 200, "text": "[]"}
@@ -171,7 +191,7 @@ def _case(seeds, tools, m2_in_tool, m3_in_tool):
     clean_path = {"status": "captured", "text": "L2 only"}
     return {"markers": {"l3": m3, "l2": m2, "l0": "ZETA0"},
             "seeds": seeds if seeds is not None else {"l3": good, "l2": good},
-            "teardown": {"l3": dict(ok_td), "l2": dict(ok_td)},
+            "teardown": {"l3": dict(L3_TD), "l2": dict(ok_td)},
             "paths": {**{k: dict(clean_path) for k in PATHS}, "timeline": _paths()["timeline"]},
             "tools": t}
 
@@ -208,14 +228,22 @@ def _cap_with_paths(paths, l0="ZETA0"):
     cap = _case(None, None, True, False)
     cap["markers"]["l0"] = l0
     cap["paths"] = paths
-    cap["teardown"] = {"l3": {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},
+    cap["teardown"] = {"l3": dict(L3_TD),
                        "l2": {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0}}
+    return cap
+
+
+def _with_l3(over):
+    """A capture whose l3 teardown is the good one with `over` applied. The outbound
+    arm is CANNOT on the box, so a clean one ends CANNOT; the l3 line is what is under test."""
+    cap = _case(None, None, True, False)
+    cap["teardown"]["l3"] = {**L3_TD, **over}
     return cap
 
 
 def _with_td(td):
     cap = _case(None, None, True, False)
-    cap["teardown"] = {"l3": dict(td), "l2": dict(td)}
+    cap["teardown"] = {"l3": dict(L3_TD), "l2": dict(td)}
     return cap
 
 
@@ -233,6 +261,16 @@ def self_test():
             {"parsed": True, "before_qdrant": 0, "before_graph": 0, "after_qdrant": 0, "after_graph": 0}), CANNOT),
         ("teardown: residue after delete", _with_td(
             {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 1, "after_graph": 0}), CANNOT),
+        ("teardown l3: 0 store rows and files>0 is ok (by design) -> clean",
+         _with_l3({}), CANNOT),
+        ("teardown l3: store rows before the delete is the L3 leak -> FAIL",
+         _with_l3({"before_qdrant": 1}), FAIL),
+        ("teardown l3: graph rows before the delete -> FAIL",
+         _with_l3({"before_graph": 2}), FAIL),
+        ("teardown l3: no files counted before the delete -> CANNOT",
+         _with_l3({"files_before": 0}), CANNOT),
+        ("teardown l3: files left after -> CANNOT",
+         _with_l3({"files_after": 1}), CANNOT),
         ("teardown: no counts parsed", _with_td({"parsed": False}), CANNOT),
         ("box refused: owner id unset", {"error": "OSTLER_NO_L3_OWNER_ID is unset"}, CANNOT),
         ("L0/L3 window: paths not yet captured -> CANNOT, never PASS",
@@ -305,6 +343,19 @@ def self_test():
     ):
         if got != want_v:
             bad.append(f"{label}: wanted {want_v}, got {got}")
+    buf = io.StringIO()
+    judge(_with_l3({}), out=buf)
+    if "ok teardown l3: store rows 0 -> 0 (asserted)" not in buf.getvalue():
+        bad.append("l3 with 0 store rows and files>0 did not print the ok line")
+    for label, over, needle in (
+        ("l3 no files counted names the positive control", {"files_before": 0}, "no L3 files counted before the delete"),
+        ("l3 files left names the residue", {"files_after": 1}, "residue remains after delete (rows=0 files=1)"),
+        ("l3 store rows names the leak", {"before_qdrant": 1}, "the L3 seed wrote 1 store rows"),
+    ):
+        buf = io.StringIO()
+        judge(_with_l3(over), out=buf)
+        if needle not in buf.getvalue():
+            bad.append(f"{label}: {needle!r} not printed")
     # the verdict alone cannot tell "missing" from "mislabelled": check the reason too
     for label, cap, needle in (
         ("missing level named as missing", _cap_with_paths(_paths(api=_api({"ZETA0": None}))), "carries no privacy_level"),
