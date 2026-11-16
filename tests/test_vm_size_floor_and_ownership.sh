@@ -113,5 +113,18 @@ else
     bad "control: an Ostler-owned VM was not persisted"
 fi
 
+# ── (3) OWNED + EXISTING: the start sizes CPU/memory but never passes --disk ──
+# colima cannot shrink a disk, so --disk belongs to CREATE only.
+reset
+echo "3 6" > "$STUB/vm"
+ostler_vm_mark_owned "owned-existing control"
+OSTLER_VM_CPUS=5; OSTLER_VM_MEM_GIB=10; OSTLER_VM_DISK_GIB=30
+ostler_vm_install_start
+if grep -q "^colima start --cpu 5 --memory 10$" "$STUB/calls"; then
+    ok "owned + existing VM: start passes --cpu/--memory and no --disk"
+else
+    bad "owned + existing VM: expected 'start --cpu 5 --memory 10' with no --disk, got $(tr '\n' ';' < "$STUB/calls" 2>/dev/null)"
+fi
+
 echo "== $((total - fails))/$total passed"
 [ "$fails" -eq 0 ]
