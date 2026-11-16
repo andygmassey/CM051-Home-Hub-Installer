@@ -199,13 +199,23 @@ def _qdrant_search(vector):
     return {"status": 200 if out.returncode == 0 else out.returncode, "text": out.stdout}
 
 
-def _tools(m3, m2, token):
+def _tools(m3, m2, token, kinds=None, slugs=None):
+    """The seven pwg_* tools, plus the per-kind arms. `kinds` maps topic / decision /
+    pref to {"l3": marker, "l2": marker} (the rows seeded this run); `slugs` maps the
+    topic levels to the slug the topic was minted under (for /topics/<slug>/mentions)."""
     q = lambda m: urllib.parse.quote(m)  # noqa: E731
+    kinds = kinds or {"topic": {"l3": m3, "l2": m2}, "decision": {"l3": m3, "l2": m2},
+                      "pref": {"l3": m3, "l2": m2}}
+    slugs = slugs or {"L3": "no-slug-l3", "L2": "no-slug-l2"}
     got = {
-        "pwg_decisions": _get(f"/api/v1/decisions?q={q(m3)}", token),
-        "pwg_decisions_l2": _get(f"/api/v1/decisions?q={q(m2)}", token),
-        "pwg_topics": _get(f"/api/v1/topics?q={q(m3)}", token),
-        "pwg_topics_l2": _get(f"/api/v1/topics?q={q(m2)}", token),
+        "pwg_decisions": _get(f"/api/v1/decisions?q={q(kinds['decision']['l3'])}", token),
+        "pwg_decisions_l2": _get(f"/api/v1/decisions?q={q(kinds['decision']['l2'])}", token),
+        "pwg_topics": _get(f"/api/v1/topics?q={q(kinds['topic']['l3'])}", token),
+        "pwg_topics_l2": _get(f"/api/v1/topics?q={q(kinds['topic']['l2'])}", token),
+        # topic_mentions (ical-server.py topic_mentions): the L3 topic's mentions, and
+        # the L2 topic's mentions as the matched control. The label is in the body.
+        "pwg_topic_mentions": _get(f"/api/v1/topics/{urllib.parse.quote(slugs['L3'])}/mentions", token),
+        "pwg_topic_mentions_l2": _get(f"/api/v1/topics/{urllib.parse.quote(slugs['L2'])}/mentions", token),
         "pwg_commitments": _get("/api/v1/commitments?owner=user&status=open&limit=200", token),
         "pwg_preferences": _get("/api/v1/preferences?limit=1000", token),
         "pwg_overview": _get("/api/v1/hydration/status", token),
@@ -332,7 +342,12 @@ def with_l3_control(cls, l3_count):
 def _seed_graph(owner, stamp, markers, subjects_out):
     payload = {"owner": owner, "stamp": stamp, "person_name": FIXTURE_NAME, "post": True,
                "convs": [{"id": "ostler-walk-" + markers[lvl], "level": lvl, "marker": markers[lvl],
-                          "date": FIXTURE_DATE} for lvl in ("L2", "L0", "L3")]}
+                          "date": FIXTURE_DATE} for lvl in ("L2", "L0", "L3")],
+               # One topic and one decision per level, each tied to the conversation of
+               # that level. The markers are the kind-specific ones (see main()).
+               "conv_markers": {"L2": markers["L2"], "L3": markers["L3"]},
+               "topic_markers": {"L2": markers["l2_topic"], "L3": markers["l3_topic"]},
+               "decision_markers": {"L2": markers["l2_decision"], "L3": markers["l3_decision"]}}
     p = subprocess.run([VENV_PY, os.path.join(HERE, "no_l3_graph_seed.py"), json.dumps(payload)],
                        cwd=CM048_DIR, capture_output=True, text=True, timeout=180)
     if p.stderr.strip():
@@ -342,6 +357,72 @@ def _seed_graph(owner, stamp, markers, subjects_out):
     out = json.loads(p.stdout)
     subjects_out.extend(out["subjects"])
     return out
+
+
+# ---------------------------------------------------------------------------
+# The preference arm. The reader (ical-server.py api_preferences, :12790 at
+# db1cb5a9) reads the CM059 artefact at INTEREST_PROFILE_PATH. The artefact is
+# compiled from live stores by a tick and is REPLACED each time, so the seed is
+# written over it and the original bytes are restored by sha after the read.
+#
+# NOT a shipped writer, stated here: the reader reads a TOP-LEVEL "interests" key,
+# and the shipped compiler writes the interests nested under "domains[].interests"
+# (interest_profile.py:1117-1131, dumped at :1335). On a shipped artefact the reader
+# therefore returns 0 records. The seed below is in the READER's shape, so the arm
+# as coded is exercised; the shape mismatch is a finding and is reported as such.
+# ---------------------------------------------------------------------------
+
+def _profile_path():
+    # The reader's own precedence (ical-server.py:978-988): OSTLER_INTEREST_PROFILE,
+    # then OSTLER_PREFERENCES_DIR/interest_profile.json, then the default. The box
+    # run inherits the walker's environment, which may not match the server's launchd
+    # plist; the capture records which variables were set so a mismatch is visible.
+    return (os.environ.get("OSTLER_INTEREST_PROFILE")
+            or os.path.join(os.environ.get("OSTLER_PREFERENCES_DIR",
+                                           os.path.expanduser("~/.ostler/preferences")),
+                            "interest_profile.json"))
+
+
+def _seed_preferences(markers, backup_dir):
+    path = _profile_path()
+    rec = {"id": "walkfx-" + markers["l3_pref"], "subject": "Walk probe " + markers["l3_pref"] + " trail",
+           "domain": "walkprobe", "category": "walkprobe", "polarity": "like", "privacy": "L3",
+           "score": 0.9, "confidence": 0.9, "sources": ["walk-probe"], "evidence": [], "flags": []}
+    ctl = dict(rec, id="walkfx-" + markers["l2_pref"], subject="Walk probe " + markers["l2_pref"] + " trail",
+               privacy="L2")
+    had = os.path.exists(path)
+    orig_sha, backup = None, os.path.join(backup_dir, "profile.bak")
+    if had:
+        shutil.copy2(path, backup)
+        orig_sha = _file_sha(backup)
+    body = json.dumps({"schema_version": "0.1", "interests": [rec, ctl]}, ensure_ascii=False).encode()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(body)
+    return {"path": path, "had_original": had, "backup": backup, "original_sha": orig_sha,
+            "env": {k: bool(os.environ.get(k)) for k in ("OSTLER_INTEREST_PROFILE", "OSTLER_PREFERENCES_DIR")},
+            "seeded_sha": hashlib.sha256(body).hexdigest()}
+
+
+def _file_count(path, needle):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read().count(needle)
+
+
+def _restore_preferences(seed):
+    """Put the original bytes back ONLY if the file still holds what we wrote. If the
+    compile tick rewrote it meanwhile, the tick's own file stands (it is compiled from
+    live stores, which never held the marker), and that is reported, not hidden."""
+    path = seed["path"]
+    cur = _file_sha(path) if os.path.exists(path) else None
+    if cur != seed["seeded_sha"]:
+        return {"restored": False,
+                "why": "rewritten by the compile tick during the window (marker not in live stores)"}
+    if not seed["had_original"]:
+        os.remove(path)
+        return {"restored": True, "why": "file did not exist before; removed"}
+    shutil.copy2(seed["backup"], path)
+    return {"restored": _file_sha(path) == seed["original_sha"], "why": "original bytes restored by sha"}
 
 
 TIMELINE_PROMPT = "show me my recent conversations with %s" % FIXTURE_NAME
@@ -933,9 +1014,15 @@ def main():
     token = _token()
     # Unique per run: a second run must not be fooled by the first run's rows.
     stamp = uuid.uuid4().hex[:12]
-    markers = {"L3": "ZEPHYR" + stamp, "L2": "QUARTZ" + stamp, "L0": "ZETA" + stamp}
+    markers = {"L3": "ZEPHYR" + stamp, "L2": "QUARTZ" + stamp, "L0": "ZETA" + stamp,
+               # one marker per kind and level: a leak is judged on its OWN arm
+               "l3_topic": "ZEPHYRT" + stamp, "l2_topic": "QUARTZT" + stamp,
+               "l3_decision": "ZEPHYRD" + stamp, "l2_decision": "QUARTZD" + stamp,
+               "l3_pref": "ZEPHYRP" + stamp, "l2_pref": "QUARTZP" + stamp}
     m3, m2, m0 = markers["L3"], markers["L2"], markers["L0"]
-    cap = {"markers": {"l3": m3, "l2": m2, "l0": m0}, "seeds": {}, "tools": {}, "teardown": {},
+    cap = {"markers": {"l3": m3, "l2": m2, "l0": m0, **{k: markers[k] for k in (
+               "l3_topic", "l2_topic", "l3_decision", "l2_decision", "l3_pref", "l2_pref")}},
+           "seeds": {}, "tools": {}, "teardown": {}, "kind_controls": {},
            "paths": {}, "fixture": {"stamp": stamp}, "log": LOG}
     subjects, legacy_ids = [], {"l3": f"ostler-walk-l3-{stamp}", "l2": f"ostler-walk-l2-{stamp}"}
     backup_dir = tempfile.mkdtemp(prefix="no-l3-rd-")
@@ -950,7 +1037,11 @@ def main():
         cap["fixture"]["free_gb_before"] = round(shutil.disk_usage("/").free / 1e9, 1)
 
         # --- timeline + brief graph rows (CM048's own serialisers) ------------
-        _seed_graph(owner, stamp, markers, subjects)
+        graph_out = _seed_graph(owner, stamp, markers, subjects)
+        slugs = {"L2": graph_out["topic_slugs"]["L2"], "L3": graph_out["topic_slugs"]["L3"]}
+        cap["fixture"]["kind_writes"] = graph_out.get("writes", {})
+        # the preference arm's artefact (restored by sha in teardown)
+        rd["pref"] = _seed_preferences(markers, backup_dir)
         cap["fixture"]["subjects"] = len(subjects)
         cap["fixture"]["triples_before_delete"] = _count_subjects(subjects)
         _note("graph seeded: %d subjects, %d triples" % (len(subjects), cap["fixture"]["triples_before_delete"]))
@@ -966,7 +1057,19 @@ def main():
         _note("L3 seed counts before any capture: " + json.dumps(ctl))
         tl = _capture_timeline(token, markers)
         cap["paths"]["timeline"] = with_l3_control(tl, ctl["timeline"])
-        cap["tools"] = _tools(m3, m2, token)
+        # Kind positive controls: each L3 row must EXIST before its arm reads, or
+        # "no marker in the response" only means nothing was there to withhold.
+        cap["kind_controls"] = {
+            "topic": _count('?s <http://www.w3.org/2000/01/rdf-schema#label> ?o FILTER(CONTAINS(STR(?o), "%s"))' % markers["l3_topic"]),
+            "decision": _count('?s <%sdecisionSummary> ?o FILTER(CONTAINS(STR(?o), "%s"))' % (PWG_NS, markers["l3_decision"])),
+            "pref": _file_count(rd["pref"]["path"], markers["l3_pref"]),
+        }
+        _note("kind L3 controls before capture: " + json.dumps(cap["kind_controls"]))
+        cap["tools"] = _tools(m3, m2, token,
+                              kinds={"topic": {"l3": markers["l3_topic"], "l2": markers["l2_topic"]},
+                                     "decision": {"l3": markers["l3_decision"], "l2": markers["l2_decision"]},
+                                     "pref": {"l3": markers["l3_pref"], "l2": markers["l2_pref"]}},
+                              slugs={"L3": slugs["L3"], "L2": slugs["L2"]})
 
         # --- reply-debt + brief, inside one tick-free window --------------------
         _wait_for_tick_window(700)
@@ -1014,7 +1117,15 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
         _note("on disk before teardown: stamp-anywhere=%d" % fx["disk_before"])
     except Exception as exc:  # noqa: BLE001
         _note("pre-teardown disk count failed: %s" % type(exc).__name__)
-    # 1. reply-debt directory, first: the shortest window on the box
+    # 0. the preference artefact, restored by sha BEFORE the backup dir is removed
+    if rd.get("pref"):
+        try:
+            fx["preferences"] = _restore_preferences(rd["pref"])
+            _note("preferences restore: " + json.dumps(fx["preferences"]))
+        except Exception as exc:  # noqa: BLE001
+            fx["preferences"] = {"restored": False, "why": "%s: %s" % (type(exc).__name__, str(exc)[:150])}
+            _note("preferences restore FAILED: " + fx["preferences"]["why"])
+    # 1. reply-debt directory: the shortest window on the box
     try:
         if rd.get("seeded") or os.path.exists(os.path.join(backup_dir, "bak")):
             fx["reply_debt"] = _restore_reply_debt(rd["backup"], rd.get("seeded_sha", ""), rd["before_tree"]) \

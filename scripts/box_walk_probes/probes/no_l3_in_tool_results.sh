@@ -67,6 +67,9 @@ _BOXSCRIPT="${_HERE}/lib/no_l3_box.py"
 _PATHS_REPORT="${_HERE}/lib/no_l3_paths.py"
 # Everything the box script imports, staged together (tar, gzip, base64).
 _BOXFILES="no_l3_box.py no_l3_graph_seed.py assistant_chat.py wow_moments.py smart_prefs.py"
+# The decision writer (CM041 meeting_syncer/decision_extractor.py, stdlib + httpx) is
+# staged from the vendored tree, not copied into lib/: the box runs the shipped code.
+_DECISION_WRITER="${_HERE}/../../vendor/cm041/meeting_syncer/decision_extractor.py"   # _HERE = scripts/box_walk_probes
 
 # ONE decision, shared by run_probe and self_test: judge a capture file.
 decide() {
@@ -214,7 +217,9 @@ run_probe() {
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
     local remote cap tarball pid
     remote="/tmp/ostler-probe-no-l3-$$"
-    tarball="$(cd "${_HERE}/lib" && tar czf - ${_BOXFILES} | base64 | tr -d '\n')"
+    [ -f "${_DECISION_WRITER}" ] || probe_cannot_run "the shipped decision writer is not in the tree (${_DECISION_WRITER}); the decision arm cannot seed"
+    # shellcheck disable=SC2086
+    tarball="$(tar czf - -C "${_HERE}/lib" ${_BOXFILES} -C "$(dirname "${_DECISION_WRITER}")" decision_extractor.py | base64 | tr -d '\n')"
     _no_l3_box_capture "mkdir -p ${remote} && printf %s '${tarball}' | base64 -d | tar xzf - -C ${remote}" "" \
         || probe_cannot_run "could not stage the seed and reader on the box"
     cap="$(mktemp)"
