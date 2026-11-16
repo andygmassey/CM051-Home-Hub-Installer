@@ -30,6 +30,7 @@ on:
       - 'tests/test_licence_gate.sh'
       - 'tests/test_shipped_compose_licence_mount.sh'
       - 'tests/test_licence_tier_reaches_the_hub.sh'
+      - 'tests/test_licence_plan_reaches_the_gate.sh'
       - 'gui/OstlerInstaller/Auth/LicenseVerifier.swift'
       - 'gui/OstlerInstaller/Auth/LicensePersistence.swift'
       # The tier leaves the licence gate and lands in the Hub's own
@@ -105,3 +106,11 @@ jobs:
       - name: every licence carries a tier, and the Hub reads it
         if: always()
         run: bash tests/test_licence_tier_reaches_the_hub.sh
+
+      # The signed plan (founding | ff | standard) leaves the verifier by a
+      # plan-mode call and reaches activate_first_month_free as included_plan.
+      # The merge-order check inside is RED until CM051 #3574 (CM052 #21) is
+      # on main: that is the point, not a flake.
+      - name: the signed licence plan reaches the included-Pro gate
+        if: always()
+        run: bash tests/test_licence_plan_reaches_the_gate.sh
