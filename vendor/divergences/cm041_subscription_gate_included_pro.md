@@ -1,4 +1,4 @@
-# Included Pro window: the gate's plan, fail-closed and no-shrink rules
+# Included window: the gate plan, fail-closed and no-shrink rules
 
 **Recorded 2026-11-16. Location and shape only, never content.**
 
@@ -24,4 +24,4 @@ record. This is NOT a divergence from CM041 upstream: CM041 has no
 The Hub grants the included Pro window from the signed licence plan:
 founding and ff 180 days, standard 90, no plan = provisional 90. Unsigned or
 absent licence grants nothing; a lapsed licence grants no new window; a
-running window never shrinks. Decided by Andy 2026-11-16 ("yes, pull into 133").
+running window never shrinks. Decided by the owner 2026-11-16 ("yes, pull into 133").
