@@ -33,6 +33,9 @@
 #     READER withholds a row that exists, which is the defence-in-depth gap: the
 #     reader (ical-server.py topics_list / topic_mentions) has no privacy predicate.
 #     The L2 topic goes through write_topics unchanged.
+#     ACCEPTED (Archie ruling, defence in depth): the L3 topic writer bypass is
+#     accepted. The shipped topic_writer refuses L3, so the bypass is a test of the
+#     READER alone, not a claim that the shipped system produces L3 topics.
 #   * THE MEETING LEVEL NODE (`<urn:ostler:meeting/...> pwg:privacyLevel`): the
 #     decision writer (decision_extractor.write_decision) takes NO privacy input, so
 #     a decision carries no level of its own. The level a decision is judged by is

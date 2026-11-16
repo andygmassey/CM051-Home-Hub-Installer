@@ -18,6 +18,9 @@
 #     rows: that path is NOT exercised here (only the Oxigraph decision store is);
 #   * the ostler_security import is stubbed, because ical-server refuses to import
 #     without it and the stub is never asked to open a database.
+# The L3 topic row is written by a path the shipped topic_writer REFUSES (it refuses
+# every level but L0/L1/L2). Accepted as defence in depth (Archie ruling): the reader
+# must withhold an L3 row whatever writes it.
 # It proves the reader's predicate, not the store: a FAIL here is a reader defect
 # (the reader serves an L3 row it was given); a GREEN here says nothing about rows the
 # fixture does not contain.
