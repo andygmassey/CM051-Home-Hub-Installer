@@ -15,8 +15,27 @@ PASS, FAIL, CANNOT = 0, 1, 78
 
 
 def judge(cap, out=sys.stdout):
+    if "error" in cap:
+        print(f"  CANNOT {cap['error']}", file=out)
+        return CANNOT
     m3, m2 = cap["markers"]["l3"], cap["markers"]["l2"]
     seeds = cap.get("seeds", {})
+    # Teardown first: the seeded rows must be present before the delete (the
+    # positive control) and gone after it. Residue is CANNOT, never a pass.
+    for name in ("l3", "l2"):
+        t = cap.get("teardown", {}).get(name, {})
+        if not t.get("parsed"):
+            print(f"  CANNOT teardown {name} produced no counts", file=out)
+            return CANNOT
+        before = t["before_qdrant"] + t["before_graph"]
+        after = t["after_qdrant"] + t["after_graph"]
+        if before == 0:
+            print(f"  CANNOT teardown {name}: no seeded rows before the delete (positive control failed)", file=out)
+            return CANNOT
+        if after != 0:
+            print(f"  CANNOT teardown {name}: residue remains after delete (qdrant={t['after_qdrant']} graph={t['after_graph']})", file=out)
+            return CANNOT
+        print(f"  ok teardown {name}: before {before} -> after 0", file=out)
     for name in ("l3", "l2"):
         s = seeds.get(name, {})
         if s.get("cli_rc") != 0 or s.get("bundle") != "present":
@@ -63,9 +82,18 @@ def _case(seeds, tools, m2_in_tool, m3_in_tool):
     if m3_in_tool:  # the leak is in commitments
         t["pwg_commitments"] = {"status": 200, "text": '{"commitments":[{"action":"' + m3 + '"}]}'}
     good = {"cli_rc": 0, "bundle": "present"}
+    ok_td = {"parsed": True, "before_qdrant": 2, "before_graph": 3,
+             "after_qdrant": 0, "after_graph": 0}
     return {"markers": {"l3": m3, "l2": m2},
             "seeds": seeds if seeds is not None else {"l3": good, "l2": good},
+            "teardown": {"l3": dict(ok_td), "l2": dict(ok_td)},
             "tools": t}
+
+
+def _with_td(td):
+    cap = _case(None, None, True, False)
+    cap["teardown"] = {"l3": dict(td), "l2": dict(td)}
+    return cap
 
 
 def self_test():
@@ -78,6 +106,12 @@ def self_test():
         ("L3 leak but no L2 twin: CANNOT, never FAIL", _case(None, None, False, True), CANNOT),
         ("seed incomplete", _case({"l3": {"cli_rc": 1, "bundle": "absent"},
                                    "l2": {"cli_rc": 0, "bundle": "present"}}, None, True, False), CANNOT),
+        ("teardown: no rows before delete (positive control)", _with_td(
+            {"parsed": True, "before_qdrant": 0, "before_graph": 0, "after_qdrant": 0, "after_graph": 0}), CANNOT),
+        ("teardown: residue after delete", _with_td(
+            {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 1, "after_graph": 0}), CANNOT),
+        ("teardown: no counts parsed", _with_td({"parsed": False}), CANNOT),
+        ("box refused: owner id unset", {"error": "OSTLER_NO_L3_OWNER_ID is unset"}, CANNOT),
         ("every tool errored", _case(None, {k: {"error": "refused"} for k in (
             "pwg_decisions", "pwg_topics", "pwg_commitments", "pwg_preferences",
             "pwg_overview", "pwg_derived_preferences", "pwg_knowledge_search")}, False, False), CANNOT),

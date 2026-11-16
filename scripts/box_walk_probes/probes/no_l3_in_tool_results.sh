@@ -35,10 +35,14 @@
 # The oa boundary filter (ostler-assistant PR #716) drops them on the oa side;
 # the Hub-side fix belongs to CM041.
 #
-# WALK_WRITES: seeds two conversations on the box, and the writer has no forget
-# route for a conversation, so the rows PERSIST. Refuses unless
+# WALK_WRITES: seeds two conversations on the box. Refuses unless
 # OSTLER_NO_L3_ALLOW_WRITE=1 is set, the same gate the other writing probes use
 # (hub_screens_render_for_a_customer.sh OSTLER_SCREENS_ALLOW_WRITE).
+# TEARDOWN: after the reads, each seeded id is forgotten with the harness's own
+# forget statements (conversation_seed.sh forget step, run under /bin/sh). Before
+# and after counts are reported, and a non-zero count before the delete is the
+# positive control. Residue after the delete is CANNOT-RUN. Needs
+# OSTLER_NO_L3_OWNER_ID (the box's owner id, from the walker's environment).
 #
 # WHAT IT MEASURES: the Hub's loopback routes (CM041 ical-server.py, :8090),
 # so a FAIL is a CM041 source defect, not an oa #716 defect. The one exception
@@ -83,6 +87,8 @@ self_test() {
     cat > "${cap}" <<'JSON'
 {"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST"},
  "seeds": {"l3": {"cli_rc": 0, "bundle": "present"}, "l2": {"cli_rc": 0, "bundle": "present"}},
+ "teardown": {"l3": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},
+              "l2": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0}},
  "tools": {"pwg_commitments": {"status": 200, "text": "{\"commitments\":[{\"action\":\"ZEPHYR-SELFTEST\"}]}"},
            "pwg_topics": {"status": 200, "text": "{\"topics\":[{\"label\":\"QUARTZ-SELFTEST\"}]}"}}}
 JSON
@@ -98,13 +104,17 @@ run_probe() {
     # on a read-only walk rather than write silently.
     [ "${OSTLER_NO_L3_ALLOW_WRITE:-0}" = "1" ] \
         || probe_cannot_run "WALK_WRITES probe refused on a read-only walk: set OSTLER_NO_L3_ALLOW_WRITE=1 to seed two synthetic conversations"
+    # The teardown needs the box's owner id, read from the walker's environment
+    # and passed to the box. It is never written into this repo.
+    [ -n "${OSTLER_NO_L3_OWNER_ID:-}" ] \
+        || probe_cannot_run "OSTLER_NO_L3_OWNER_ID is unset; the teardown needs the box owner id"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
     local remote cap
     remote="/tmp/ostler-probe-no-l3-$$.py"
     box_run "printf %s '$(base64 < "${_BOXSCRIPT}" | tr -d '\n')' | base64 -d > ${remote}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the seed and reader on the box"
     cap="$(mktemp)"
-    box_run "/usr/bin/python3 ${remote}; rm -f ${remote}" > "${cap}" 2>/dev/null
+    box_run "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}; rm -f ${remote}" > "${cap}" 2>/dev/null
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side seed and reader returned no capture"; }
     trap 'rm -f "${cap}"' EXIT

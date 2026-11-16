@@ -59,6 +59,56 @@ def _transcript(marker, level):
     )
 
 
+# The harness's own conversation-forget statements (lib/conversation_seed.sh
+# forget step), run under /bin/sh, parametrised on the seeded id and the box's
+# owner id. Prints before/after counts only; never the credential.
+TEARDOWN_SH = r"""#!/bin/sh
+ID="$1"; UID_="$2"
+CONF="$HOME/.ostler/secrets/store-curl.conf"
+[ -r "$CONF" ] || { echo "NO-CONF"; exit 4; }
+K="-K $CONF"
+CURL=/usr/bin/curl
+Q=http://127.0.0.1:6333
+OXI=http://127.0.0.1:7878/query
+UPD="${OXI%/query}/update"
+NS='https://schema.ostler.ai/ontology#'
+G="urn:ostler:user/$UID_"
+FILT='{"exact": true, "filter": {"must": [{"key": "conversation_id", "match": {"value": "'"$ID"'"}}]}}'
+qcount() { $CURL -sS --noproxy '*' -m 20 $K -X POST -H 'Content-Type: application/json' --data "$FILT" "$Q/collections/conversations/points/count" | python3 -c 'import json,sys;print(json.load(sys.stdin)["result"]["count"])'; }
+scount() { $CURL -sS --noproxy '*' -m 20 $K -H 'Content-Type: application/sparql-query' -H 'Accept: application/sparql-results+json' --data-binary "SELECT (COUNT(*) AS ?n) WHERE { { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } FILTER(CONTAINS(STR(?s), \"$ID\") || CONTAINS(STR(?o), \"$ID\")) }" "$OXI" | python3 -c 'import json,sys;print(json.load(sys.stdin)["results"]["bindings"][0]["n"]["value"])'; }
+echo "BEFORE qdrant=$(qcount) graph=$(scount)"
+$CURL -sS --noproxy '*' -m 30 $K -X POST -H 'Content-Type: application/json' --data '{"filter": {"must": [{"key": "conversation_id", "match": {"value": "'"$ID"'"}}]}}' "$Q/collections/conversations/points/delete?wait=true" >/dev/null 2>&1
+u1="DELETE { ?t ?p ?o } WHERE { ?m <${NS}inConversation> <urn:ostler:conversation/$ID> ; <${NS}mentionsTopic> ?t . ?t ?p ?o . FILTER NOT EXISTS { ?m2 <${NS}mentionsTopic> ?t ; <${NS}inConversation> ?c2 . FILTER(?c2 != <urn:ostler:conversation/$ID>) } }"
+u2="DELETE { ?m ?p ?o } WHERE { ?m <${NS}inConversation> <urn:ostler:conversation/$ID> ; ?p ?o }"
+u3="DELETE { GRAPH <$G> { <urn:ostler:conversation/$ID> ?p ?o } } WHERE { GRAPH <$G> { <urn:ostler:conversation/$ID> ?p ?o } }"
+u4="DELETE { GRAPH <$G> { ?s ?p2 ?o2 } } WHERE { GRAPH <$G> { ?s ?p <urn:ostler:conversation/$ID> ; ?p2 ?o2 } }"
+for u in "$u1" "$u2" "$u3" "$u4"; do $CURL -sS --noproxy '*' -m 30 $K -H 'Content-Type: application/sparql-update' --data-binary "$u" "$UPD" -o /dev/null; done
+echo "AFTER qdrant=$(qcount) graph=$(scount)"
+"""
+
+
+def _teardown(cid, owner):
+    """Forget one seeded conversation. Returns the before/after counts parsed
+    from the script's own output, so the judge can check the positive control
+    (before > 0) and the residue (after == 0)."""
+    import re
+    path = os.path.join(tempfile.mkdtemp(prefix="no-l3-teardown-"), "teardown.sh")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(TEARDOWN_SH)
+    try:
+        out = subprocess.run(["/bin/sh", path, cid, owner], capture_output=True,
+                             text=True, timeout=300).stdout
+    finally:
+        subprocess.run(["rm", "-rf", os.path.dirname(path)])
+    b = re.search(r"BEFORE qdrant=(\d+) graph=(\d+)", out)
+    a = re.search(r"AFTER qdrant=(\d+) graph=(\d+)", out)
+    if not (b and a):
+        return {"id": cid, "parsed": False, "raw": out[-200:]}
+    return {"id": cid, "parsed": True,
+            "before_qdrant": int(b.group(1)), "before_graph": int(b.group(2)),
+            "after_qdrant": int(a.group(1)), "after_graph": int(a.group(2))}
+
+
 def _seed(cid, marker, level):
     meta = {
         "conversation_id": cid, "date": "2026-11-16", "channel": "spoken",
@@ -128,6 +178,10 @@ def _tools(m3, m2, token):
 
 
 def main():
+    owner = os.environ.get("OSTLER_NO_L3_OWNER_ID", "")
+    if not owner:
+        print(json.dumps({"error": "OSTLER_NO_L3_OWNER_ID is unset; teardown needs the box owner id"}))
+        return 0
     token = _token()
     # Unique per run: a second run must not be fooled by the first run's rows.
     stamp = uuid.uuid4().hex[:12]
@@ -137,7 +191,12 @@ def main():
         "l2": _seed(f"ostler-walk-l2-{stamp}", m2, "L2"),
     }
     tools = _tools(m3, m2, token)
-    print(json.dumps({"markers": {"l3": m3, "l2": m2}, "seeds": seeds, "tools": tools}))
+    teardown = {
+        "l3": _teardown(f"ostler-walk-l3-{stamp}", owner),
+        "l2": _teardown(f"ostler-walk-l2-{stamp}", owner),
+    }
+    print(json.dumps({"markers": {"l3": m3, "l2": m2}, "seeds": seeds,
+                      "tools": tools, "teardown": teardown}))
     return 0
 
 
