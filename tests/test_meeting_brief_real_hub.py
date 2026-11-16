@@ -135,9 +135,9 @@ def stage_gate(home, state):
         "now = datetime.now(timezone.utc)\n"
         "iso = lambda d: d.isoformat().replace('+00:00', 'Z')\n"
         f"if {kind!r} == 'trial':\n"
-        f"    g.activate_first_month_free(iso(now - timedelta(days={days})))\n"
+        f"    g.activate_first_month_free(iso(now - timedelta(days={days})), licence_tier_state='known')\n"
         "else:\n"
-        "    g.activate_first_month_free(iso(now - timedelta(days=90)))\n"
+        "    g.activate_first_month_free(iso(now - timedelta(days=90)), licence_tier_state='known')\n"
         f"    g.refresh_from_companion('cmVjZWlwdA==', iso(now + timedelta(days={days})))\n"
     )
     subprocess.run([sys.executable, "-c", code, str(svc)], check=True,
@@ -328,8 +328,8 @@ def main():
                 check("day 5 of the included month: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
                 rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("paid", 20))
                 check("a paying subscriber: briefs are sent", rc == 0 and len(sent) == 3, f"rc={rc} sent={len(sent)} {log[-200:]}")
-                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 31))
-                check("day 31, never paid: nothing sent, exit 0, and the log says Pro is not active",
+                rc, sent, log = run_sender(script, hub, ann_port, composer, work, gate=("trial", 91))
+                check("day 91, never paid: nothing sent, exit 0, and the log says Pro is not active",
                       rc == 0 and not sent and "Ostler Pro is not active" in log, f"rc={rc} sent={len(sent)} {log[-200:]}")
 
                 stub_composer(composer, "ok", calls)
