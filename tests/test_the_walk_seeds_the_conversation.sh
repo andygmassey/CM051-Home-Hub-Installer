@@ -685,10 +685,12 @@ python3 - "$LIB" "$MUT_K" <<'PY'
 import sys
 src, dst = sys.argv[1], sys.argv[2]
 s = open(src, encoding='utf-8').read()
-guard = "if [ -z \\\"\\$CONF\\\" ] || [ ! -r \\\"\\$CONF\\\" ]; then printf 'NO-CONF %s\\n' \\\"\\$CONF\\\"; exit 4; fi\nK=\\\"-K \\$CONF\\\"\n"
+guard = "if [ -z \\\"\\$CONF\\\" ] || [ ! -r \\\"\\$CONF\\\" ]; then printf 'NO-CONF %s\\n' \\\"\\$CONF\\\"; exit 4; fi\n"
 old   = "K=''\n[ -r \\\"\\$CONF\\\" ] && K=\\\"-K \\$CONF\\\"\n"
 n = s.count(guard)
 s = s.replace(guard, old)
+# the O4 fix quotes the credential at each curl site; the old form used the unquoted $K at those sites
+s = s.replace('-K \\\"\\$CONF\\\" ', '\\$K ')
 open(dst, 'w', encoding='utf-8').write(s)
 print("reverted %d read-back guard(s)" % n)
 PY
