@@ -101,7 +101,9 @@ def main() -> int:
         check("Where your data came from" not in section, "it is not inside the sources table")
 
         print("5. the stale-import rule")
-        now = datetime.now(timezone.utc)  # stale_findings reads the wall clock; anchor to it
+        # Wall clock on purpose: stale_findings() ages against the real clock, so a
+        # fixed date here drifts to 121 days and fails the "120 days" title.
+        now = datetime.now(timezone.utc)
         old_epoch = int((now - timedelta(days=120)).timestamp())
         stale_state = {"status": "ok", "marks": {"LinkedIn": (old_epoch, "mtime")}, "error": None}
         import diagnostic_rules as dr  # noqa: E402  (imports status_collector; CANNOT-RUN if deps are absent)

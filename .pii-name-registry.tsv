@@ -58,7 +58,6 @@ strict	vendor/ostler_fda/identifier_quality.py	vendored identity module: worked 
 strict	vendor/ostler_fda/given_name_variants.py	vendored identity module; carries a documented graft, scrubbed in place not re-pinned
 strict	vendor/ostler_fda/relationship_labels.py	vendored identity module: kinship words vs names. PUBLIC repo.
 strict	vendor/ostler_fda/role_addresses.py	vendored identity module: role vs person addresses. PUBLIC repo.
-strict	vendor/ostler_fda/repair_role_address_people.py	vendored identity repair tool, runs on customer data. PUBLIC repo.
 strict	vendor/ostler_fda/tests/*.py	vendored fixtures; a fixture is the likeliest place for a real contact to be pasted in verbatim
 strict	contact_syncer/instagram_social.py	root twin: username-to-display-name heuristic, worked examples
 strict	contact_syncer/syncer.py	root twin: dedupe worked examples
