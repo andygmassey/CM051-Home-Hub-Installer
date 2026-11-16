@@ -7862,13 +7862,10 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "error": "Invalid 'about' slug. Expected lowercase ASCII "
                          "letters, digits, hyphens (max 80 chars).",
             }, 400
+        # Merge-aware (walk #27): resolve to the live survivor, and match a
+        # decision filed against ANY node merged into it.
         try:
-            candidates = _sparql_select(
-                'PREFIX pwg: <{ns}>\n'
-                'SELECT ?person ?name WHERE {{\n'
-                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
-                '}}'.format(ns=PWG_NS)
-            )
+            about_uri, _ = _resolve_person_by_slug(about)
         except Exception as exc:
             return {
                 "decisions": [],
@@ -7876,17 +7873,14 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}",
             }, 503
-        for cand in candidates:
-            if _wiki_slug(cand.get("name", "")) == about:
-                about_uri = cand["person"]
-                break
         if about_uri is None:
             return {"decisions": [], "count": 0}, 200
 
     # One query for the decision attributes; decisionAbout is collected in
     # a second pass so a multi-attendee decision is not row-multiplied here.
     about_clause = (
-        '  ?d pwg:decisionAbout <{uri}> .\n'.format(uri=about_uri)
+        '  ?d pwg:decisionAbout ?aboutNode .\n'
+        '  ?aboutNode pwg:mergedInto* <{uri}> .\n'.format(uri=about_uri)
         if about_uri else ''
     )
     try:
@@ -7901,6 +7895,15 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             '}}'.format(ns=PWG_NS, about_clause=about_clause)
         )
     except Exception as exc:
+        # The graph being down no longer blanks the answer when the wiki's own
+        # store (conversations) can still speak: that is the source of truth.
+        conv_rows, _conv_err = _decision_facts_from_conversations(about, query)
+        if conv_rows:
+            conv_rows.sort(key=lambda d: d["date"], reverse=True)
+            conv_rows = conv_rows[:limit]
+            return {"decisions": conv_rows, "count": len(conv_rows),
+                    "degraded": True,
+                    "reason": f"oxigraph_query_failed: {exc}"}, 200
         return {
             "decisions": [],
             "count": 0,
@@ -7950,12 +7953,25 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             "status": r.get("status", ""),
         })
 
+    # The wiki Decisions page's store, merged in. De-duplicated on summary so a
+    # decision present in both stores is listed once. Conversation rows carry
+    # their own L3 withholding (_decision_facts_from_conversations).
+    conv_rows, conv_err = _decision_facts_from_conversations(about, query)
+    seen = {d["summary"].strip().lower() for d in decisions}
+    for row in conv_rows:
+        if row["summary"].strip().lower() not in seen:
+            seen.add(row["summary"].strip().lower())
+            decisions.append(row)
+
     # Newest first; undated decisions sort last (empty string < any date).
     decisions.sort(key=lambda d: d["date"], reverse=True)
     decisions = decisions[:limit]
-    return {"decisions": decisions, "count": len(decisions),
-            "withheld": _withheld_view(withheld),
-            "legacy_untagged": withheld["legacy_untagged"]}, 200
+    out = {"decisions": decisions, "count": len(decisions),
+           "withheld": _withheld_view(withheld),
+           "legacy_untagged": withheld["legacy_untagged"]}
+    if conv_err:
+        out["conversations_unreadable"] = conv_err
+    return out, 200
 
 
 def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
@@ -12872,14 +12888,38 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     if not isinstance(interests, list):
         interests = []
 
-    # Privacy gate first, so the counts and the limit are over what may be
-    # shown. An interest record is served only when ITS OWN privacy_level
-    # parses to L0/L1/L2. CM059 does not emit one today, so every record is
-    # unknown provenance and withheld, counted in ``withheld``.
+    # GDPR Art. 9 special-category topics are never RETURNED (board row 2471).
+    # The profile keeps them; this read-out withholds them, using the SAME
+    # list the Front Page uses (sensitive_topics.py beside this file is
+    # GENERATED from vendor/cm059_editor/compiler/sensitive_topics.py). If
+    # the list cannot load, nothing is returned: fail closed, said out loud.
+    try:
+        import sensitive_topics as _art9
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "interests": [],
+            "count": 0,
+            "degraded": True,
+            "reason": "special-category filter unavailable: " + str(exc)[:160],
+            "source_path": INTEREST_PROFILE_PATH,
+        }
+    # Privacy gate, applied before the counts and the limit. A row is withheld
+    # if EITHER the Art. 9 filter OR the per-interest level gate applies, and
+    # is counted once (an Art. 9 hit is tallied as ``l3``). An interest record
+    # is served only when ITS OWN privacy_level parses to L0/L1/L2. An untagged
+    # record is legacy_untagged: served, and counted so the response shows how
+    # many have no readable level yet. An unparseable level is unknown: withheld.
     withheld = _new_withheld()
     visible = []
     for it in interests:
-        raw = it.get("privacy_level") if isinstance(it, dict) else None
+        if not isinstance(it, dict):
+            _count_withheld(withheld, "unknown")
+            continue
+        if any(_art9.is_sensitive_topic(it.get(k))
+               for k in ("subject", "name", "label", "title") if it.get(k)):
+            withheld["l3"] += 1
+            continue
+        raw = it.get("privacy_level")
         verdict = pwg_privacy.provenance_verdict(raw)
         if _count_withheld(withheld, verdict):
             visible.append(it)

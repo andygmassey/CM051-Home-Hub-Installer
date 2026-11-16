@@ -2252,3 +2252,44 @@ functions changed vs CM051 main: 13 ['_outbound_level_ok', '_fact_outbound_ok', 
 - The vendored tests/test_l3_withheld_moat_readers.py differs from CM041 8a3b832 in three subject strings. Each is lowercased in the vendored copy (the first word of each was capitalised). The PII name guard reads capitalised word pairs as names. The test asserts the same behaviour on the same values.
 - CI round (a8eed577 red): vendored tests/conftest.py no longer stubs ostler_security. The CM041 conftest stub omitted db_key, which the vendored ical-server imports, so collection of the whole tests dir failed. The vendored conftest now only sets OSTLER_SERVICE_TOKEN and OSTLER_TEST_AUTOAUTH and wraps the urllib opener, which the moat test needs. Control: test_browsing_enrich.py collects 30 with it, as origin/main does.
 - Wiring: test_l3_withheld_moat_readers.py is named in .github/workflows/cm041-133-outbound-privacy.yml (run step and collected floor 37).
+
+## Restoration of CM051-local behaviour (2026-11-16, PR #3565 head)
+
+Function-level compare against CM041 8a3b832 (source) and CM051 origin/main
+(35f485a8). Two grafted functions were taken from the source and dropped
+CM051-local behaviour; both are now CM051 main plus the 133 gate, so they are
+recorded divergences from the source, not byte-SAME.
+
+- `api_preferences`: DIVERGENCE from the source, by design. CM051 main's GDPR
+  Art. 9 `is_sensitive_topic` filter (board row 2471) is kept; the 133
+  per-interest level gate is layered on top. A row is withheld if either
+  applies and is counted once in `withheld` (an Art. 9 hit is tallied as `l3`).
+  Upstream carries no Art. 9 filter: backlog row CM041-UPSTREAM-ART9-PREFS.
+  Proof: `tests/test_api_preferences_never_returns_a_special_category_topic.py`
+  green on head, and RED (16 fail) when the Art. 9 line is disabled (mutant,
+  applied locally and reverted, never committed). Moat reader
+  `TestPreferencesL3` RED on main (8 of 8 moat tests fail on main), GREEN on head.
+- `decisions_list`: DIVERGENCE from the source. CM051 main's merge-aware
+  about-lookup (`_resolve_person_by_slug`, `pwg:mergedInto*`), the
+  conversation-store fallback on Oxigraph failure and the conversation merge
+  (`_decision_facts_from_conversations`, which carries its own L3 withholding)
+  are restored. The 133 per-decision provenance gate (source meeting and every
+  attendee, fail closed) is layered on top. Proof: the decisions and
+  person-merge suites are green on head (`test_decisions_one_source_of_truth.py`,
+  `test_person_reads_follow_merges.py`).
+- `topics_list` and `topic_mentions`: byte-SAME with the source, unchanged.
+  Two deliberate departures from main, kept for privacy and recorded here:
+  a topic with no mention rows is withheld and counted (main lists it with
+  weight 0), and a topic label is taken only from a visible mention (main
+  takes it from any row). Both follow the 133 rule that a label carried only
+  by withheld content is not disclosed.
+- `commitments_list`: no CM051-local code removed. The removed `continue` is
+  the old L3 skip, replaced by the gate; an untagged row is still served as
+  `legacy_untagged` with L2.
+- `people_search`, `_person_timeline_body`, `api_reply_debt`: no CM051-local
+  code removed versus main (checked by comment-stripped AST diff). Untagged
+  people remain searchable.
+
+Golden `tests/fixtures/pagination_golden_preferences.json`: the only changes
+are two added top-level keys, `withheld` and `legacy_untagged`. No existing key
+changed or was removed; `interests` (57 records) is identical.
