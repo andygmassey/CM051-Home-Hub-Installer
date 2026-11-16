@@ -142,15 +142,9 @@ def _service_mailbox(name, emails):
     return False
 
 
-def service_sender_reason(name, phones=None, emails=None, has_card=False, has_conversation=False):
-    """Why a People row is a notification or organisation sender, or None (a person).
-
-    A phone, a contact card or a conversation with the owner each keeps the
-    person, whatever the address looks like.
-    """
+def service_sender_reason(name, phones=None, emails=None):
+    """Why a People row is a notification or organisation sender, or None (a person)."""
     if [p for p in (phones or []) if p]:
-        return None
-    if has_card or has_conversation:
         return None
     n = (name or "").strip()
     if not n:
@@ -3998,9 +3992,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         # Notification and organisation senders are not people: removed BEFORE
         # the projection, so they are never embedded (and the prune below
         # removes any point they already had). Counts only, never names.
-        _svc_reason = {id(p): service_sender_reason(p.get("display_name") or "", p.get("phones"), p.get("emails"),
-                                                     has_card=bool(p.get("icloud_uid")),
-                                                     has_conversation=bool(p.get("last_contact"))) for p in people}
+        _svc_reason = {id(p): service_sender_reason(p.get("display_name") or "", p.get("phones"), p.get("emails")) for p in people}
         _svc_skipped = [p for p in people if _svc_reason[id(p)] is not None]
         _svc_by_reason = {}
         for _p in _svc_skipped:

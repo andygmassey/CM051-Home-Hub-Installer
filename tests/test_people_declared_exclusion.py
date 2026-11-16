@@ -4,6 +4,8 @@ Synthetic members only (reserved example.com addresses, invented names).
 Red on the v1.0.132 tag: ingest_people_to_qdrant returns no exclusion count.
 """
 import sys
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,7 @@ def test_service_sender_exclusion_is_declared(monkeypatch):
     assert result.get("by_reason") == {"service mailbox": 1}, result
 
 
+@pytest.mark.xfail(strict=True, reason="134: keep a sender on a contact card OR a verified outbound signal (BACKLOG row, 134 rule)")
 def test_first_last_address_with_a_card_is_kept(monkeypatch):
     # A personal first.last address that the sender rule flags, but the person
     # has a contact card, must be KEPT (card-or-conversation keeps the person).
@@ -57,4 +60,14 @@ def test_first_last_address_with_no_card_and_no_conversation_is_excluded(monkeyp
     bare = _person("urn:synthetic:person:4", "Synthetic Dan",
                    ["dan.synthetic@wish.example.com"])
     result = _run(monkeypatch, [bare])
+    assert result["total"] == 0, result
+
+
+def test_notification_sender_that_emailed_the_owner_stays_excluded(monkeypatch):
+    # Guard for the 134 rule: a last-contact channel alone is NOT a conversation,
+    # so a notification sender that emailed the owner stays excluded on 133.
+    notifier = _person("urn:synthetic:person:5", "Synthetic Notifier",
+                       ["noreply@example.com"])
+    notifier["last_contact"] = "2026-11-01"
+    result = _run(monkeypatch, [notifier])
     assert result["total"] == 0, result
