@@ -720,6 +720,7 @@ test_pause_unloads_model.sh	WIRED	.github/workflows/launchagent-success-verifica
 test_payload_app_icons_gate.sh	WIRED	.github/workflows/payload-app-icons.yml
 test_pbxproj_sync_gate.sh	WIRED	.github/workflows/pbxproj-sync.yml
 test_people_carded_names_show_and_tiers_hold_in_every_path.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_people_circles_plist_env.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_people_count_one_definition.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_count_waits_for_the_embed_drain.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_people_have_human_evidence.py	WIRED	.github/workflows/people-have-human-evidence.yml

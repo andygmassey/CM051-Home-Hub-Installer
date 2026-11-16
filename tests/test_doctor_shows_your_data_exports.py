@@ -101,7 +101,9 @@ def main() -> int:
         check("Where your data came from" not in section, "it is not inside the sources table")
 
         print("5. the stale-import rule")
-        now = datetime(2026, 11, 14, tzinfo=timezone.utc)
+        # The rule reads the real clock (export_status.stale_findings defaults now to
+        # datetime.now). A fixed date here made "120 days" wrong on any later day.
+        now = datetime.now(timezone.utc)
         old_epoch = int((now - timedelta(days=120)).timestamp())
         stale_state = {"status": "ok", "marks": {"LinkedIn": (old_epoch, "mtime")}, "error": None}
         import diagnostic_rules as dr  # noqa: E402  (imports status_collector; CANNOT-RUN if deps are absent)

@@ -181,6 +181,8 @@ on:
       - 'tests/test_the_namespace_migrator_is_found_where_it_ships.sh'
       - 'gui/project.yml'
       - 'scripts/check_install_sh_script_dir_coverage.py'
+      - 'tests/test_people_circles_plist_env.sh'
+      - 'lib/ostler-people-circles-env.sh'
       - 'tests/TEST_WIRING.tsv'
       - '.github/workflows/cold-box-source-truth.yml'
   push:
@@ -207,6 +209,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: The assistant plist gets the non-secret inner-circle env, and no secret
+        run: bash tests/test_people_circles_plist_env.sh
 
       - name: An empty owner email must not reach a shipped LaunchAgent
         run: bash tests/test_aiconv_agent_not_registered_without_owner_email.sh

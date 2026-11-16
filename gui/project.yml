@@ -294,6 +294,11 @@ targets:
           # its install-root from HERE, and install.sh FAILS CLOSED without it.
           cp "${SRCROOT}/../lib/ostler-loopback-guard.sh"  "${DEST}/lib/ostler-loopback-guard.sh"
           chmod 755 "${DEST}/lib/ostler-loopback-guard.sh"
+          # ostler-people-circles-env.sh: the non-secret inner-circle env the assistant
+          # daemon reads (install.sh sources it from ${SCRIPT_DIR}/lib). Without it the
+          # install probe has no asset to find.
+          cp "${SRCROOT}/../lib/ostler-people-circles-env.sh"  "${DEST}/lib/ostler-people-circles-env.sh"
+          chmod 755 "${DEST}/lib/ostler-people-circles-env.sh"
           # End-of-install confirmation helpers (whose calendars + who you
           # are): install.sh's confirmation block probes
           # ${SCRIPT_DIR}/lib/ostler-confirm-calendars.py and
