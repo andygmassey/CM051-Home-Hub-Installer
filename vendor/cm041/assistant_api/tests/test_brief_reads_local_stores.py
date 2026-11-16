@@ -10,7 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -28,6 +28,9 @@ class BriefLocalStores(unittest.TestCase):
         p = mock.patch.object(ical_server, "FDA_IMPORT_DIR", self.dir)
         p.start()
         self.addCleanup(p.stop)
+        # Default state: the calendar synced successfully just now. Tests that
+        # need another state write their own marker.
+        self._mark_calendar_sync()
         # No optional extras configured, as on a customer install.
         for target in ("ICAL_SCRIPT",):
             q = mock.patch.object(ical_server, target, "/nonexistent/ical-query.sh")
@@ -40,6 +43,15 @@ class BriefLocalStores(unittest.TestCase):
 
     def _write(self, name, rows):
         Path(self.dir, name).write_text(json.dumps(rows, default=str))
+
+    def _mark_calendar_sync(self, status="ok", at=None):
+        """Write the product's sync marker (vendor/ostler_fda/extract_all.py):
+        extracted_at plus sources.calendar.status in extraction_summary.json."""
+        at = at or datetime.now(timezone.utc)
+        Path(self.dir, "extraction_summary.json").write_text(json.dumps({
+            "extracted_at": at.isoformat(),
+            "sources": {"calendar": {"status": status, "events": 0}},
+        }))
 
     def test_todays_events_are_returned(self):
         n = _now().replace(hour=12, minute=0, second=0)
@@ -67,14 +79,43 @@ class BriefLocalStores(unittest.TestCase):
         self.assertEqual((status, body["count"]), (200, 0))
         self.assertNotIn("degraded", body)
 
-    def test_an_empty_but_present_store_is_no_data_not_a_free_day(self):
-        # The extractor wrote [] (no Full Disk Access, an empty database):
-        # that is "could not look", and the brief must say so, not "free day".
+    def test_a_successful_sync_with_no_events_is_a_genuine_free_day(self):
+        # Case 2: connected, last sync ok inside its window, [] events.
         self._write("calendar_events.json", [])
         status, body = ical_server.build_calendar_response(1)
-        self.assertEqual(status, 503)
+        self.assertEqual((status, body["count"]), (200, 0), body)
+        self.assertNotIn("degraded", body)
+
+    def test_never_synced_with_an_empty_store_is_no_data_not_a_free_day(self):
+        # Case 3: the store is [] but no sync marker exists. The contents do not
+        # decide this: it is "could not look", so the brief must not say "free".
+        Path(self.dir, "extraction_summary.json").unlink()
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
         self.assertTrue(body["degraded"])
-        self.assertTrue(any("holds no events at all" in d for d in body["detail"]), body)
+        self.assertTrue(any("never synced" in d for d in body["detail"]), body)
+
+    def test_failed_last_sync_with_an_empty_store_is_no_data(self):
+        self._mark_calendar_sync(status="error")
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("did not succeed" in d for d in body["detail"]), body)
+
+    def test_stale_sync_with_an_empty_store_is_no_data(self):
+        self._mark_calendar_sync(at=datetime.now(timezone.utc) - timedelta(hours=24))
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("hours old" in d for d in body["detail"]), body)
+
+    def test_unreadable_sync_marker_is_no_data(self):
+        Path(self.dir, "extraction_summary.json").write_text("{not json")
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("unreadable" in d for d in body["detail"]), body)
 
     def test_calendar_store_missing_is_not_an_empty_200(self):
         status, body = ical_server.build_calendar_response(1)
