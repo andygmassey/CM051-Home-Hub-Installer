@@ -1,0 +1,47 @@
+{
+  "_note": "SYNTHETIC. No real people, addresses or transcripts. expected: kept | broken | open | none.",
+  "as_of": "2026-11-16T00:00:00Z",
+  "threads": [
+    {"id":"t01","person":"Person A","channel":"email","messages":[
+      {"id":"t01m1","ts":"2026-10-01T09:00:00Z","from_owner":true,"text":"I'll send you the deck by Friday."},
+      {"id":"t01m2","ts":"2026-10-03T09:00:00Z","from_owner":true,"text":"Deck attached, as promised."}],
+     "promises":[{"promise_id":"t01m1","due":"2026-10-02T00:00:00Z","expected":"kept"}]},
+    {"id":"t02","person":"Person B","channel":"imessage","messages":[
+      {"id":"t02m1","ts":"2026-10-05T10:00:00Z","from_owner":true,"text":"I'll send the invoice tomorrow."}],
+     "promises":[{"promise_id":"t02m1","due":"2026-10-06T00:00:00Z","expected":"broken"}]},
+    {"id":"t03","person":"Person C","channel":"email","messages":[
+      {"id":"t03m1","ts":"2026-10-10T08:00:00Z","from_owner":true,"text":"I will intro you to my lawyer next week."},
+      {"id":"t03m2","ts":"2026-10-16T08:00:00Z","from_owner":true,"text":"Sorry, the intro is still coming, I'll send it Monday."}],
+     "promises":[{"promise_id":"t03m1","due":"2026-10-17T00:00:00Z","expected":"open"}]},
+    {"id":"t04","person":"Person D","channel":"whatsapp","messages":[
+      {"id":"t04m1","ts":"2026-09-01T12:00:00Z","from_owner":true,"text":"I'll get you the photos from the trip."}],
+     "promises":[{"promise_id":"t04m1","due":"2026-09-05T00:00:00Z","expected":"broken"}]},
+    {"id":"t05","person":"Person E","channel":"email","messages":[
+      {"id":"t05m1","ts":"2026-10-20T07:00:00Z","from_owner":true,"text":"I might send you the draft, not sure yet."}],
+     "promises":[]},
+    {"id":"t06","person":"Person F","channel":"imessage","messages":[
+      {"id":"t06m1","ts":"2026-10-22T18:00:00Z","from_owner":false,"text":"Will you send me the address?"}],
+     "promises":[]},
+    {"id":"t07","person":"Person G","channel":"email","messages":[
+      {"id":"t07m1","ts":"2026-10-25T09:00:00Z","from_owner":true,"text":"I'll send the signed NDA by Wednesday."},
+      {"id":"t07m2","ts":"2026-10-28T09:00:00Z","from_owner":true,"text":"Here is the signed NDA."}],
+     "promises":[{"promise_id":"t07m1","due":"2026-10-29T00:00:00Z","expected":"kept"}]},
+    {"id":"t08","person":"Person H","channel":"whatsapp","messages":[
+      {"id":"t08m1","ts":"2026-11-10T09:00:00Z","from_owner":true,"text":"I'll send you the menu next week."}],
+     "promises":[{"promise_id":"t08m1","due":"2026-11-20T00:00:00Z","expected":"open"}]},
+    {"id":"t09","person":"Person I","channel":"imessage","messages":[
+      {"id":"t09m1","ts":"2026-10-12T15:00:00Z","from_owner":true,"text":"Let me send you the link tonight."},
+      {"id":"t09m2","ts":"2026-10-12T23:00:00Z","from_owner":true,"text":"Link is in the next message."}],
+     "promises":[{"promise_id":"t09m1","due":"2026-10-12T23:59:00Z","expected":"kept"}]},
+    {"id":"t10","person":"Person J","channel":"email","messages":[
+      {"id":"t10m1","ts":"2026-08-30T09:00:00Z","from_owner":true,"text":"I'll forward you the quote this week."}],
+     "promises":[{"promise_id":"t10m1","due":"2026-09-06T00:00:00Z","expected":"broken"}]},
+    {"id":"t11","person":"Person K","channel":"imessage","messages":[
+      {"id":"t11m1","ts":"2026-10-30T09:00:00Z","from_owner":true,"text":"Thanks, that was a great dinner."}],
+     "promises":[]},
+    {"id":"t12","person":"Person L","channel":"email","messages":[
+      {"id":"t12m1","ts":"2026-10-14T09:00:00Z","from_owner":true,"text":"I'll call you about the lease on Tuesday."},
+      {"id":"t12m2","ts":"2026-10-15T09:00:00Z","from_owner":true,"text":"Called, left a voicemail."}],
+     "promises":[{"promise_id":"t12m1","due":"2026-10-15T00:00:00Z","expected":"kept"}]}
+  ]
+}
