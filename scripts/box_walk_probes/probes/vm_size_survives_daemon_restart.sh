@@ -146,6 +146,7 @@ run_probe() {
             probe_examined 1 "host RAM and CPU count (for the tier expectation)"
             probe_cannot_run "no installer record at ~/.ostler/state/vm_size, and the host RAM or CPU count did not read (${hostline:-empty}), so there is no expected size to judge the VM against."
         fi
+        rec_is_host_tier=1
         rec_src="the HOST-TIER expectation (no installer record on this box; RAM ${hostline%% *} bytes, ${hostline##* } CPUs through the installer's tier table)"
     fi
     rec_c="${rec%% *}"
@@ -173,7 +174,11 @@ run_probe() {
         PASS)
             probe_pass "the VM after a forced daemon restart is ${cpus} CPU / ${mem} GiB, the size the installer recorded" ;;
         FAIL-SHRUNK)
-            probe_fail "the daemon restart SHRANK the VM: the expected size from ${rec_src} is ${rec_c} CPU / ${rec_m} GiB and colima now runs ${cpus} CPU / ${mem} GiB. Every restart that has to start colima does this to the customer's VM." ;;
+            if [ -n "${rec_is_host_tier:-}" ]; then
+                probe_fail "after a forced daemon restart colima runs ${cpus} CPU / ${mem} GiB, below the HOST-TIER expectation of ${rec_c} CPU / ${rec_m} GiB (${rec_src}). No installer record exists on this box, so this does NOT prove a shrink from a correctly sized VM: the VM may already have been this size before the restart. It proves the restart path does not return the tier size."
+            else
+                probe_fail "the daemon restart SHRANK the VM: the installer's record is ${rec_c} CPU / ${rec_m} GiB and colima now runs ${cpus} CPU / ${mem} GiB. Every restart that has to start colima does this to the customer's VM."
+            fi ;;
         FAIL-DIFFERS)
             probe_fail "the VM after a forced daemon restart is ${cpus} CPU / ${mem} GiB, not the installer's recorded ${rec_c} CPU / ${rec_m} GiB." ;;
         CANNOT-RUN-NOT-RUNNING)
