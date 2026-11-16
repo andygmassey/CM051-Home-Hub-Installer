@@ -35,7 +35,12 @@
 # The oa boundary filter (ostler-assistant PR #716) drops them on the oa side;
 # the Hub-side fix belongs to CM041.
 #
-# WALK_WRITES: seeds two conversations on the box. Refuses unless
+# THE L0/L3 WINDOW (timeline, reply-debt, brief): see lib/no_l3_box.py's header
+# for each route. Each path prints its own line with its L2 control state; a path
+# whose L2 control is silent, or that was not read, is CANNOT-RUN.
+#
+# WALK_WRITES: seeds two conversations, a fixture person with L2/L0/L3 facts and
+# todos, and (temporarily) an email reply-debt snapshot on the box. Refuses unless
 # OSTLER_NO_L3_ALLOW_WRITE=1 is set, the same gate the other writing probes use
 # (hub_screens_render_for_a_customer.sh OSTLER_SCREENS_ALLOW_WRITE).
 # TEARDOWN: after the reads, each seeded id is forgotten with the harness's own
@@ -59,19 +64,27 @@ PROBE_QUESTION="does an L3 conversation's content reach any pwg_* tool result, w
 _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 _JUDGE="${_HERE}/lib/no_l3_probe.py"
 _BOXSCRIPT="${_HERE}/lib/no_l3_box.py"
+_PATHS_REPORT="${_HERE}/lib/no_l3_paths.py"
+# Everything the box script imports, staged together (tar, gzip, base64).
+_BOXFILES="no_l3_box.py no_l3_graph_seed.py assistant_chat.py wow_moments.py smart_prefs.py"
 
 # ONE decision, shared by run_probe and self_test: judge a capture file.
 decide() {
-    local cap="$1" out rc n
+    local cap="$1" out rep rc rrc n
+    # ALL THREE PATHS, each with its L2 control state (the judge stops at the
+    # first failing path), then the judge, then the fixture-teardown gate.
+    rep="$(python3 "${_PATHS_REPORT}" report "${cap}")"; rrc=$?
+    printf '%s\n' "${rep}"
     out="$(python3 "${_JUDGE}" judge "${cap}")"; rc=$?
     printf '%s\n' "${out}"
-    n="$(printf '%s\n' "${out}" | grep -cE '^  (ok|FAIL|CANNOT) ')"
-    probe_examined "${n}" "tool responses and seed/control lines"
+    n="$(printf '%s\n%s\n' "${out}" "${rep}" | grep -cE '^  (ok|FAIL|CANNOT|path) ')"
+    probe_examined "${n}" "tool responses, path lines and seed/control lines"
     [ "${n}" -gt 0 ] || probe_cannot_run "the judge printed nothing; a silent probe is not a pass"
     case "${rc}" in
-        0)  probe_pass "no L3 marker in any of the seven tool responses and the L2 twin surfaced (see the denominator above)" ;;
-        78) probe_cannot_run "the seed did not complete or the L2 control did not surface (see the CANNOT line above)" ;;
-        *)  probe_fail "an L3 marker reached a tool result (see the FAIL line above)" ;;
+        0)  [ "${rrc}" -eq 0 ] || probe_cannot_run "the judge saw no leak but the fixture teardown was not proven (see the CANNOT line above); a leak-free read of an unmeasured box is not a pass"
+            probe_pass "no L0/L3 marker on the timeline, reply-debt and brief paths or in any of the seven tool responses, the L2 control surfaced, and the fixture is torn down (see the denominator above)" ;;
+        78) probe_cannot_run "a path was not captured, a seed did not complete, or the L2 control did not surface (see the CANNOT line above)" ;;
+        *)  probe_fail "an L0 or L3 marker reached an outbound path (see the FAIL lines above)" ;;
     esac
 }
 
@@ -94,9 +107,39 @@ self_test() {
     [ "${fake_rc}" -eq 78 ] || {
         probe_pass "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
+    python3 "${_PATHS_REPORT}" --self-test >/dev/null 2>&1 || {
+        probe_examined 5 "path-report cases"
+        probe_pass "SELF-TEST BROKEN: the per-path report put a known case on the wrong line"
+    }
+    python3 "${_BOXSCRIPT}" --self-test >/dev/null 2>&1 || {
+        probe_examined 5 "box-script cases"
+        probe_pass "SELF-TEST BROKEN: the box script's path classifier or snapshot shape is wrong"
+    }
     python3 "${_JUDGE}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "judge cases"
         probe_pass "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
+    }
+    # A leak-free capture whose fixture teardown was NOT proven (no graph rows
+    # counted, directory not restored) must be CANNOT-RUN, never PASS.
+    local capc
+    capc="$(mktemp)"
+    cat > "${capc}" <<'JSON'
+{"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST", "l0": "ZETA-SELFTEST"},
+ "seeds": {"l3": {"cli_rc": 0, "bundle": "present"}, "l2": {"cli_rc": 0, "bundle": "present"}},
+ "paths": {"timeline": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"},
+           "brief_catchup": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"},
+           "reply_debt": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"}},
+ "fixture": {"graph_before": 9, "graph_after": 3, "stamp_after": 3, "control_known_live": 50,
+             "reply_debt": {"restored": false}},
+ "teardown": {"l3": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},
+              "l2": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0}},
+ "tools": {"pwg_topics": {"status": 200, "text": "{\"topics\":[{\"label\":\"QUARTZ-SELFTEST\"}]}"}}}
+JSON
+    ( decide "${capc}" ) >/dev/null 2>&1; fake_rc=$?
+    rm -f "${capc}"
+    probe_examined 1 "clean read, unproven teardown"
+    [ "${fake_rc}" -eq 78 ] || {
+        probe_pass "SELF-TEST BROKEN: a leak-free read with residue came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     # Known-bad capture through the SAME decide() run_probe uses: the L3 marker
     # is in the commitments response. Must come back FAIL.
@@ -130,14 +173,18 @@ run_probe() {
     [ -n "${OSTLER_NO_L3_OWNER_ID:-}" ] \
         || probe_cannot_run "OSTLER_NO_L3_OWNER_ID is unset; the teardown needs the box owner id"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
-    local remote cap
-    remote="/tmp/ostler-probe-no-l3-$$.py"
-    _no_l3_box_capture "printf %s '$(base64 < "${_BOXSCRIPT}" | tr -d '\n')' | base64 -d > ${remote}" "" \
+    local remote cap tarball
+    remote="/tmp/ostler-probe-no-l3-$$"
+    tarball="$(cd "${_HERE}/lib" && tar czf - ${_BOXFILES} | base64 | tr -d '\n')"
+    _no_l3_box_capture "mkdir -p ${remote} && printf %s '${tarball}' | base64 -d | tar xzf - -C ${remote}" "" \
         || probe_cannot_run "could not stage the seed and reader on the box"
     cap="$(mktemp)"
     trap 'rm -f "${cap}"' EXIT
-    _no_l3_box_capture "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}; rm -f ${remote}" "${cap}" \
-        || probe_cannot_run "the box-side seed and reader failed; its stderr is above"
+    # stderr from the box is KEPT: written to a file there, printed below. box_run
+    # itself discards ssh stderr, so the file is the only honest channel.
+    _no_l3_box_capture "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}/no_l3_box.py 2> ${remote}/stderr.txt" "${cap}" \
+        || { _no_l3_box_stderr "${remote}"; probe_cannot_run "the box-side seed and reader failed; its stderr is above"; }
+    _no_l3_box_stderr "${remote}"
     _no_l3_capture_ok "${cap}" \
         || probe_cannot_run "the box-side seed and reader returned an empty or non-JSON capture (see the stderr above)"
     decide "${cap}"
@@ -161,6 +208,18 @@ _no_l3_box_capture() {
     fi
     rm -f "${errf}"
     return "${rc}"
+}
+
+# Print the box script's stderr (never discarded) and remove the staging dir.
+_no_l3_box_stderr() {
+    local errf
+    errf="$(mktemp)"
+    box_run "cat $1/stderr.txt; rm -rf $1" > "${errf}" 2>/dev/null
+    if [ -s "${errf}" ]; then
+        echo "box stderr:" >&2
+        sed 's/^/  | /' "${errf}" >&2
+    fi
+    rm -f "${errf}"
 }
 
 # A capture is usable only if it is non-empty JSON.
