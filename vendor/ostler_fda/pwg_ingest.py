@@ -3928,16 +3928,24 @@ def _persist_declared_exclusion(skipped: list, reasons: dict) -> None:
     The probes read this to re-apply the sender rule to exactly the rows the
     step left out, instead of trusting a count. Counts, reasons, and the URIs
     of the excluded persons; the URIs stay in the box-local state file.
+
+    NEVER RAISES. This runs inside the people-index tick on every customer box,
+    and recording the exclusion is bookkeeping: it must not be able to fail the
+    index. A failure is logged loudly and the probes then read CANNOT-RUN.
     """
-    rec = _people_index_read()
-    rec["excluded"] = len(skipped)
-    by_reason: dict = {}
-    for p in skipped:
-        r = reasons[id(p)]
-        by_reason[r] = by_reason.get(r, 0) + 1
-    rec["by_reason"] = by_reason
-    rec["excluded_uris"] = sorted(p["uri"] for p in skipped)
-    _people_index_write(rec)
+    try:
+        rec = _people_index_read()
+        rec["excluded"] = len(skipped)
+        by_reason: dict = {}
+        for p in skipped:
+            r = reasons[id(p)]
+            by_reason[r] = by_reason.get(r, 0) + 1
+        rec["by_reason"] = by_reason
+        rec["excluded_uris"] = sorted(p["uri"] for p in skipped)
+        _people_index_write(rec)
+    except Exception as exc:
+        logger.error("People: declared exclusion not recorded (%s); the index continues, "
+                     "and the probes will read CANNOT-RUN", type(exc).__name__)
 
 
 def _people_index_finish(total: int, sent: int, never_embedded: int,
@@ -4304,12 +4312,15 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         "People: %d of %d Person nodes indexed into Qdrant '%s'.",
         sent, len(people), PEOPLE_QDRANT_COLLECTION,
     )
-    return dict({
+    out = dict({
         "status": "ok",
         "sent": sent,
         "points_created": sent,
         "total": len(people),
-    }, **counts, **_excluded_declared)
+    }, **counts)
+    # Explicit merge, declaration wins. No TypeError if a count key ever collides.
+    out.update(_excluded_declared)
+    return out
 
 
 # ── Master runner ─────────────────────────────────────────────────

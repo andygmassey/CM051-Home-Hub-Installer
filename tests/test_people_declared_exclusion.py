@@ -21,6 +21,12 @@ def _person(uri, name, emails, phones=None):
             "created_at": "", "last_contact": ""}
 
 
+@pytest.fixture(autouse=True)
+def _isolated_people_state(monkeypatch, tmp_path):
+    # Every test writes the declaration to a temp state file, never the real home.
+    monkeypatch.setattr(pw, "_people_index_state_path", lambda: tmp_path / "people-index.json")
+
+
 def _run(monkeypatch, people):
     monkeypatch.setattr(pw, "_load_people_from_oxigraph", lambda: people)
     monkeypatch.setattr(pw, "_qdrant_scroll_points", lambda c, limit=1000: [])
@@ -93,3 +99,33 @@ def test_declared_exclusion_is_persisted_to_the_state_file(monkeypatch, tmp_path
     assert rec.get("excluded") == 1, rec
     assert rec.get("by_reason") == {"service mailbox": 1}, rec
     assert rec.get("excluded_uris") == ["urn:synthetic:person:2"], rec
+
+
+def test_failed_declaration_write_never_fails_the_tick(monkeypatch, caplog):
+    # Archie, 133: recording the exclusion is bookkeeping. A raising write must
+    # leave the index COMPLETE (status ok, counts intact) and say so loudly.
+    def _boom(rec):
+        raise OSError("disk full (synthetic)")
+    monkeypatch.setattr(pw, "_people_index_write", _boom)
+    people = [
+        _person("urn:synthetic:person:1", "Jane Doe", ["alpha@example.com"]),
+        _person("urn:synthetic:person:2", "John Smith", ["noreply@example.com"]),
+    ]
+    with caplog.at_level("ERROR"):
+        result = _run(monkeypatch, people)
+    assert result["status"] == "ok", result
+    assert result["total"] == 1 and result["sent"] == 1, result
+    assert "declared exclusion not recorded" in caplog.text, caplog.text
+
+
+def test_tick_result_carries_every_count_and_the_declaration(monkeypatch):
+    # The return merges the fixed counts with the declaration. Every key must
+    # survive the merge, and the declaration must not be silently dropped.
+    people = [
+        _person("urn:synthetic:person:1", "Jane Doe", ["alpha@example.com"]),
+        _person("urn:synthetic:person:2", "John Smith", ["noreply@example.com"]),
+    ]
+    result = _run(monkeypatch, people)
+    for key in ("status", "sent", "points_created", "total", "embedded",
+                "already_current", "payload_refreshed", "backlog", "excluded", "by_reason"):
+        assert key in result, (key, result)
