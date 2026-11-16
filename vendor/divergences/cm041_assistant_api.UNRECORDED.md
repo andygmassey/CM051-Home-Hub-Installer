@@ -1797,41 +1797,173 @@ test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 
 ## Graft 2026-11-16: 133 outbound privacy rule, cm041/assistant_api
 
-Tree: cm041/assistant_api. Upstream CM041 PR carries the same hunks in
-`assistant_api/ical-server.py` and `assistant_api/derived_preferences.py`.
-Hunks are re-applied here by hand, not by `patch`: at the pin the vendored
-people_search and commitments_list have different surrounding text, so
-`git apply` refuses. Every changed line is textually identical to upstream.
+Tree: cm041/assistant_api. Upstream: andygmassey/CM041-People-Graph#278 (head
+f473c9f, the 133 commit 8a21732 plus the #275 merge). Hunks are hand-applied,
+not by `patch`, because the vendored file at its pin differs in the context
+around people_search and commitments_list.
 
-Regeneration REFUSED, measured 2026-11-16:
+REGENERATION REFUSED, measured 2026-11-16:
 `CM041=<CM041 checkout> scripts/regenerate_divergence_patch.sh cm041/assistant_api`
-returned rc=1: "The SOURCE has advanced past the pin" (688463bb), with
-unshipped commits a1a1252 (#228) and 5e205a8 (#273) touching this tree. This
-is a re-pin question, not a graft to record, so the patch file is NOT
-regenerated here. Retire this record by moving pinned_sha (scripts/sync_vendor.sh)
-and re-applying the graft on the new base.
+returned rc=1: source advanced past pin 688463bb, unshipped commits a1a1252 (#228)
+and 5e205a8 (#273) touch this tree. So cm041_assistant_api.patch is NOT
+regenerated. Retirement path: move pinned_sha (scripts/sync_vendor.sh), then
+re-apply this graft on the new base.
 
-Edits, all on the outbound path (served to the assistant for channel replies
-or briefs). Rule: pass only L1, L2 and untagged. L0, L3 and unparseable values
-are withheld.
+BYTE-COMPARE against upstream #278, measured 2026-11-16 (scratch script, +/-
+lines of each file's 133 change compared verbatim):
 
-- `ical-server.py`: new `_OUTBOUND_PRIVACY_LEVELS` and `_outbound_level_ok()`
-  before `people_search`.
-- `ical-server.py` `people_search`: person gate uses `_outbound_level_ok`
-  (was: withhold L3 only).
-- `ical-server.py` `commitments_list`: per-row gate uses `_outbound_level_ok`
-  (was: withhold L3 only). `_commitment_privacy_level` is kept for the
-  `privacy_level` field of served rows.
-- `ical-server.py` `api_reply_debt`: debts filtered by `_outbound_level_ok`
-  before the count, brief line and limit are applied.
-- `derived_preferences.py` `SERVED_PRIVACY_LEVELS`: `("L0","L1","L2")` becomes
-  `("L1","L2")`.
+- derived_preferences.py: all 13 changed lines (+ and -) byte-identical to
+  upstream #278. Full match.
+- ical-server.py, compared to upstream commit 8a21732 (133 only) plus the
+  facts gate from #278:
+  - helper `_OUTBOUND_PRIVACY_LEVELS`, `_outbound_level_ok`, `_fact_outbound_ok`:
+    byte-identical.
+  - people_search person gate, facts gate, reply-debt gate: byte-identical.
+  - The 3 comment lines above the commitments gate differ in text from #278.
+    #278 places a comment before the gate after the #275 verdict. Vendored
+    commitments_list has no verdict (it is pre-#275).
+  - The 4 removed lines (the old "Second line of defence" comment and the
+    `_commitment_privacy_level(...) == "L3"` gate) are vendored-pin text. Upstream
+    main has different text at that point, so these cannot match without a re-pin.
+  - The #275 commitments_list verdict hunk is NOT vendored. It is a separate
+    graft, held on the #275 namespace ruling.
 
-Known residual, not changed here: people_search still serves explicit L0 facts
-on an otherwise-served person (`_filter_qdrant_facts` keeps them). The
-reply-debt detector's dataclass default is L2, so an untagged thread cannot be
-told apart from L2 at that seam.
+Conclusion: a full byte-equal match to #278 needs a re-pin, not a hand record.
+This record is the stopgap, and it is ACCEPTED only as: the exact hunks below,
+the byte-compare above, and the named #275 dependency.
 
-Test: `tests/test_133_outbound_levels.py`, 15 pass on this tree. Measured on
-CM041 origin/main (the upstream pre-graft file): 9 fail, 6 pass. Wired in
+Exact vendored hunks (unified diff, pin to this PR):
+
+```diff
+--- vend-pre.py	2026-11-16 15:45:20
++++ vend-post.py	2026-11-16 15:45:20
+@@ -2288,8 +2288,37 @@
+     itself. Non-list shapes are dropped whole (un-auditable).
+     """
+     return pwg_privacy.filter_l3_facts(facts, owner_level)
++
++
++# 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
++# channel replies or briefs, or sent off the box, passes ONLY L1, L2 and
++# untagged. L0 (owner-private on the PWG scale), L3 and any value that does
++# not parse are withheld. Untagged passes, as these readers always did.
++_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
++
++
++def _outbound_level_ok(raw):
++    """True when a raw privacy value may leave the box (see rule above)."""
++    if raw is None or str(raw).strip() == "":
++        return True
++    return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
++
++
++def _fact_outbound_ok(fact):
++    """True when one fact's own level is outbound-safe (L1 or L2).
+ 
++    A fact with no parseable level is refused: _filter_qdrant_facts has
++    already dropped those, so this only sees L0, L1 and L2 in practice.
++    """
++    if not isinstance(fact, dict):
++        return False
++    for key in pwg_privacy.FACT_PRIVACY_KEYS:
++        level = pwg_privacy.parse_privacy_level(fact.get(key))
++        if level is not None:
++            return level in _OUTBOUND_PRIVACY_LEVELS
++    return False
+ 
++
+ def people_search(query, limit=10, timeout=30):
+     """Semantic search across the Qdrant people collection.
+ 
+@@ -2365,13 +2394,12 @@
+         # sender id or bulk mailbox is not found by search either.
+         if _is_non_human_person(p, dn):
+             continue
+-        # Person-level L3 (F5): an L3-classified person must not surface in
+-        # search at all. Only an EXPLICIT L3 person-tag drops the person
+-        # here -- an untagged person is still searchable (search coverage
+-        # must not collapse for the many points that predate the
+-        # privacy_level default), and their individual facts are still
+-        # fail-closed filtered below. Default person tag today is L2.
+-        if pwg_privacy.parse_privacy_level(p.get("privacy_level")) == "L3":
++        # Person-level outbound gate (133): a person tagged L0 or L3, or with
++        # an unparseable tag, must not surface in search. An untagged person
++        # is still searchable (search coverage must not collapse for the many
++        # points that predate the privacy_level default), and their individual
++        # facts are still fail-closed filtered below.
++        if not _outbound_level_ok(p.get("privacy_level")):
+             continue
+         entry = {
+             "name": dn,
+@@ -2392,6 +2420,10 @@
+         # verbatim into the response with no downstream privacy re-check.
+         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
+         facts = _filter_qdrant_facts(p.get("facts"))
++        # 133 outbound: an explicit L0 fact on a served person is owner-private
++        # and must not leave the box. _filter_qdrant_facts only drops L3 and
++        # untagged, so the outbound level is checked per fact here.
++        facts = [f for f in facts if _fact_outbound_ok(f)]
+         if facts:
+             entry["facts"] = facts
+         results.append(entry)
+@@ -8173,10 +8205,10 @@
+     for r in rows:
+         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
+             continue
+-        # Second line of defence behind the CM048 writer's L3 guards. Untagged
+-        # legacy rows resolve to the default level and are kept; a tagged but
+-        # unparseable level resolves to L3 (fail closed) and is dropped.
+-        if _commitment_privacy_level(r.get("plevel")) == "L3":
++        # 133 outbound gate: this list is read by the assistant's promise
++        # filter for channel replies and briefs. L0, L3 and unparseable
++        # levels are withheld; untagged is served at the default level.
++        if not _outbound_level_ok(r.get("plevel")):
+             continue
+         deadline = r.get("deadline", "")
+         if due_norm:
+@@ -8332,6 +8364,12 @@
+ 
+     try:
+         debts = service.compute_reply_debts(**kwargs)
++        # 133 outbound gate: the brief line and debts are sent to the
++        # assistant for channel replies. Withhold L0, L3 and unparseable
++        # threads before anything is counted or named.
++        debts = [d for d in debts if _outbound_level_ok(
++            d.get("privacy_level") if isinstance(d, dict)
++            else getattr(d, "privacy_level", None))]
+         if limit is not None and limit >= 0:
+             debts = debts[:limit]
+         payload = service.reply_debt_payload(debts)
+```
+
+```diff
+--- vend-dp-pre.py	2026-11-16 15:45:20
++++ vend-dp-post.py	2026-11-16 15:45:20
+@@ -32,11 +32,14 @@
+ # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
+ PWG_NS = "https://schema.ostler.ai/ontology#"
+ ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
+-# The levels a derived node may carry and still be served. L3 is never served and
+-# neither is a level that is present but not one of these (pwg_privacy doctrine:
+-# an unparseable level fails closed). A node with NO level is served: it is
+-# behavioural evidence, or a graph written before CM019 #423.
+-SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
++# The levels a derived node may carry and still be served OUTBOUND (this route
++# feeds the assistant's channel replies and briefs). Under the 133 outbound
++# rule only L1 and L2 pass. L0 is owner-private on the PWG scale and is
++# withheld, as is L3, and so is a level that is present but not one of these
++# (pwg_privacy doctrine: an unparseable level fails closed). A node with NO
++# level is served: it is behavioural evidence, or a graph written before
++# CM019 #423.
++SERVED_PRIVACY_LEVELS = ("L1", "L2")
+ # A stated dislike is rare and decisive ("never serve me coriander"), but the
+ # round-robin cap ranks it by confidence among hundreds of likes. Negatives are
+ # therefore read in their own pass, bounded here and NOT counted against `limit`.
+```
+
+Residuals, not changed here: the reply-debt detector's dataclass default is L2,
+so an untagged thread cannot be told apart from L2 at that seam.
+
+Test: `tests/test_133_outbound_levels.py`, 18 pass on this tree. Measured on
+CM041 origin/main: 10 fail, 8 pass. Wired in
 `.github/workflows/cm041-133-outbound-privacy.yml`.

@@ -122,6 +122,33 @@ class TestPeopleSearchOutbound(unittest.TestCase):
         self.assertIn(self.NAMES["untagged"], served)
 
 
+class TestPeopleSearchFactsOutbound(unittest.TestCase):
+    """An explicit L0 fact on an otherwise-served (L2) person is withheld."""
+
+    def _facts(self):
+        facts = [
+            {"text": "Synthetic L0 fact", "privacy_level": "L0"},
+            {"text": "Synthetic L2 fact", "privacy_level": "L2"},
+            {"text": "Synthetic L3 fact", "privacy_level": "L3"},
+        ]
+        hit = _person_hit(0, "Synthetic Foxtrot", "L2")
+        hit["payload"]["facts"] = facts
+        with patch.object(server.urllib.request, "urlopen",
+                          _fake_urlopen({"result": [hit]})):
+            body = server.people_search("synthetic", limit=10)
+        self.assertEqual(1, len(body["results"]))
+        return [f["text"] for f in body["results"][0].get("facts", [])]
+
+    def test_l0_fact_is_withheld_on_a_served_person(self):
+        self.assertNotIn("Synthetic L0 fact", self._facts())
+
+    def test_l3_fact_is_withheld(self):
+        self.assertNotIn("Synthetic L3 fact", self._facts())
+
+    def test_l2_fact_control_is_still_served(self):
+        self.assertIn("Synthetic L2 fact", self._facts())
+
+
 class TestCommitmentsOutbound(unittest.TestCase):
     def _row(self, action, plevel):
         return {

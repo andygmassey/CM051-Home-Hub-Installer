@@ -2304,6 +2304,21 @@ def _outbound_level_ok(raw):
     return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
 
 
+def _fact_outbound_ok(fact):
+    """True when one fact's own level is outbound-safe (L1 or L2).
+
+    A fact with no parseable level is refused: _filter_qdrant_facts has
+    already dropped those, so this only sees L0, L1 and L2 in practice.
+    """
+    if not isinstance(fact, dict):
+        return False
+    for key in pwg_privacy.FACT_PRIVACY_KEYS:
+        level = pwg_privacy.parse_privacy_level(fact.get(key))
+        if level is not None:
+            return level in _OUTBOUND_PRIVACY_LEVELS
+    return False
+
+
 def people_search(query, limit=10, timeout=30):
     """Semantic search across the Qdrant people collection.
 
@@ -2405,6 +2420,10 @@ def people_search(query, limit=10, timeout=30):
         # verbatim into the response with no downstream privacy re-check.
         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
         facts = _filter_qdrant_facts(p.get("facts"))
+        # 133 outbound: an explicit L0 fact on a served person is owner-private
+        # and must not leave the box. _filter_qdrant_facts only drops L3 and
+        # untagged, so the outbound level is checked per fact here.
+        facts = [f for f in facts if _fact_outbound_ok(f)]
         if facts:
             entry["facts"] = facts
         results.append(entry)
