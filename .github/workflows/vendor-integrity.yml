@@ -759,7 +759,7 @@ jobs:
       # oa src/main.rs recorded_vm_size reads the same file.
       - name: The installed VM size is recorded and the Doctor row names it
         if: always()
-        run: bash ./tests/test_vm_size_record.sh && python3 ./tests/test_background_engine_size_row.py
+        run: bash ./tests/test_vm_size_record.sh && bash ./tests/test_vm_size_tiers_contract.sh && python3 ./tests/test_background_engine_size_row.py
 
       # THE ENGINE DIED MID-LIFE AND NOTHING CHECKED AGAIN FOR A DAY.
       #

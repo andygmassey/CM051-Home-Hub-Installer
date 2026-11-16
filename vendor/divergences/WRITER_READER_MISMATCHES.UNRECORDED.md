@@ -1904,3 +1904,5 @@ files until one of: the pin moves with the port, or the ban is lifted.
 
 Test: `tests/test_background_engine_size_row.py` (14 checks, wired in
 `.github/workflows/vendor-integrity.yml`).
+
+- `vm_size_row.py` (2026-11-16): the `unrecorded` state text now reads "VM size record missing, sized from host", matching the daemon log line oa #689 writes when it sizes an absent VM from the host tier.
