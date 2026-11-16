@@ -1,5 +1,5 @@
 #!/bin/bash
-# People Circles: the non-secret environment the assistant daemon needs to reach
+# inner-circle: the non-secret environment the assistant daemon needs to reach
 # the circle provider and the owner-correction writer (oa #708, CM048 #140,
 # CM041 #270). Sourced by install.sh; defines functions only, no side effects.
 #

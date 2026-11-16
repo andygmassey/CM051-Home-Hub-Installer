@@ -14,7 +14,7 @@
 # prerequisite is never a pass.
 # ============================================================================
 PROBE_NAME="people_circles_tiers_no_l3"
-PROBE_QUESTION="with the People Circles flag on and synthetic people seeded, does GET /api/v1/people/circles return only known tiers, the seeded L2 person present, and no L3 person?"
+PROBE_QUESTION="with the inner-circle flag on and synthetic people seeded, does GET /api/v1/people/circles return only known tiers, the seeded L2 person present, and no L3 person?"
 
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/probe.sh

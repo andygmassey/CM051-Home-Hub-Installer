@@ -1,5 +1,5 @@
 #!/bin/bash
-# The assistant plist gets the non-secret People Circles env, and no secret.
+# The assistant plist gets the non-secret inner-circle env, and no secret.
 # Uses PlistBuddy on a temp plist (macOS). Fake token value; no real secret read.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
