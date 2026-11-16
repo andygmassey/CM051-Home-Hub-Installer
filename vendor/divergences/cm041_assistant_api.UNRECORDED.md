@@ -2222,3 +2222,31 @@ What IS in the vendored file, byte-for-byte with the 133 hunks of 8a3b832 (check
 - pin-text lines still differing inside the 133 functions: commitments_list 4, _person_timeline_body 2 (the read_across_graphs import absent at the pin), people_search 24, api_reply_debt 25. None of them is a 133 line.
 
 Contract: `gen_hub_contract.py --gateway-src <hub-v0.5.42 clone> --check` rc=0 ("hub_contract.yaml is current (281 routes)"). Pin kept at 0.5.42 per Archie.
+
+## Function-level graft: CM041 8a3b832, measured by function (AST segment sha256, 12 chars)
+
+Method: `ast.get_source_segment` of each function in CM041 8a3b832 (source), in the vendored file, and in CM051 origin/main. Scratch script, not committed.
+
+function                 src 8a3b832  vendored     vs src   main         vs main
+_outbound_level_ok       87c2c56c3616 87c2c56c3616 SAME     e3b0c44298fc CHANGED
+_fact_outbound_ok        9b175a817d30 9b175a817d30 SAME     e3b0c44298fc CHANGED
+_withheld_view           ce10600c06e0 ce10600c06e0 SAME     e3b0c44298fc CHANGED
+_new_withheld            106bde74799d 106bde74799d SAME     e3b0c44298fc CHANGED
+_count_withheld          3cb4567bb4ce 3cb4567bb4ce SAME     e3b0c44298fc CHANGED
+decisions_list           d38de420bd05 d38de420bd05 SAME     df770f80a46f CHANGED
+topics_list              6aa37546c1b7 6aa37546c1b7 SAME     b2767f07d1ec CHANGED
+topic_mentions           2cb0a4cf8208 2cb0a4cf8208 SAME     80fcc56367de CHANGED
+api_preferences          bebd98307799 bebd98307799 SAME     7ea3cbd0345c CHANGED
+_person_timeline_body    9290b120e72a c8a5015a3271 DRIFT    be229bc50256 CHANGED
+commitments_list         6fc8aeab40db 0e7641485ab4 DRIFT    7fc3929109c6 CHANGED
+api_reply_debt           9c86f111b921 bc2b2123fa33 DRIFT    b715c6f20e64 CHANGED
+people_search            f4a9a423736c 333b23f8e263 DRIFT    f4a806b6fbdd CHANGED
+functions changed vs CM051 main: 13 ['_outbound_level_ok', '_fact_outbound_ok', '_withheld_view', '_new_withheld', '_count_withheld', 'decisions_list', 'topics_list', 'topic_mentions', 'api_preferences', '_person_timeline_body', 'commitments_list', 'api_reply_debt', 'people_search']
+
+- Five helpers SAME as source: the 133 helpers, identical.
+- Four graft functions (decisions_list, topics_list, topic_mentions, api_preferences) were MISSING THE L3 GATE; grafted byte-for-byte from 8a3b832 at function level, now SAME.
+- Four DRIFT functions (_person_timeline_body, commitments_list, api_reply_debt, people_search) are pin-text drift, recorded here. Their 133 lines are in source and vendored. The remaining differences are pin text (the read_across_graphs import absent at the pin, older comments, and the older people_search and api_reply_debt bodies).
+- Changed vs CM051 main: exactly the 13 functions above, plus one module-level constant `_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")`, which the 133 helpers read. No other module-level node differs from main.
+- Test vendored: tests/test_l3_withheld_moat_readers.py (8 tests). Its harness needs the CM041 conftest that injects the service token, so tests/conftest.py is vendored too. RED on db1cb5a9 (7 failed, 1 passed), GREEN after the graft (8 passed). Control: 8 passed on CM041 8a3b832.
+- hub_contract.yaml regenerated: route shapes of the grafted routes changed. Check against hub-v0.5.42: rc=0 (pin kept at 0.5.42).
+- The vendored tests/test_l3_withheld_moat_readers.py differs from CM041 8a3b832 in three subject strings: "Synthetic Hobby", "Synthetic Private" and "Synthetic Untagged" are lowercased to "synthetic hobby", "synthetic private" and "synthetic untagged". The PII name guard reads capitalised pairs as names. The test asserts the same behaviour on the same values.

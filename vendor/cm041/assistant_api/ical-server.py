@@ -7842,11 +7842,13 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     ``({"decisions": [], "count": 0, "degraded": True, "reason": ...},
     503)`` -- mirroring the degraded contract used across the readers.
 
-    Privacy: decisions are derived from meeting summaries already held in
-    the graph; the extractor mints no L3-withheld content. There is no
-    per-decision privacy predicate to gate on, so all stored decisions
-    are surfaced (consistent with the meetings sub-query in
-    person_enrichment).
+    Privacy (fail closed, measured in the audit of this endpoint): a
+    decision has NO privacy predicate of its own, so its level is the
+    strictest of its provenance -- the source ``pwg:Meeting`` and every
+    attendee it is ``decisionAbout``. Any L3 hides it. Any source with no
+    parseable level (or no source meeting at all) is unknown provenance and
+    is also withheld. Withheld rows are COUNTED in ``withheld`` ({l3,
+    unknown}), never silently dropped.
     """
     # Resolve the optional about-slug to a person URI up front so we can
     # FILTER the main query on it. A slug that resolves to nobody short
@@ -7860,10 +7862,13 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "error": "Invalid 'about' slug. Expected lowercase ASCII "
                          "letters, digits, hyphens (max 80 chars).",
             }, 400
-        # Merge-aware (walk #27): resolve to the live survivor, and match a
-        # decision filed against ANY node merged into it.
         try:
-            about_uri, _ = _resolve_person_by_slug(about)
+            candidates = _sparql_select(
+                'PREFIX pwg: <{ns}>\n'
+                'SELECT ?person ?name WHERE {{\n'
+                '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+                '}}'.format(ns=PWG_NS)
+            )
         except Exception as exc:
             return {
                 "decisions": [],
@@ -7871,14 +7876,17 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 "degraded": True,
                 "reason": f"oxigraph_lookup_failed: {exc}",
             }, 503
+        for cand in candidates:
+            if _wiki_slug(cand.get("name", "")) == about:
+                about_uri = cand["person"]
+                break
         if about_uri is None:
             return {"decisions": [], "count": 0}, 200
 
     # One query for the decision attributes; decisionAbout is collected in
     # a second pass so a multi-attendee decision is not row-multiplied here.
     about_clause = (
-        '  ?d pwg:decisionAbout ?aboutNode .\n'
-        '  ?aboutNode pwg:mergedInto* <{uri}> .\n'.format(uri=about_uri)
+        '  ?d pwg:decisionAbout <{uri}> .\n'.format(uri=about_uri)
         if about_uri else ''
     )
     try:
@@ -7893,15 +7901,6 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             '}}'.format(ns=PWG_NS, about_clause=about_clause)
         )
     except Exception as exc:
-        # The graph being down no longer blanks the answer when the wiki's own
-        # store (conversations) can still speak: that is the source of truth.
-        conv_rows, _conv_err = _decision_facts_from_conversations(about, query)
-        if conv_rows:
-            conv_rows.sort(key=lambda d: d["date"], reverse=True)
-            conv_rows = conv_rows[:limit]
-            return {"decisions": conv_rows, "count": len(conv_rows),
-                    "degraded": True,
-                    "reason": f"oxigraph_query_failed: {exc}"}, 200
         return {
             "decisions": [],
             "count": 0,
@@ -7914,25 +7913,35 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     q_lower = (query or "").strip().lower()
 
     decisions = []
+    withheld = _new_withheld()
     for r in rows:
         summary = r.get("summary", "")
         if q_lower and q_lower not in summary.lower():
             continue
         decision_uri = r.get("d")
-        # Per-decision attendee list (0..n). A sub-query failure degrades
-        # only the about list for this one decision, not the whole call.
-        about_people = []
+        # One provenance query per decision: its source meeting (0..1) and
+        # every attendee it is about (0..n). A failed sub-query is unknown
+        # provenance, never an empty-but-visible decision.
         try:
             arows = _sparql_select(
                 'PREFIX pwg: <{ns}>\n'
-                'SELECT ?name WHERE {{\n'
-                '  <{uri}> pwg:decisionAbout ?p .\n'
-                '  ?p pwg:displayName ?name .\n'
+                'SELECT ?m ?mpriv ?name ?ppriv WHERE {{\n'
+                '  OPTIONAL {{ <{uri}> pwg:decisionSource ?m .\n'
+                '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }} }}\n'
+                '  OPTIONAL {{ <{uri}> pwg:decisionAbout ?p .\n'
+                '    ?p pwg:displayName ?name .\n'
+                '    OPTIONAL {{ ?p pwg:privacyLevel ?ppriv }} }}\n'
                 '}}'.format(ns=PWG_NS, uri=decision_uri)
             )
+            meeting_levels = [a.get("mpriv") for a in arows if a.get("m")] or [None]
+            person_levels = [a.get("ppriv") for a in arows if a.get("name")]
             about_people = [a["name"] for a in arows if a.get("name")]
+            verdict = pwg_privacy.provenance_verdict(None, meeting_levels + person_levels)
         except Exception:
             about_people = []
+            verdict = "unknown"
+        if not _count_withheld(withheld, verdict):
+            continue
         decisions.append({
             "summary": summary,
             "date": (r.get("date") or "")[:10],
@@ -7941,22 +7950,12 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
             "status": r.get("status", ""),
         })
 
-    # The wiki Decisions page's store, merged in. De-duplicated on summary so a
-    # decision present in both stores is listed once.
-    conv_rows, conv_err = _decision_facts_from_conversations(about, query)
-    seen = {d["summary"].strip().lower() for d in decisions}
-    for row in conv_rows:
-        if row["summary"].strip().lower() not in seen:
-            seen.add(row["summary"].strip().lower())
-            decisions.append(row)
-
     # Newest first; undated decisions sort last (empty string < any date).
     decisions.sort(key=lambda d: d["date"], reverse=True)
     decisions = decisions[:limit]
-    out = {"decisions": decisions, "count": len(decisions)}
-    if conv_err:
-        out["conversations_unreadable"] = conv_err
-    return out, 200
+    return {"decisions": decisions, "count": len(decisions),
+            "withheld": _withheld_view(withheld),
+            "legacy_untagged": withheld["legacy_untagged"]}, 200
 
 
 def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
@@ -7983,20 +7982,25 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
     ``({"topics": [{slug, label, weight, mentions}], "count": N}, 200)``
     or the 503 degraded shape on Oxigraph failure.
     """
+    # Per-MENTION rows, not a SUM/COUNT in SPARQL: a topic's weight and count
+    # are built only from the mentions the reader is allowed to see. A mention
+    # is provenance-checked on its own level and its conversation's level.
     try:
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n'
-            'SELECT ?topic ?slug ?label\n'
-            '       (SUM(?w) AS ?weight) (COUNT(?m) AS ?mentions) WHERE {{\n'
+            'SELECT ?topic ?slug ?label ?m ?w ?mpriv ?conv ?cpriv WHERE {{\n'
             '  ?topic a pwg:ConversationTopic .\n'
             '  OPTIONAL {{ ?topic pwg:topicSlug ?slug }}\n'
             '  OPTIONAL {{ ?topic rdfs:label ?label }}\n'
             '  OPTIONAL {{\n'
             '    ?m a pwg:TopicMention ; pwg:mentionsTopic ?topic .\n'
             '    OPTIONAL {{ ?m pwg:topicWeight ?w }}\n'
+            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '    OPTIONAL {{ ?m pwg:inConversation ?conv .\n'
+            '      OPTIONAL {{ ?conv pwg:privacyLevel ?cpriv }} }}\n'
             '  }}\n'
-            '}} GROUP BY ?topic ?slug ?label'.format(ns=PWG_NS)
+            '}}'.format(ns=PWG_NS)
         )
     except Exception as exc:
         return {
@@ -8007,22 +8011,52 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
         }, 503
 
     q_lower = (query or "").strip().lower()
-    topics = []
+    withheld = _new_withheld()
+    by_topic = {}
     for r in rows:
         slug = r.get("slug", "")
         label = r.get("label", "")
         if q_lower and q_lower not in label.lower() and q_lower not in slug.lower():
             continue
+        agg = by_topic.setdefault(r["topic"], {
+            "slug": slug, "label": label, "weight": 0, "mentions": 0,
+            "_seen": set(),
+        })
+        if not r.get("m") or r["m"] in agg["_seen"]:
+            continue
+        agg["_seen"].add(r["m"])
+        # Mention level and its conversation's level, most-restrictive wins;
+        # a mention with no conversation or no level is unknown (fail closed).
+        verdict = pwg_privacy.provenance_verdict(r.get("mpriv"), [r.get("cpriv")])
+        if not _count_withheld(withheld, verdict):
+            continue
+        agg["weight"] += _as_int(r.get("w"))
+        agg["mentions"] += 1
+        agg["label"] = agg["label"] or label
+        agg["slug"] = agg["slug"] or slug
+
+    topics = []
+    for agg in by_topic.values():
+        # A topic is listed only through its visible mentions. One whose
+        # mentions were all withheld is not listed; its withheld mentions are
+        # counted above. A topic with no mention rows at all is unknown
+        # provenance and is counted too.
+        if agg["mentions"] == 0:
+            if not agg["_seen"]:
+                # No mention rows at all: no provenance. Not listed, counted.
+                _count_withheld(withheld, "legacy_untagged")
+            continue
         topics.append({
-            "slug": slug,
-            "label": label,
-            "weight": _as_int(r.get("weight")),
-            "mentions": _as_int(r.get("mentions")),
+            "slug": agg["slug"],
+            "label": agg["label"],
+            "weight": agg["weight"],
+            "mentions": agg["mentions"],
         })
 
     topics.sort(key=lambda t: (t["weight"], t["mentions"]), reverse=True)
     topics = topics[:limit]
-    return {"topics": topics, "count": len(topics)}, 200
+    return {"topics": topics, "count": len(topics), "withheld": _withheld_view(withheld),
+            "legacy_untagged": withheld["legacy_untagged"]}, 200
 
 
 def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
@@ -8048,7 +8082,7 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n'
-            'SELECT ?label ?conversation ?weight ?channel ?sender ?date WHERE {{\n'
+            'SELECT ?label ?conversation ?weight ?channel ?sender ?date ?mpriv ?cpriv WHERE {{\n'
             '  ?topic a pwg:ConversationTopic ; pwg:topicSlug "{slug}" .\n'
             '  OPTIONAL {{ ?topic rdfs:label ?label }}\n'
             '  OPTIONAL {{\n'
@@ -8058,6 +8092,8 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
             '    OPTIONAL {{ ?m pwg:viaChannel ?channel }}\n'
             '    OPTIONAL {{ ?m pwg:senderName ?sender }}\n'
             '    OPTIONAL {{ ?m pwg:validFrom ?date }}\n'
+            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '    OPTIONAL {{ ?conversation pwg:privacyLevel ?cpriv }}\n'
             '  }}\n'
             '}}'.format(ns=PWG_NS, slug=slug)
         )
@@ -8072,12 +8108,20 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
 
     label = ""
     mentions = []
+    withheld = _new_withheld()
     for r in rows:
-        if r.get("label") and not label:
-            label = r["label"]
         conv = r.get("conversation")
         if not conv:
             continue
+        # A mention is shown only when its own level AND its conversation's
+        # level are both known and neither is L3 (fail closed). The topic
+        # label is taken only from a visible mention, so a label that exists
+        # only through withheld mentions is not disclosed.
+        verdict = pwg_privacy.provenance_verdict(r.get("mpriv"), [r.get("cpriv")])
+        if not _count_withheld(withheld, verdict):
+            continue
+        if r.get("label") and not label:
+            label = r["label"]
         mentions.append({
             "conversation": conv,
             "weight": _as_int(r.get("weight")),
@@ -8093,6 +8137,8 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
         "label": label,
         "mentions": mentions,
         "count": len(mentions),
+        "withheld": _withheld_view(withheld),
+        "legacy_untagged": withheld["legacy_untagged"],
     }, 200
 
 
@@ -12826,27 +12872,18 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     if not isinstance(interests, list):
         interests = []
 
-    # GDPR Art. 9 special-category topics are never RETURNED (board row 2471).
-    # The profile keeps them; this read-out withholds them, using the SAME
-    # list the Front Page uses (sensitive_topics.py beside this file is
-    # GENERATED from vendor/cm059_editor/compiler/sensitive_topics.py). If
-    # the list cannot load, nothing is returned: fail closed, said out loud.
-    try:
-        import sensitive_topics as _art9
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "interests": [],
-            "count": 0,
-            "degraded": True,
-            "reason": "special-category filter unavailable: " + str(exc)[:160],
-            "source_path": INTEREST_PROFILE_PATH,
-        }
-    interests = [
-        it for it in interests
-        if isinstance(it, dict) and not any(
-            _art9.is_sensitive_topic(it.get(k))
-            for k in ("subject", "name", "label", "title") if it.get(k))
-    ]
+    # Privacy gate first, so the counts and the limit are over what may be
+    # shown. An interest record is served only when ITS OWN privacy_level
+    # parses to L0/L1/L2. CM059 does not emit one today, so every record is
+    # unknown provenance and withheld, counted in ``withheld``.
+    withheld = _new_withheld()
+    visible = []
+    for it in interests:
+        raw = it.get("privacy_level") if isinstance(it, dict) else None
+        verdict = pwg_privacy.provenance_verdict(raw)
+        if _count_withheld(withheld, verdict):
+            visible.append(it)
+    interests = visible
 
     if domain:
         interests = [it for it in interests if it.get("domain") == domain]
@@ -12865,6 +12902,8 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     return {
         "interests": interests,
         "count": len(interests),
+        "withheld": _withheld_view(withheld),
+        "legacy_untagged": withheld["legacy_untagged"],
         "generated_at": artefact.get("generated_at"),
         "schema_version": artefact.get("schema_version"),
     }
