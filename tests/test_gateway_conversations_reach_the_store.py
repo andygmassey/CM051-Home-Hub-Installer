@@ -227,7 +227,7 @@ def main() -> int:
         # inside their free month: the state cannot drift from what ships,
         # because it IS what ships that produced it.
         now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        subscription_gate.activate_first_month_free(now_iso)
+        subscription_gate.activate_first_month_free(now_iso, licence_tier_state="known")
         if not subscription_gate.is_active_or_grace():
             # A precondition, reported as itself. Without this the next
             # reader debugs wire.post() for a defect that is in the fixture.
