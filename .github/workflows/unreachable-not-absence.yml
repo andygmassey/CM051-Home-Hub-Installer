@@ -126,3 +126,23 @@ jobs:
           /bin/bash --version | head -1
           /bin/bash -n scripts/box_walk_probes/probes/doctor_page_renders_for_a_customer.sh
           /bin/bash -n tests/test_a_probe_must_measure_the_box_not_the_driver.sh
+          /bin/bash -n scripts/box_walk_probes/probes/setup_progress_advancing.sh
+
+      # The setup-progress probe (v1.0.130 walk) must judge the BOX. Its self-test
+      # runs three arms through a stub ssh with temp homes: a box-only fixture (the
+      # driver HOME is empty, the box HOME holds the manifest, shards and writer
+      # plist) must PASS; an unreachable box must be CANNOT-RUN; a box-local run
+      # must read the local home. The stalled negative control must still FAIL.
+      # Requires exit 1; anything else marks the probe BROKEN.
+      - name: the setup-progress probe reads the box, never the driver
+        if: always()
+        run: |
+          set +e
+          /bin/bash scripts/box_walk_probes/probes/setup_progress_advancing.sh --self-test
+          rc=$?
+          set -e
+          echo "self-test rc=${rc}"
+          if [ "${rc}" -ne 1 ]; then
+            echo "A probe whose box arms do not hold has not earned a PASS." >&2
+            exit 1
+          fi

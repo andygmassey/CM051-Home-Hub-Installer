@@ -14,7 +14,7 @@
 #    compile run; this test traps it.
 #
 # 2. Two-zone regression: the Obsidian vault target must bind-mount
-#    the customer's user-facing zone (~/Documents/Ostler/Wiki/) and
+#    the customer's user-facing zone (~/Ostler/Wiki/) and
 #    the _images/ sibling so a single host directory backs both the
 #    HTML site and the Obsidian view. A future heredoc edit that
 #    drops either bind-mount would silently re-introduce the empty-
@@ -89,17 +89,17 @@ echo "PASS: old wiki_docs:/app/* mountpoints removed from volume list"
 
 # ── Gap 3: Obsidian vault target uses OSTLER_WIKI_DIR ─────────
 assert_contains "obsidian-vault-bind-mount" \
-    "\${OSTLER_WIKI_DIR:-\${HOME}/Documents/Ostler/Wiki}:/wiki/obsidian"
+    "\${OSTLER_WIKI_DIR:-\${HOME}/Ostler/Wiki}:/wiki/obsidian"
 echo "PASS: wiki-compiler bind-mounts the Obsidian vault to the user-facing zone"
 
 # ── Gap 3: image bind-mount (read-only) into the compiler ────
 assert_contains "compiler-images-mount" \
-    "\${OSTLER_WIKI_DIR:-\${HOME}/Documents/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro"
+    "\${OSTLER_WIKI_DIR:-\${HOME}/Ostler/Wiki}/_images:/wiki/obsidian/_images:ro"
 echo "PASS: wiki-compiler mounts _images/ read-only at the vault's _images/"
 
 # ── Gap 3: image bind-mount (read-only) into the site ────────
 assert_contains "site-images-mount" \
-    "\${OSTLER_WIKI_DIR:-\${HOME}/Documents/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro"
+    "\${OSTLER_WIKI_DIR:-\${HOME}/Ostler/Wiki}/_images:/docs/docs/Knowledge/images:ro"
 echo "PASS: wiki-site mounts _images/ read-only at /docs/docs/Knowledge/images"
 
 # ── Gap 3: WIKI_OBSIDIAN_DIR env on the compiler ─────────────
@@ -123,6 +123,11 @@ echo "PASS: WIKI_OPERATOR_NAME passed to the wiki-compiler env"
 assert_contains "wiki-operator-emails-env" \
     "WIKI_OPERATOR_EMAILS=\${WIKI_OPERATOR_EMAILS:-}"
 echo "PASS: WIKI_OPERATOR_EMAILS passed to the wiki-compiler env"
+# P13: the operator's own phone, or a Person node that is just the owner's
+# mobile number is listed as a contact on the Front Page.
+assert_contains "wiki-operator-phones-env" \
+    "WIKI_OPERATOR_PHONES=\${WIKI_OPERATOR_PHONES:-}"
+echo "PASS: WIKI_OPERATOR_PHONES passed to the wiki-compiler env"
 
 # ── #259: the compiler must be told WHICH Ollama model to use ─────────
 # CM044 compiler/config.py defaults OLLAMA_MODEL to qwen3.5:9b, which is NOT
@@ -159,6 +164,12 @@ if ! grep -qF "printf 'WIKI_OPERATOR_EMAILS=%s\\n' \"\${_wiki_operator_emails}\"
     exit 1
 fi
 echo "PASS: install.sh writes WIKI_OPERATOR_EMAILS (from USER_EMAIL me-card) to the compose .env"
+
+if ! grep -qF "printf 'WIKI_OPERATOR_PHONES=%s\\n' \"\${USER_PHONE:-}\" >> \"\$OSTLER_ENV_FILE\"" "$INSTALL_SCRIPT"; then
+    echo "FAIL [wiki-operator-phones-envfile]: install.sh does not write WIKI_OPERATOR_PHONES (from USER_PHONE) to the compose .env" >&2
+    exit 1
+fi
+echo "PASS: install.sh writes WIKI_OPERATOR_PHONES (from USER_PHONE me-card) to the compose .env"
 
 # ── Volume rename: wiki-docs (with hyphen) for CM044 parity ──
 assert_contains "volume-decl-renamed" \

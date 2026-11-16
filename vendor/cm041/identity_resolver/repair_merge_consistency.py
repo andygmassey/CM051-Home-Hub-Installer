@@ -278,10 +278,14 @@ def repair(
     print(
         "vector points examined  : %d\n"
         "  distinct person_uris  : %d\n"
-        "  orphans of retired    : %d\n"
-        "  deleted by this run   : %d   (apply=%s, backup=%s)"
-        % (report.total_points, report.distinct_person_uris,
-           report.orphans, report.deleted, apply, report.backup_path or "none")
+        "  uris not a live Person: %d\n"
+        "  orphans of retired    : %d   (merge source, chain ends at a live Person)\n"
+        "  deleted by this run   : %d   (apply=%s, backup=%s)\n"
+        "  dangling merge chain  : %d   REPORTED, not deleted\n"
+        "  true orphans          : %d   REPORTED, not deleted (neither a Person nor a merge source)"
+        % (report.total_points, report.distinct_person_uris, report.candidates,
+           report.orphans, report.deleted, apply, report.backup_path or "none",
+           len(report.unresolved_merge_uris), len(report.true_orphan_uris))
     )
     return EXIT_OK
 

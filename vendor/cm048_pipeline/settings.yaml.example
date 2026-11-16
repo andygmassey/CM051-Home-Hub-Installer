@@ -130,7 +130,7 @@ processing_state_dir: ~/.ostler/processing
 # User-facing zone of the two-zone layout: open this folder in
 # Obsidian to browse the customer's processed conversation summaries
 # alongside the wiki and call transcripts.
-output_conversations_dir: ~/Documents/Ostler/Conversations
+output_conversations_dir: ~/Ostler/Conversations
 
 # User Coach observation store.
 coach_db_path: ~/.ostler/coach/observations.db

@@ -52,11 +52,13 @@ python3 scripts/box_walk_probes/lib/qdrant_fd_headroom.py --self-test >/dev/null
     && ok "qdrant_fd_headroom judge: the #16 shapes all go red, the good capture passes" || bad "qdrant_fd_headroom self-test"
 python3 scripts/box_walk_probes/lib/assistant_chat.py --self-test >/dev/null 2>&1 \
     && ok "assistant_chat judges: leaky and vocative replies red, clean and self-naming replies green" || bad "assistant_chat self-test"
+python3 scripts/box_walk_probes/lib/needs_you_now_fallback.py --self-test >/dev/null 2>&1 \
+    && ok "needs_you_now_fallback judge: an empty band, a missing nearest birthday and no band all go red" || bad "needs_you_now_fallback self-test"
 python3 scripts/box_walk_probes/lib/pair_offwindow.py --self-test >/dev/null 2>&1 \
     && ok "pair_offwindow judge: canned 400 'invalid code', a code-checking 403 and a logged check all go red" || bad "pair_offwindow self-test"
 python3 scripts/box_walk_probes/lib/companion_auth.py --self-test >/dev/null 2>&1 \
     && ok "companion_auth judge (F4-4): an unauthenticated 200, an accepted made-up bearer and an unstated require_pairing all go red" || bad "companion_auth self-test"
-for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean chat_latency_baseline pair_endpoints_refuse_off_window companion_listener_refuses_unauthenticated; do
+for p in qdrant_has_fd_headroom_and_writes_land assistant_self_description_is_clean chat_latency_baseline needs_you_now_birthdays_survive_fallback pair_endpoints_refuse_off_window companion_listener_refuses_unauthenticated; do
     bash "scripts/box_walk_probes/probes/$p.sh" --self-test >/dev/null 2>&1; rc=$?
     [ "$rc" -eq 1 ] && ok "$p --self-test returns FAIL (1)" || bad "$p --self-test returned $rc"
 done

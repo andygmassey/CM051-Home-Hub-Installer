@@ -105,7 +105,7 @@ def self_test():
              lambda t: t + "\n### Still unattributed\n\n1. `limactl` again\n"),
             ("doc loses the carrier", DOC, lambda t: t.replace("usernet", "")),
             ("colima gains --kubernetes", INSTALL,
-             lambda t: t.replace("colima start --cpu 2", "colima start --kubernetes --cpu 2", 1)),
+             lambda t: t.replace("colima start --cpu ", "colima start --kubernetes --cpu ", 1)),
         ]
         for name, rel, fn in muts:
             p = base / rel

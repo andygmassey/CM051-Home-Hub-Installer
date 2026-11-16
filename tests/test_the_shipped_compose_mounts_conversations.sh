@@ -5,8 +5,8 @@
 #
 # This is the sibling of test_the_shipped_compose_mounts_ai_conversations.sh
 # and it exists because that test could not catch this. That one asserts
-# ~/Documents/Ostler/AI Conversations. THIS one asserts
-# ~/Documents/Ostler/Conversations, a DIFFERENT tree with a different producer
+# ~/Ostler/AI Conversations. THIS one asserts
+# ~/Ostler/Conversations, a DIFFERENT tree with a different producer
 # and a different reader, and the shipping heredoc had the first and not the
 # second. #849 was the Pro licence mount, #482 the usage journal mount, #979
 # the AI conversations mount, and the comment for each is still in the same
@@ -25,7 +25,7 @@
 # read it and ALL THREE ARE CALLED: bundle_conversation_pages.generate
 # (compile.py:906), commitment_pages.generate (:957), reply_debt_pages.generate
 # (:985). Each resolves compiler/config.py::bundles_dir, which without the env
-# var below falls back to expanduser("~/Documents/Ostler/Conversations"). The
+# var below falls back to expanduser("~/Ostler/Conversations"). The
 # image declares no USER and no ENV HOME, so that is /root/... inside the
 # container, a path no install has ever had. root.exists() is False, all three
 # take their graceful no-captures branch, and each writes an empty page and
@@ -116,7 +116,7 @@ echo "ARM 5: install.sh creates the host tree BEFORE compose can bind it"
 # Docker creates a missing bind source itself, owned by root, and all four
 # bundle writer feeds run as the customer. A root-owned directory in the
 # visible zone is worse than the empty page this fixes.
-[ "$(grep -c 'mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Documents/Ostler/Conversations}"' "$INSTALL" || true)" -gt 0 ] \
+[ "$(grep -c 'mkdir -p "${OSTLER_CONVERSATIONS_DIR:-${HOME}/Ostler/Conversations}"' "$INSTALL" || true)" -gt 0 ] \
     && ok "(5) the tree is created, so Docker cannot leave a root-owned one" \
     || no "(5) nothing creates the bind source before the mount"
 

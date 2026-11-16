@@ -10,6 +10,9 @@ on:
       - 'scripts/box_walk_probes/lib/pair_offwindow.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/wow_moments.py'
+      - 'tests/test_morning_brief_repeat_not_digits.py'
+      - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
+      - 'tests/test_todo_reminders_readback_reset_residue.py'
       - 'scripts/box_walk_probes/lib/db_key_probe.py'
       - 'scripts/box_walk_probes/probes/pair_endpoints_refuse_off_window.sh'
       - 'scripts/ttywalk.sh'
@@ -33,3 +36,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: harness faults are CANNOT-RUN, real faults stay FAIL
         run: /bin/bash tests/test_walk_harness_faults_are_cannot_run.sh
+      - name: a same-title line at a different time, or a count with a different number, is not a morning-brief repeat
+        if: always()
+        run: python3 tests/test_morning_brief_repeat_not_digits.py

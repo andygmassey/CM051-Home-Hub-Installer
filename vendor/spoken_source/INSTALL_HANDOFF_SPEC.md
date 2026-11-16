@@ -13,12 +13,12 @@ transcript tree, normalises each finished recording session into a
 cleaned speaker-labelled transcript plus CM048 metadata
 (`channel="spoken"`), and invokes CM048's `pwg-convo process` so the
 four artefacts land under
-`~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/`.
+`~/Ostler/Conversations/<date>/<slug>-<short-id>/`.
 
 It does NO capture / recording / transcription. CM042 (the
 RemoteCapture macOS app) owns recording + Whisper transcription and
 writes finished markdown transcripts under
-`~/Documents/Ostler/Transcripts/YYYY/MM/`. This feed is read-only over
+`~/Ostler/Transcripts/YYYY/MM/`. This feed is read-only over
 that tree. Meetings, calls, and voice notes all flow through this one
 feed; a voice note is just a short single-speaker spoken capture and
 needs no separate plumbing (single participant, no diarisation).
@@ -103,7 +103,7 @@ OSTLER_USER_DISPLAY_NAME -> install.sh $USER_NAME (so the operator's
 OSTLER_CONTACTS          optional contacts.yaml (spoken: L3 map; see 5)
 OSTLER_SPOKEN_SINCE_DAYS fresh-install clamp (default 30)
 OSTLER_TRANSCRIPTS_DIR   RemoteCapture transcripts root override
-                         (default ~/Documents/Ostler/Transcripts;
+                         (default ~/Ostler/Transcripts;
                          same chain CM042 AppConfiguration reads:
                          OSTLER_TRANSCRIPTS_DIR > CM042_TRANSCRIPT_DIR)
 ```
@@ -115,7 +115,7 @@ chose. `$USER_NAME` already exists in install.sh.
 
 ## 4. Transcripts-dir guard (never abort install)
 
-- The wrapper exits 0 cleanly if `~/Documents/Ostler/Transcripts` does
+- The wrapper exits 0 cleanly if `~/Ostler/Transcripts` does
   not exist (RemoteCapture never run / no recordings yet). RunAtLoad
   will not hard-fail the agent on a Mac that has never recorded.
 - The reader also treats a missing transcripts directory as "no

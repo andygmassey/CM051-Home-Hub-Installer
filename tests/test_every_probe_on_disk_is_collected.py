@@ -109,6 +109,31 @@ EXEMPT: dict[str, str] = {
         "(WhatsApp on, synthetic number), so a walk box never enables WhatsApp. "
         "It has no PROBE_NAME and no verdict. It IS invoked: "
         "lib/brief_channel_probe.py runs it to judge the real writer.",
+    "lib/counted_run.sh":
+        "a sourced library, not a probe: post_walk_qa.sh sources it and calls "
+        "counted_run_row, which prints the walk-record row naming the "
+        "data_conservation run that counts. It has no PROBE_NAME and no verdict. "
+        "tests/test_data_conservation_counted_run_row.sh drives it.",
+    "lib/swap_curve.sh":
+        "a sourced library, not a probe: post_walk_qa.sh starts the whole-walk "
+        "swap and pageout sampler from it and stops it, and run_box_walk.sh "
+        "brackets the chat-battery probes with it. It reads vm_stat and "
+        "vm.swapusage and verdicts nothing. tests/test_swap_curve_sampler.sh "
+        "drives it.",
+    "lib/smart_prefs_seed.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it above the "
+        "phase-2 loop and calls smart_prefs_seed_apply, which writes the "
+        "SYNTHETIC Smart Preferences fixture (ten broad categories, an owner "
+        "dislike, the owner's own like as a control, another person's like), "
+        "reads it back out of the stores and waits for a derive pass; the "
+        "forget runs at the end and from the abort trap. The five BLOCKING "
+        "probes derived_preferences_{runs,breadth,dislike,not_others} and "
+        "dislike_respected_in_brief also source it for their shared collector. "
+        "It has no PROBE_NAME and no verdict; collecting it would run a seed "
+        "as if it were a measurement. Its invocation, its order above the "
+        "phase-2 loop and its forget in both cleanup lists are pinned by "
+        "tests/test_smart_prefs_probes.sh (S7), and its behaviour against "
+        "fake stores by the same test (S1-S5).",
     "lib/probe.sh":
         "a sourced library, not a probe: it defines probe_pass/probe_fail",
     "lib/converge_wait.sh":
