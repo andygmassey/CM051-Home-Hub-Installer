@@ -54,18 +54,28 @@ def api_arm(api_text, m2, m0, m3):
     return PASS, "api arm: L2 and L0 events carry their own level; L3 withheld"
 
 
-def outbound_arm(reply, m2, m0, m3):
-    """Timeline ARM (b), the channel reply through oa. The L2 control must be IN the
-    reply (else the arm never reached the tool: CANNOT-RUN); the L0 and L3 markers
-    must be absent, wherever they sit (a conversation_id or wiki_url counts)."""
-    if not (reply or "").strip():
-        return CANNOT, "outbound arm: no channel reply"
-    if m2 not in reply:
-        return CANNOT, "outbound arm: the L2 control marker is not in the reply (the tool was not reached)"
+def outbound_arm(reply, tool_result, m2, m0, m3):
+    """Timeline ARM (b), the outbound path through oa.
+
+    PRIMARY judge = the TOOL RESULT the daemon fed the model (`tool_result`): the
+    L2 control must be IN it, and the L0 and L3 markers absent (a conversation_id
+    or wiki_url counts). That capture needs an oa hook that does not exist yet, so
+    until it does the slot is None and the verdict is CANNOT-RUN, never PASS.
+
+    SECONDARY = the prose reply. An L0 or L3 marker there is FAIL. An absent
+    marker means nothing (a model may simply not repeat it), so prose alone can
+    never produce a CANNOT-RUN or a PASS."""
     for lvl, m in (("L0", m0), ("L3", m3)):
-        if m in reply:
-            return FAIL, f"outbound arm: the {lvl} marker is in the reply"
-    return PASS, "outbound arm: L2 control present; L0 and L3 absent"
+        if m in (reply or ""):
+            return FAIL, f"outbound arm: the {lvl} marker is in the prose reply (secondary check)"
+    if tool_result is None:
+        return CANNOT, "outbound arm: tool-result capture not available"
+    for lvl, m in (("L0", m0), ("L3", m3)):
+        if m in tool_result:
+            return FAIL, f"outbound arm: the {lvl} marker is in the tool result"
+    if m2 not in tool_result:
+        return CANNOT, "outbound arm: the L2 control was not in the tool result"
+    return PASS, "outbound arm: L2 control in the tool result; L0 and L3 absent (prose reply also clean)"
 
 
 def judge(cap, out=sys.stdout):
@@ -84,7 +94,7 @@ def judge(cap, out=sys.stdout):
         print("  CANNOT no L0 marker in the capture; the L0 item was not seeded", file=out)
         return CANNOT
     tl = paths["timeline"]
-    arms = [api_arm(tl.get("api_text"), m2, m0, m3), outbound_arm(tl.get("reply_text"), m2, m0, m3)]
+    arms = [api_arm(tl.get("api_text"), m2, m0, m3), outbound_arm(tl.get("reply_text"), tl.get("tool_result_text"), m2, m0, m3)]
     for v, why in arms:
         print(f"  {'ok' if v == PASS else 'FAIL' if v == FAIL else 'CANNOT'} path timeline {why}", file=out)
     if any(v == FAIL for v, _ in arms):
@@ -185,7 +195,7 @@ def _api(levels=None, extra=()):
     return json.dumps({"found": True, "events": evs})
 
 
-def _paths(text_by_path=None, status="captured", api=None):
+def _paths(text_by_path=None, status="captured", api=None, tool=None):
     """The timeline path text given here is the CHANNEL REPLY; it always carries the
     L2 control unless the case overrides it with something that lacks it."""
     base = {"timeline": "QUARTZ1 you spoke about the quarry", "brief_catchup": "", "reply_debt": ""}
@@ -194,6 +204,7 @@ def _paths(text_by_path=None, status="captured", api=None):
     out = {k: {"status": status, "text": v} for k, v in base.items()}
     out["timeline"]["api_text"] = api if api is not None else _api()
     out["timeline"]["reply_text"] = base["timeline"]
+    out["timeline"]["tool_result_text"] = tool if tool is not None else "QUARTZ1 conversation"
     return out
 
 
@@ -255,13 +266,21 @@ def self_test():
          _cap_with_paths(_paths(api=json.dumps({"events": []}))), CANNOT),
         ("API arm: body is not a timeline -> CANNOT",
          _cap_with_paths(_paths(api="not json")), CANNOT),
-        # --- timeline ARM (b): the outbound channel reply
-        ("Outbound arm: L2 control absent from the reply -> CANNOT",
-         _cap_with_paths(_paths({"timeline": "nothing recent"})), CANNOT),
-        ("Outbound arm: L0 in a conversation_id in the reply -> FAIL",
-         _cap_with_paths(_paths({"timeline": "QUARTZ1 and /Conversations/ostler-walk-ZETA0/"})), FAIL),
-        ("Outbound arm: L3 marker in the reply -> FAIL",
-         _cap_with_paths(_paths({"timeline": "QUARTZ1 and ZEPHYR1"})), FAIL),
+        # --- timeline ARM (b): PRIMARY = tool result, SECONDARY = prose
+        ("Outbound arm: no tool-result capture -> CANNOT (never PASS)",
+         _cap_with_paths({**_paths(), "timeline": {**_paths()["timeline"], "tool_result_text": None}}), CANNOT),
+        ("Outbound arm: L2 control absent from the TOOL RESULT -> CANNOT",
+         _cap_with_paths(_paths(tool="nothing recent")), CANNOT),
+        ("Outbound arm: L2 absent from the PROSE only is no CANNOT (tool result is clean) -> PASS",
+         _cap_with_paths(_paths({"timeline": "nothing recent"})), PASS),
+        ("Outbound arm: L0 in a conversation_id in the tool result -> FAIL",
+         _cap_with_paths(_paths(tool="QUARTZ1 and /Conversations/ostler-walk-ZETA0/")), FAIL),
+        ("Outbound arm: L3 marker in the tool result -> FAIL",
+         _cap_with_paths(_paths(tool="QUARTZ1 and ZEPHYR1")), FAIL),
+        ("Outbound arm: L0 in the prose reply -> FAIL (secondary)",
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 ZETA0"})), FAIL),
+        ("Outbound arm: L3 in the prose reply with NO tool-result capture -> FAIL, not CANNOT",
+         _cap_with_paths({**_paths({"timeline": "ZEPHYR1"}), "timeline": {**_paths({"timeline": "ZEPHYR1"})["timeline"], "tool_result_text": None}}), FAIL),
         ("Outbound arm clean but API arm mislabels -> FAIL (both arms must pass)",
          _cap_with_paths(_paths(api=_api({"ZETA0": "L1"}))), FAIL),
         ("L3 seed absent on a path -> CANNOT, never PASS (absent is not withheld)",

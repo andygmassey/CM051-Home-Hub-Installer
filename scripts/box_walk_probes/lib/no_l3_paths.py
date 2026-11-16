@@ -27,7 +27,7 @@ def path_line(name, cap):
             p.get("l3_seed_count"), str(p.get("error", ""))[:120])
     if name == "timeline":
         va, wa = J.api_arm(p.get("api_text"), m.get("l2"), m.get("l0"), m.get("l3"))
-        vb, wb = J.outbound_arm(p.get("reply_text"), m.get("l2"), m.get("l0"), m.get("l3"))
+        vb, wb = J.outbound_arm(p.get("reply_text"), p.get("tool_result_text"), m.get("l2"), m.get("l0"), m.get("l3"))
         word = {J.PASS: "PASS", J.FAIL: "FAIL", J.CANNOT: "CANNOT-RUN"}
         both = "FAIL" if J.FAIL in (va, vb) else "CANNOT-RUN" if J.CANNOT in (va, vb) else "PASS"
         return "  path %-13s %s | API arm %s (%s) | OUTBOUND arm %s (%s) | L3 seed count=%s" % (
@@ -52,6 +52,15 @@ def report(cap, out=sys.stdout):
         rc = CANNOT
     print("  MBP free: %s GB before, %s GB after; L3 seed counts before any capture: %s" % (
         fx.get("free_gb_before"), fx.get("free_gb_after"), json.dumps(fx.get("l3_seed_counts"))), file=out)
+    print("  speaker_feedback files (this run's ids): before=%s after=%s" % (fx.get("sf_before"), fx.get("sf_after")), file=out)
+    if fx.get("sf_after") != 0 or not fx.get("sf_before"):
+        print("  CANNOT speaker_feedback teardown not proven (before>0 and after=0 required)", file=out)
+        rc = CANNOT
+    print("  stamp-anywhere on disk: before=%s after=%s %s" % (
+        fx.get("disk_before"), fx.get("disk_after"), json.dumps(fx.get("disk_after_paths") or [])[:300]), file=out)
+    if fx.get("disk_after") != 0:
+        print("  CANNOT this run's stamp is still on disk (or the scan did not run)", file=out)
+        rc = CANNOT
     rd = fx.get("reply_debt") or {}
     print("  reply_debt dir: tree before=%s after=%s restored=%s producer_overwrote=%s" % (
         rd.get("before_tree"), rd.get("after_tree"), rd.get("restored"), rd.get("producer_overwrote")), file=out)
@@ -80,8 +89,9 @@ def _cap(paths=None, fx=None):
     base = {"markers": {"l0": "ZETA1", "l2": "QUARTZ1", "l3": "ZEPHYR1"},
             "paths": {**{n: {"status": "captured", "control": True, "text": "QUARTZ1 only"} for n in PATHS},
                       "timeline": {"status": "captured", "control": True, "text": "x", "reply_text": "QUARTZ1 only",
-                                   "api_text": J_CLEAN_API}},
+                                   "api_text": J_CLEAN_API, "tool_result_text": "QUARTZ1 only"}},
             "fixture": {"graph_before": 9, "graph_after": 0, "stamp_after": 0, "control_known_live": 50,
+                        "sf_before": 1, "sf_after": 0, "disk_before": 4, "disk_after": 0,
                         "reply_debt": {"restored": True, "before_tree": "a", "after_tree": "a"}},
             "teardown": {}}
     for n, v in (paths or {}).items():
@@ -96,6 +106,7 @@ def _ov(n, **kw):
     if n == "timeline":
         d["reply_text"] = kw.get("text", "QUARTZ1 only")
         d["api_text"] = J_CLEAN_API
+        d["tool_result_text"] = kw.get("text", "QUARTZ1 only")
     d.update({k: v for k, v in kw.items() if k != "text"})
     return d
 
@@ -118,6 +129,10 @@ def self_test():
         cases.append(("%s absent L3 seed prints CANNOT-RUN, not PASS" % n,
                       _cap({n: {"status": "l3_seed_absent", "control": False, "l3_seed_count": 0, "text": "QUARTZ1 only"}}),
                       "path %-13s CANNOT-RUN" % n, OK))
+    cases.append(("a speaker_feedback file left behind -> 78", _cap(fx={"sf_after": 1}), "CANNOT speaker_feedback", CANNOT))
+    cases.append(("no speaker_feedback file ever counted -> 78", _cap(fx={"sf_before": 0}), "CANNOT speaker_feedback", CANNOT))
+    cases.append(("stamp still on disk -> 78", _cap(fx={"disk_after": 2}), "CANNOT this run's stamp", CANNOT))
+    cases.append(("disk scan never ran -> 78", _cap(fx={"disk_after": None}), "CANNOT this run's stamp", CANNOT))
     cases.append(("graph residue after teardown -> 78", _cap(fx={"graph_after": 2}), "CANNOT fixture graph", CANNOT))
     cases.append(("no live control -> 78", _cap(fx={"control_known_live": 0}), "CANNOT fixture graph", CANNOT))
     cases.append(("reply_debt not restored -> 78", _cap(fx={"reply_debt": {"restored": False}}), "CANNOT reply_debt", CANNOT))

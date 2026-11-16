@@ -363,6 +363,9 @@ def _capture_timeline(token, markers):
     out = {"api_text": api_text, "reply_text": reply_text, "prompt": TIMELINE_PROMPT,
            "reply_chars": len(reply_text), "reply_l2_control": markers["L2"] in reply_text,
            "api_l2_control": bool(api_text and markers["L2"] in api_text),
+           # PRIMARY outbound judge: the tool result the daemon fed the model. The
+           # capture hook (oa) does not exist yet; None means CANNOT-RUN to the judge.
+           "tool_result_text": None,
            "text": (api_text or "") + "\n--- channel reply ---\n" + reply_text}
     _note("timeline: api %s, reply %d chars, L2 control in reply: %s" % (
         "ok" if api_text is not None else (api.get("error") or "status=%s" % api.get("status")),
@@ -473,6 +476,47 @@ def _brief_via_copy(markers):
 
 # --- teardown ---------------------------------------------------------------
 
+SF_DIR = os.path.expanduser("~/.ostler/speaker_feedback")
+# Every directory the CM048 writer (and the feeds that call it) puts files in.
+# Logs are append-only and excluded; the stores are measured through their APIs.
+DISK_ROOTS = [os.path.expanduser(p) for p in (
+    "~/.ostler/processing", "~/.ostler/speaker_feedback", "~/.ostler/coach", "~/.ostler/queue",
+    "~/.ostler/state", "~/.ostler/data", "~/.ostler/workspace", "~/Documents/Ostler")]
+
+
+def _sf_files(stamp, directory=None):
+    """The speaker_feedback files this run's own conversation ids wrote (the id
+    carries the stamp). By exact name; never a glob over the directory."""
+    d = directory or SF_DIR
+    if not os.path.isdir(d):
+        return []
+    return sorted(os.path.join(d, n) for n in os.listdir(d) if stamp in n)
+
+
+def _disk_hits(stamp, roots=None):
+    """Paths under the writer's directories whose NAME or (text) CONTENT carries
+    this run's stamp. Files over 5 MB are skipped and counted as skipped, not as
+    clean."""
+    hits, needle = [], stamp.encode()
+    for root in (roots if roots is not None else DISK_ROOTS):
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for n in files:
+                full = os.path.join(dirpath, n)
+                if stamp in n:
+                    hits.append(full)
+                    continue
+                try:
+                    if os.path.getsize(full) > 5_000_000:
+                        continue
+                    with open(full, "rb") as fh:
+                        if needle in fh.read():
+                            hits.append(full)
+                except OSError:
+                    continue
+    return sorted(hits)
+
 def _cleanup_files(cid, stamp):
     """Files the shipped writer leaves for a conversation id, removed by id and
     counted before and after. Logs are append-only and are not touched."""
@@ -551,6 +595,25 @@ def self_test():
         want("tree sha sees a changed byte", a1 != a3, True)
     finally:
         shutil.rmtree(d, ignore_errors=True)
+    # a speaker_feedback file written for this run's id is FOUND (so a leftover is
+    # seen), a file for another run's id is not, and removal by exact name works
+    d2 = tempfile.mkdtemp(prefix="no-l3-selftest-sf-")
+    try:
+        mine = os.path.join(d2, "ostler-walk-l2-abc123def456.json")
+        other = os.path.join(d2, "ostler-walk-l2-999999999999.json")
+        for f in (mine, other):
+            with open(f, "w") as fh:
+                fh.write("{}")
+        want("speaker_feedback leftover is seen", _sf_files("abc123def456", d2), [mine])
+        _remove_files(_sf_files("abc123def456", d2))
+        want("speaker_feedback leftover removed by name", _sf_files("abc123def456", d2), [])
+        want("another run's file is untouched", os.path.exists(other), True)
+        with open(os.path.join(d2, "note.txt"), "w") as fh:
+            fh.write("carries abc123def456 inside")
+        want("stamp-anywhere finds content", len(_disk_hits("abc123def456", [d2])), 1)
+        want("stamp-anywhere finds nothing for an unseen stamp", len(_disk_hits("0f0f0f0f0f0f", [d2])), 0)
+    finally:
+        shutil.rmtree(d2, ignore_errors=True)
     for b in bad:
         print("SELF-TEST CASE WRONG: " + b, file=sys.stderr)
     return 0 if not bad else 1
@@ -640,6 +703,12 @@ def main():
 def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     td = {}
     fx = cap["fixture"]
+    try:
+        fx["sf_before"] = len(_sf_files(stamp))
+        fx["disk_before"] = len(_disk_hits(stamp))
+        _note("on disk before teardown: speaker_feedback=%d, stamp-anywhere=%d" % (fx["sf_before"], fx["disk_before"]))
+    except Exception as exc:  # noqa: BLE001
+        _note("pre-teardown disk count failed: %s" % type(exc).__name__)
     # 1. reply-debt directory, first: the shortest window on the box
     try:
         if rd.get("seeded") or os.path.exists(os.path.join(backup_dir, "bak")):
@@ -672,10 +741,20 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
             td[key] = t
         except Exception as exc:  # noqa: BLE001
             td[key] = {"id": cid, "parsed": False, "raw": "%s: %s" % (type(exc).__name__, str(exc)[:150])}
+    try:
+        _remove_files(_sf_files(stamp))
+        fx["sf_after"] = len(_sf_files(stamp))
+    except Exception as exc:  # noqa: BLE001
+        fx["sf_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
     fx["free_gb_after"] = round(shutil.disk_usage("/").free / 1e9, 1)
     # 4. LAST: the independent "stamp anywhere" count, after every writer's rows are
     # gone (the pwg-convo rows carry the stamp too; measured 2026-11-16 before this
     # move: 20 stamp rows were still there at the old position).
+    try:
+        hits = _disk_hits(stamp)
+        fx["disk_after"], fx["disk_after_paths"] = len(hits), [os.path.relpath(h, os.path.expanduser("~")) for h in hits[:10]]
+    except Exception as exc:  # noqa: BLE001
+        fx["disk_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
     try:
         fx["stamp_after"] = _count_stamp(stamp)
         fx["total_after"] = _count_total()
