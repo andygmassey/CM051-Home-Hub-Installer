@@ -129,6 +129,8 @@ def report(facts):
     res, cannot = judge(facts)
     if cannot:
         print(f"  CANNOT {cannot}")
+        for node in facts.get("slug_collision_snapshot") or []:
+            print("  SNAPSHOT " + json.dumps(node, sort_keys=True))
         return EX_CANNOT_RUN
     bad = 0
     for ok, label in res:
@@ -292,6 +294,147 @@ def store_update(oxi_update_url, sparql, timeout=30):
         return r.read()
 
 
+# --------------------------------------------------------------------------
+# slug-collision guard (runs BEFORE the seed is written)
+# --------------------------------------------------------------------------
+# The Hub resolves a person by the SLUG of their displayName (the installed
+# ical-server _wiki_slug). If the box already holds a non-fixture pwg:Person
+# whose displayName folds to a fixture slug, the Hub can answer the fixture
+# question with that person (or both), so the probe would grade the wrong
+# graph. That is a harness fault: CANNOT-RUN, never PASS and never FAIL.
+
+FIXTURE_URI_PREFIX = "urn:ostler-walk-fixture:"
+PWG_NS = "https://schema.ostler.ai/ontology#"
+ICAL_SERVER_DEFAULT = "~/.ostler/services/ical-server/ical-server.py"
+
+
+def load_box_wiki_slug(ical_path):
+    """The INSTALLED ical-server's own _wiki_slug (+ _SLUG_TRANSLIT), pulled out
+    by ast so the fold is the product's, not a copy. Raises RuntimeError if it
+    cannot be loaded or the fold control fails (a vacuous fold would report
+    'no collisions' for everything)."""
+    import ast
+    try:
+        with open(ical_path, encoding="utf-8") as fh:
+            src = fh.read()
+        ns = {}
+        exec("import re, unicodedata, hashlib", ns)
+        found = set()
+        for node in ast.parse(src).body:
+            if isinstance(node, ast.FunctionDef) and node.name == "_wiki_slug":
+                exec(compile(ast.Module([node], []), ical_path, "exec"), ns)
+                found.add("fn")
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "_SLUG_TRANSLIT" for t in node.targets):
+                exec(compile(ast.Module([node], []), ical_path, "exec"), ns)
+        fold = ns["_wiki_slug"] if "fn" in found else None
+    except Exception as exc:
+        raise RuntimeError("cannot load _wiki_slug from %s: %s" % (ical_path, exc))
+    if fold is None:
+        raise RuntimeError("no _wiki_slug in %s" % ical_path)
+    import meeting_brief_seed as seed
+    try:
+        for c in (seed.RICH, seed.NONE, seed.THIN):
+            assert fold(c["name"]) == c["slug"], c["slug"]
+        first, last = seed.NONE["name"].split()
+        assert fold(first + " " + last[:-1] + "\u00e9") == seed.NONE["slug"]
+        assert fold(first + "a " + last) != seed.NONE["slug"]
+    except Exception as exc:
+        raise RuntimeError("the fold control failed on %s (%r): the fold is not the one the Hub uses" % (ical_path, exc))
+    return fold
+
+
+def store_select(query_url, q, timeout=60):
+    """One SPARQL SELECT with the store credential, as rows of {var: value}."""
+    import urllib.parse
+    import urllib.request
+    headers = {"Accept": "application/sparql-results+json",
+               "Content-Type": "application/x-www-form-urlencoded"}
+    headers.update(store_auth_headers())
+    req = urllib.request.Request(query_url, data=urllib.parse.urlencode({"query": q}).encode(),
+                                 headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        b = json.loads(r.read())
+    return [{k: v["value"] for k, v in row.items()} for row in b["results"]["bindings"]]
+
+
+def _hashed(u):
+    import hashlib
+    return u if u.startswith(FIXTURE_URI_PREFIX) else "h:" + hashlib.sha256(u.encode()).hexdigest()[:12]
+
+
+def _masked(v):
+    import hashlib
+    return "lit(len=%d,sha256=%s)" % (len(v), hashlib.sha256(v.encode()).hexdigest()[:8])
+
+
+def _local(u):
+    return u.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+
+
+def _is_uri(v):
+    return "://" in v or v.startswith("urn:")
+
+
+def snapshot_node(select, uri, fold, slugs):
+    """Everything the store holds about one colliding node, safe to print:
+    non-fixture URIs hashed, every literal (names included) as len+sha256[:8],
+    rdf:types and predicate names in full."""
+    esc = uri.replace(">", "%3E")
+    props = select("SELECT ?pr ?o ?g WHERE { { <%s> ?pr ?o } UNION { GRAPH ?g { <%s> ?pr ?o } } }" % (esc, esc))
+    po = []
+    types = set()
+    merged = []
+    folds = []
+    for p in props:
+        pr, o = p["pr"], p["o"]
+        if pr.endswith("#type") or pr.endswith("/type") or pr.endswith("22-rdf-syntax-ns#type"):
+            types.add(_local(o))
+            continue
+        if pr == PWG_NS + "displayName":
+            f = fold(o)
+            folds.append(f)
+        val = _hashed(o) if _is_uri(o) else _masked(o)
+        po.append([_local(pr), val])
+        if pr == PWG_NS + "mergedInto":
+            merged.append(_hashed(o))
+    inbound = select("SELECT ?s WHERE { ?s <%smergedInto> <%s> }" % (PWG_NS, esc))
+    return {"uri": _hashed(uri), "fixture_uri": uri.startswith(FIXTURE_URI_PREFIX),
+            "rdf_types": sorted(types),
+            "graphs": sorted({_hashed(p["g"]) if p.get("g") else "default" for p in props}),
+            "fold_of_each_displayName": sorted(set(folds)),
+            "predicate_object": sorted(po), "mergedInto": sorted(merged),
+            "merged_into_this": sorted(_hashed(i["s"]) for i in inbound)}
+
+
+def slug_collision_guard(query_url, ical_path=None, select=None, fold=None):
+    """Returns (cannot_message_or_None, snapshot_list). None means no non-fixture
+    pwg:Person folds to a fixture slug and it is safe to seed."""
+    import meeting_brief_seed as seed
+    select = select or (lambda q: store_select(query_url, q))
+    if fold is None:
+        ical_path = ical_path or os.environ.get("OSTLER_ICAL_SERVER") or os.path.expanduser(ICAL_SERVER_DEFAULT)
+        try:
+            fold = load_box_wiki_slug(ical_path)
+        except RuntimeError as exc:
+            return "slug-collision guard could not load the box's fold, so absence of a colliding person cannot be shown: %s" % exc, []
+    slugs = {c["slug"] for c in (seed.RICH, seed.NONE, seed.THIN)}
+    try:
+        rows = select("PREFIX pwg: <%s> SELECT ?p ?n WHERE { { ?p a pwg:Person ; pwg:displayName ?n } "
+                      "UNION { GRAPH ?g { ?p a pwg:Person ; pwg:displayName ?n } } }" % PWG_NS)
+    except Exception as exc:
+        return "slug-collision guard could not list pwg:Person on the store, so absence of a colliding person cannot be shown: %s" % exc, []
+    hits = sorted({r["p"] for r in rows
+                   if not r["p"].startswith(FIXTURE_URI_PREFIX) and fold(r.get("n", "")) in slugs})
+    if not hits:
+        return None, []
+    try:
+        snap = [snapshot_node(select, u, fold, slugs) for u in hits]
+    except Exception as exc:
+        return ("%d non-fixture pwg:Person fold to a fixture slug and the snapshot itself failed (%s)" % (len(hits), exc)), []
+    return ("%d non-fixture pwg:Person (of %d scanned) fold to a fixture slug (%s) under the box's own _wiki_slug; seeding would let the Hub answer the fixture question with the wrong person, so nothing was seeded. Snapshot below."
+            % (len(hits), len({r["p"] for r in rows}), ", ".join(sorted({f for s in snap for f in s["fold_of_each_displayName"] if f in slugs})))), snap
+
+
 def box():
     import subprocess
     import threading
@@ -306,8 +449,11 @@ def box():
         ostler, "OstlerAssistant.app", "Contents", "MacOS", "ostler-assistant")
     token_file = os.path.join(ostler, "secrets", "service_token")
 
-    def cannot(msg):
-        print(json.dumps({"cannot": msg}))
+    def cannot(msg, snapshot=None):
+        d = {"cannot": msg}
+        if snapshot:
+            d["slug_collision_snapshot"] = snapshot
+        print(json.dumps(d))
         return 0
 
     if not os.path.isfile(sender):
@@ -348,6 +494,10 @@ def box():
     def sparql_update(q):
         store_update(oxi, q)
 
+    # BEFORE any write: refuse if a real person already folds to a fixture slug.
+    msg, snap = slug_collision_guard(oxi.replace("/update", "/query"))
+    if msg:
+        return cannot(msg, snap)
     default, _named = seed.sparql(with_named_graph=False)
     try:
         sparql_update(seed.forget_sparql())

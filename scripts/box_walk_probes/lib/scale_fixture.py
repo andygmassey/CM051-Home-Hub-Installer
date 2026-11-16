@@ -71,7 +71,7 @@ BASE = datetime(2030, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
 # neighbour. MUST equal lib/owner_digest.py NEIGHBOUR_NOTE (pinned by
 # tests/test_scale_gate_probes.sh). owner_digest_knows_the_owner FAILS if it is
 # ever presented as the owner's.
-NEIGHBOUR_NOTE = "Philip Coe is based in Initech Town"
+NEIGHBOUR_NOTE = "Nathan Brown is based in Initech Town"
 NEIGHBOUR_URI = "https://schema.ostler.ai/ontology#person_walkfixture_neighbour"
 NEIGHBOUR_FACT = "urn:ostler:fact/walkfixture-neighbour-location"
 
@@ -260,7 +260,7 @@ def neighbour_update(uid, now):
     """The SPARQL UPDATE that seeds the neighbour note (idempotent)."""
     return ("DELETE WHERE { GRAPH ?g { <%s> ?p ?o } } ;\n"
            "INSERT DATA {\n <%s> a <https://schema.ostler.ai/ontology#Person> ;"
-           " <https://schema.ostler.ai/ontology#displayName> \"Philip Coe\" .\n"
+           " <https://schema.ostler.ai/ontology#displayName> \"Nathan Brown\" .\n"
            " GRAPH <urn:ostler:user/%s> {\n  <%s> a <urn:ostler:Fact> ; <urn:ostler:text> \"%s\" ;"
            " <urn:ostler:about> <%s> ; <urn:ostler:userId> \"%s\" ; <urn:ostler:type> \"location\" ;"
            " <urn:ostler:domain> \"personal\" ; <urn:ostler:privacyLevel> \"L1\" ;"
