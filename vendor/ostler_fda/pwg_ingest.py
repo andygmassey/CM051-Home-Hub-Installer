@@ -3922,6 +3922,24 @@ def _people_index_record(phase: str, total: int, backlog: Optional[int],
     _people_index_write(rec)
 
 
+def _persist_declared_exclusion(skipped: list, reasons: dict) -> None:
+    """Write the declared exclusion into the people-index state, atomically.
+
+    The probes read this to re-apply the sender rule to exactly the rows the
+    step left out, instead of trusting a count. Counts, reasons, and the URIs
+    of the excluded persons; the URIs stay in the box-local state file.
+    """
+    rec = _people_index_read()
+    rec["excluded"] = len(skipped)
+    by_reason: dict = {}
+    for p in skipped:
+        r = reasons[id(p)]
+        by_reason[r] = by_reason.get(r, 0) + 1
+    rec["by_reason"] = by_reason
+    rec["excluded_uris"] = sorted(p["uri"] for p in skipped)
+    _people_index_write(rec)
+
+
 def _people_index_finish(total: int, sent: int, never_embedded: int,
                          embedded: int, reason: str) -> None:
     """End of a pass that knows its numbers: the backlog is everyone without a
@@ -4144,6 +4162,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
               "payload_refreshed": refreshed, "backlog": len(people) - sent}
     _people_index_finish(len(people), sent, never_embedded, embedded, "")
     _excluded_declared = {"excluded": len(_svc_skipped), "by_reason": dict(_svc_by_reason)}
+    _persist_declared_exclusion(_svc_skipped, _svc_reason)
 
     # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
     # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)

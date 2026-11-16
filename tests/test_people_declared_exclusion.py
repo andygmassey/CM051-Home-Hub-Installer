@@ -71,3 +71,25 @@ def test_notification_sender_that_emailed_the_owner_stays_excluded(monkeypatch):
     notifier["last_contact"] = "2026-11-01"
     result = _run(monkeypatch, [notifier])
     assert result["total"] == 0, result
+
+
+def test_declared_exclusion_is_persisted_to_the_state_file(monkeypatch, tmp_path):
+    # RED before the product writes the exclusion to the people-index state:
+    # the probes need the excluded URIs and reasons on disk, not just in a return.
+    state = tmp_path / "people-index.json"
+    monkeypatch.setattr(pw, "_people_index_state_path", lambda: state)
+    monkeypatch.setattr(pw, "_load_people_from_oxigraph", lambda: [
+        _person("urn:synthetic:person:1", "Synthetic Alpha", ["alpha@example.com"]),
+        _person("urn:synthetic:person:2", "Synthetic Bravo", ["noreply@example.com"]),
+    ])
+    monkeypatch.setattr(pw, "_qdrant_scroll_points", lambda c, limit=1000: [])
+    monkeypatch.setattr(pw, "_ollama_embed_batch", lambda texts: [[0.1, 0.2] for _ in texts])
+    monkeypatch.setattr(pw, "_qdrant_ensure_collection", lambda *a, **k: None)
+    monkeypatch.setattr(pw, "_qdrant_upsert_points", lambda c, pts: len(pts))
+    monkeypatch.setattr(pw, "_qdrant_delete_points", lambda c, ids: 0)
+    pw.ingest_people_to_qdrant()
+    import json
+    rec = json.loads(state.read_text(encoding="utf-8"))
+    assert rec.get("excluded") == 1, rec
+    assert rec.get("by_reason") == {"service mailbox": 1}, rec
+    assert rec.get("excluded_uris") == ["urn:synthetic:person:2"], rec
