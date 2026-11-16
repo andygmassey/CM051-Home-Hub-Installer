@@ -16,6 +16,7 @@ on:
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_photos.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_timeline_by_uri.py'
       - 'vendor/cm041/assistant_api/tests/fixtures/timeline_photos_contract.json'
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - 'tests/test_i22_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py'
       - 'vendor/cm041/assistant_api/tests/test_timeline_photos.py'
+      - 'vendor/cm041/assistant_api/tests/test_person_timeline_by_uri.py'
       - 'vendor/cm041/assistant_api/tests/fixtures/timeline_photos_contract.json'
 
 concurrency:
@@ -77,6 +79,18 @@ jobs:
       - name: "I22: the vendored api_timeline sends the time and the all_day flag (shared with CM041 #238)"
         if: always()
         run: python -m pytest vendor/cm041/assistant_api/tests/test_timeline_keeps_meeting_time.py -v -rs
+
+      # CM041 #273 graft: GET /api/v1/people/timeline?uri= (the composer asks for the exact
+      # person). Red on the vendor before the graft; a skipped test is CANNOT-RUN, not a pass.
+      - name: By-URI person timeline (CM041 #273 graft): the composer asks for the exact person
+        if: always()
+        run: |
+          set -o pipefail
+          python -m pytest vendor/cm041/assistant_api/tests/test_person_timeline_by_uri.py -v -rs 2>&1 | tee /tmp/by-uri.log
+          if grep -qE ' SKIPPED|no tests ran' /tmp/by-uri.log; then
+            echo "REFUSING: a skipped by-URI test is CANNOT-RUN, not a pass." >&2
+            exit 1
+          fi
 
       - name: Photos rows on the Timeline match the iOS contract (CM041 #251, graft)
         if: always()
