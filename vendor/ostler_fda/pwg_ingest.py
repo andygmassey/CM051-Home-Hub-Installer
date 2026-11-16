@@ -142,9 +142,15 @@ def _service_mailbox(name, emails):
     return False
 
 
-def service_sender_reason(name, phones=None, emails=None):
-    """Why a People row is a notification or organisation sender, or None (a person)."""
+def service_sender_reason(name, phones=None, emails=None, has_card=False, has_conversation=False):
+    """Why a People row is a notification or organisation sender, or None (a person).
+
+    A phone, a contact card or a conversation with the owner each keeps the
+    person, whatever the address looks like.
+    """
     if [p for p in (phones or []) if p]:
+        return None
+    if has_card or has_conversation:
         return None
     n = (name or "").strip()
     if not n:
@@ -3992,7 +3998,13 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         # Notification and organisation senders are not people: removed BEFORE
         # the projection, so they are never embedded (and the prune below
         # removes any point they already had). Counts only, never names.
-        _svc_skipped = [p for p in people if service_sender_reason(p.get("display_name") or "", p.get("phones"), p.get("emails")) is not None]
+        _svc_reason = {id(p): service_sender_reason(p.get("display_name") or "", p.get("phones"), p.get("emails"),
+                                                     has_card=bool(p.get("icloud_uid")),
+                                                     has_conversation=bool(p.get("last_contact"))) for p in people}
+        _svc_skipped = [p for p in people if _svc_reason[id(p)] is not None]
+        _svc_by_reason = {}
+        for _p in _svc_skipped:
+            _svc_by_reason[_svc_reason[id(_p)]] = _svc_by_reason.get(_svc_reason[id(_p)], 0) + 1
         if _svc_skipped:
             logger.info("People: %d notification or organisation sender rows left out of the people index",
                         len(_svc_skipped))
@@ -4139,6 +4151,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
     counts = {"embedded": embedded, "already_current": already_current,
               "payload_refreshed": refreshed, "backlog": len(people) - sent}
     _people_index_finish(len(people), sent, never_embedded, embedded, "")
+    _excluded_declared = {"excluded": len(_svc_skipped), "by_reason": dict(_svc_by_reason)}
 
     # ── PRUNE: this sweep is a PROJECTION, and a projection must be able to
     # ── remove as well as add. (task #273 / the 84-orphan finding, 2026-09-05)
@@ -4285,7 +4298,7 @@ def ingest_people_to_qdrant(fda_dir: Optional[Path] = None) -> dict:
         "sent": sent,
         "points_created": sent,
         "total": len(people),
-    }, **counts)
+    }, **counts, **_excluded_declared)
 
 
 # ── Master runner ─────────────────────────────────────────────────
