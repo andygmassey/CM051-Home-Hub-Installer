@@ -182,6 +182,9 @@ else
     printf 'TARGET: this machine (OSTLER_BOX_HOST unset)\n'
 fi
 printf '============================================================\n\n'
+# Resources at START, so a FAIL on a memory-starved box is attributable (read-only; lib/walk_vm_resources.sh).
+. "$(dirname "$0")/lib/walk_vm_resources.sh"
+walk_vm_resources "walk start"
 
 # -------------------------------------------------------------------------
 # CM051 #2564 -- READ-ONLY MODE.
@@ -1192,6 +1195,8 @@ if [ "$CANNOT" -gt 0 ]; then
     done
 fi
 
+# Resources at END, for the same reason (read-only).
+walk_vm_resources "walk end"
 if [ "$FAIL" -gt 0 ] || [ "$BROKEN" -gt 0 ]; then
     exit 1
 fi
