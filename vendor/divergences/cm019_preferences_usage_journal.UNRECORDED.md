@@ -470,3 +470,17 @@ Not in a patch: this tree has `divergence_patch = ""` and `verify = "skip"` (the
 - PWG #472 (f292561b, speakers_identify slug) and #470 (9145e3b5, AGENTS.md): NOT in this tree's file-set (no `services/gateway/`, no `AGENTS.md`), so they ship nothing here.
 
 Proof: `tests/test_cm019_pref_graph_qdrant_parity_vendored.py` (wired in `misclassified-things.yml`): 4 pass here; on the pre-port tree 2 FAIL (re-ingest keeps two subjects on one node; a refused Qdrant write leaves a typed node). Mutants: graph write back to `insert_triples` -> 1 red; early return removed -> 1 red. Four existing CM051 tests stubbed `insert_triples` and now also stub `replace_preference_triples`; `tests/test_a_store_refusal_is_not_an_empty_batch.py` arm 4 now asserts the #471 order (vectors refused -> graph not attempted, one error) and arm 3b asserts no graph write after a vector refusal.
+
+## Grafted by CM051 #3551: same-id batch collapse and one-shot repair
+
+Tree `cm019_preferences`. Pin HELD at d9797d88. Recorded here because the manifest's
+unrecorded_divergence field names this file.
+
+| file | delta | attributed |
+|---|---|---|
+| `services/ingest/src/pipeline.py` | +15, `_process_batch` collapses rows sharing a preference id, last wins | PWG #477 (`0d04191`), grafted by hand |
+| `services/ingest/src/repair_pref_subjects.py` | new file, dry-run-by-default repair | PWG #478 (`b51c725`), vendored whole |
+
+Test: `tests/test_upg_repair_pref_subjects.sh` (install.sh apply branch against a stub store).
+Regeneration refuses (`regenerate_divergence_patch.sh cm019_preferences` declares no divergence_patch), so this record is the description.
+Retire: re-pin past the upstream merge that carries #477 and #478.
