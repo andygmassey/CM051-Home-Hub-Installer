@@ -870,7 +870,8 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     # move: 20 stamp rows were still there at the old position).
     try:
         hits = _disk_hits(stamp)
-        fx["disk_after"], fx["disk_after_paths"] = len(hits), [os.path.relpath(h, os.path.expanduser("~")) for h in hits[:10]]
+        # EVERY path, not a sample: a truncated list is unreadable and hides which store is left.
+        fx["disk_after"], fx["disk_after_paths"] = len(hits), [os.path.relpath(h, os.path.expanduser("~")) for h in hits]
     except Exception as exc:  # noqa: BLE001
         fx["disk_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
     try:

@@ -67,8 +67,11 @@ def report(cap, out=sys.stdout):
         if not (st.get(k) or {}).get("before"):
             print("  CANNOT store %s: nothing counted before the delete (positive control failed)" % k, file=out)
             rc = CANNOT
-    print("  stamp-anywhere on disk: before=%s after=%s %s" % (
-        fx.get("disk_before"), fx.get("disk_after"), json.dumps(fx.get("disk_after_paths") or [])[:300]), file=out)
+    paths_left = fx.get("disk_after_paths") or []
+    print("  stamp-anywhere on disk: before=%s after=%s%s" % (
+        fx.get("disk_before"), fx.get("disk_after"), " (every path listed below, one per line)" if paths_left else ""), file=out)
+    for pth in paths_left:
+        print("    left: ~/%s" % pth, file=out)
     if fx.get("disk_after") != 0:
         print("  CANNOT this run's stamp is still on disk (or the scan did not run)", file=out)
         rc = CANNOT
@@ -158,12 +161,21 @@ def self_test():
     cases.append(("a store with no after key is CANNOT, never 0", _cap(fx={"stores": {**good, "md": {"before": 0}}}), "CANNOT store md: after-count is not 0", CANNOT))
     cases.append(("a None after-count in a store is CANNOT, never 0", _cap(fx={"stores": {**good, "md": {"before": 0, "after": None}}}), "CANNOT store md: after-count is not 0", CANNOT))
     cases.append(("MBP free after missing -> 78, and no 'None' is printed as a number", _cap(fx={"free_gb_after": None}), "CANNOT free_gb_after was not measured", CANNOT))
+    many = ["Ostler/Wiki/Conversations/timeline/2026-11-16/user-%02d.md" % i for i in range(12)]
+    buf2 = io.StringIO()
+    rc2 = report(_cap(fx={"disk_after": 12, "disk_after_paths": many}), out=buf2)
+    if rc2 != CANNOT or any(("~/" + m) not in buf2.getvalue() for m in many):
+        bad_extra = True
+    else:
+        bad_extra = False
     cases.append(("stamp still on disk -> 78", _cap(fx={"disk_after": 2}), "CANNOT this run's stamp", CANNOT))
     cases.append(("disk scan never ran -> 78", _cap(fx={"disk_after": None}), "CANNOT this run's stamp", CANNOT))
     cases.append(("graph residue after teardown -> 78", _cap(fx={"graph_after": 2}), "CANNOT fixture graph", CANNOT))
     cases.append(("no live control -> 78", _cap(fx={"control_known_live": 0}), "CANNOT fixture graph", CANNOT))
     cases.append(("reply_debt not restored -> 78", _cap(fx={"reply_debt": {"restored": False}}), "CANNOT reply_debt", CANNOT))
     bad = []
+    if bad_extra:
+        bad.append("the stamp-anywhere list was truncated: not every one of 12 paths was printed")
     for name, cap, needle, want_rc in cases:
         buf = io.StringIO()
         rc = report(cap, out=buf)
