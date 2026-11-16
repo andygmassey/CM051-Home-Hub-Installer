@@ -525,8 +525,8 @@ def _write_snapshot_atomic(path: Path, payload: dict) -> None:
 
 
 def _is_sent_mailbox(mailbox: str) -> bool:
-    """True for an Apple Mail Sent folder: "Sent Messages" (iCloud), "Sent
-    Mail" (Gmail, under "[Google Mail]"), "Sent Items" (Exchange), "Sent"."""
+    """True for the mail provider's Sent folder: iCloud's, Gmail's (under its
+    bracketed parent), Exchange's, and the plain Sent name."""
     leaf = (mailbox or "").rsplit("/", 1)[-1].strip().lower()
     return leaf == "sent" or leaf.startswith("sent ")
 

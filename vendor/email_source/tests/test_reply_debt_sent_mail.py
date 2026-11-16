@@ -44,14 +44,14 @@ def _put(root: Path, mbox_parts: list[str], name: str, **kw) -> None:
 def _tree(tmp_path: Path) -> Path:
     t0 = NOW - timedelta(days=3)
     _put(tmp_path, ["INBOX"], "1", message_id="a1@x", from_addr=BOB, from_name="Bob",
-         to_addr=ME, subject="Lunch?", dt=t0, body="Lunch Friday?")
-    _put(tmp_path, ["[Google Mail]", "Sent Mail"], "2", message_id="a2@x", from_addr=ME,
+         to_addr=ME, subject="Lunch?", dt=t0, body="lunch on friday?")
+    _put(tmp_path, ["[google mail]", "sent mail"], "2", message_id="a2@x", from_addr=ME,
          from_name="Me", to_addr=BOB, subject="Re: Lunch?", dt=t0 + timedelta(hours=1),
          body="Yes", in_reply_to="a1@x", references=["a1@x"])
     _put(tmp_path, ["INBOX"], "3", message_id="b1@x", from_addr=AMY, from_name="Amy",
          to_addr=ME, subject="Contract", dt=t0, body="Please review")
-    _put(tmp_path, ["Sent Messages"], "4", message_id="c1@x", from_addr=ME2, from_name="Me",
-         to_addr=CAT, subject="Hello", dt=t0, body="Hi Cat")
+    _put(tmp_path, ["sent messages"], "4", message_id="c1@x", from_addr=ME2, from_name="Me",
+         to_addr=CAT, subject="Hello", dt=t0, body="hi there")
     return tmp_path
 
 
@@ -66,7 +66,7 @@ def test_sent_mail_sets_owner_wrote_without_configured_address(tmp_path):
     assert rows["Lunch?"]["owner_wrote"] is True      # replied-to thread
     assert rows["Lunch?"]["last"]["is_from_me"] is True
     assert rows["Contract"]["owner_wrote"] is False       # genuinely unanswered
-    assert rows["Hello"]["owner_wrote"] is True           # second owner address (Sent Messages)
+    assert rows["Hello"]["owner_wrote"] is True           # second owner address (the iCloud Sent folder)
     assert set(snap["owner_addresses"]) == {ME, ME2}
 
 
