@@ -99,6 +99,45 @@ self_test() {
     [ "${fake_rc}" -eq 78 ] || {
         probe_pass "SELF-TEST BROKEN: a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
+    # A box that DISCONNECTS mid-run (stage ok, launch ok, first poll ALIVE, then
+    # every ssh fails) must come out CANNOT-RUN with the residue line, and the
+    # staging dir must never be removed while the pid could still be alive.
+    local log out2
+    log="$(mktemp)"
+    out2="$( box_reachable() { return 0; }
+      box_run() {
+          printf '%s\n' "$1" >> "${log}"
+          case "$1" in
+              *"mkdir -p"*) return 0 ;;
+              *nohup*) echo 4242; return 0 ;;
+              *"kill -0"*) if grep -q ALIVEONCE "${log}"; then return 255; fi; echo ALIVEONCE >> "${log}"; echo ALIVE; return 0 ;;
+              *) return 255 ;;
+          esac
+      }
+      OSTLER_NO_L3_POLL_S=0 OSTLER_NO_L3_POLL_FAILS=3 OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe 2>&1 )"
+    fake_rc=$?
+    probe_examined 1 "mid-run disconnect"
+    [ "${fake_rc}" -eq 78 ] || {
+        rm -f "${log}"
+        probe_pass "SELF-TEST BROKEN: a mid-run disconnect came back rc=${fake_rc}, not CANNOT-RUN (78)"
+    }
+    printf '%s' "${out2}" | grep -q 'TEARDOWN NOT OBSERVED, residue unknown' || {
+        rm -f "${log}"
+        probe_pass "SELF-TEST BROKEN: a mid-run disconnect did not print the residue-unknown line"
+    }
+    printf '%s' "${out2}" | grep -q '4242' || {
+        rm -f "${log}"
+        probe_pass "SELF-TEST BROKEN: the residue line did not carry the pid"
+    }
+    if grep -q 'rm -rf' "${log}"; then
+        rm -f "${log}"
+        probe_pass "SELF-TEST BROKEN: the staging dir was removed while the pid could still be alive"
+    fi
+    grep -q 'caffeinate -dimsu' "${log}" || {
+        rm -f "${log}"
+        probe_pass "SELF-TEST BROKEN: the box run was not launched under caffeinate"
+    }
+    rm -f "${log}"
     # An empty capture (box run ok, no output) must also be CANNOT-RUN.
     ( box_reachable() { return 0; }
       box_run() { return 0; }
@@ -173,17 +212,26 @@ run_probe() {
     [ -n "${OSTLER_NO_L3_OWNER_ID:-}" ] \
         || probe_cannot_run "OSTLER_NO_L3_OWNER_ID is unset; the teardown needs the box owner id"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
-    local remote cap tarball
+    local remote cap tarball pid
     remote="/tmp/ostler-probe-no-l3-$$"
     tarball="$(cd "${_HERE}/lib" && tar czf - ${_BOXFILES} | base64 | tr -d '\n')"
     _no_l3_box_capture "mkdir -p ${remote} && printf %s '${tarball}' | base64 -d | tar xzf - -C ${remote}" "" \
         || probe_cannot_run "could not stage the seed and reader on the box"
     cap="$(mktemp)"
     trap 'rm -f "${cap}"' EXIT
-    # stderr from the box is KEPT: written to a file there, printed below. box_run
-    # itself discards ssh stderr, so the file is the only honest channel.
-    _no_l3_box_capture "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}/no_l3_box.py 2> ${remote}/stderr.txt" "${cap}" \
-        || { _no_l3_box_stderr "${remote}"; probe_cannot_run "the box-side seed and reader failed; its stderr is above"; }
+    # DETACHED AND AWAKE. The run takes up to an hour and waits for an email tick
+    # on the box; an ssh that is the run's parent dies with the connection and
+    # orphans the teardown (run 5, 2026-11-16: ssh rc 255, box slept). So the run
+    # is launched under nohup + caffeinate (a process, no pmset or system setting)
+    # with its own output files, its pid is recorded, and this side only POLLS.
+    pid="$(box_run "cd ${remote} && OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' nohup caffeinate -dimsu /usr/bin/python3 ${remote}/no_l3_box.py > ${remote}/capture.json 2> ${remote}/stderr.txt < /dev/null & echo \$! | tee ${remote}/pid")"
+    pid="$(printf '%s' "${pid}" | tr -dc '0-9')"
+    [ -n "${pid}" ] || probe_cannot_run "could not launch the detached box run (no pid came back); staging left in ${remote} on the box"
+    probe_note "box run detached: pid ${pid}, dir ${remote} (kept until the pid has exited)"
+    _no_l3_poll "${remote}" "${pid}" || probe_cannot_run "TEARDOWN NOT OBSERVED, residue unknown: lost the box (polling gave up); the run may still be going or may have left rows. Check on the box: dir ${remote}, pid ${pid}"
+    # The pid has EXITED (observed). Only now is it safe to read and remove.
+    box_run "cat ${remote}/capture.json" > "${cap}" 2>/dev/null \
+        || probe_cannot_run "the run exited but its capture could not be fetched; dir ${remote} kept on the box"
     _no_l3_box_stderr "${remote}"
     _no_l3_capture_ok "${cap}" \
         || probe_cannot_run "the box-side seed and reader returned an empty or non-JSON capture (see the stderr above)"
@@ -208,6 +256,30 @@ _no_l3_box_capture() {
     fi
     rm -f "${errf}"
     return "${rc}"
+}
+
+# Poll until the detached pid has EXITED. Each poll is one short ssh; a failed poll
+# is retried, never read as "finished". Returns 0 only when the box answered DEAD.
+# Gives up (return 1) after OSTLER_NO_L3_POLL_FAILS consecutive failed polls, or
+# after OSTLER_NO_L3_POLL_MAX_S in total. The staging dir is NOT touched here.
+_no_l3_poll() {
+    local remote="$1" pid="$2" out fails=0 start now
+    local every="${OSTLER_NO_L3_POLL_S:-15}" maxfails="${OSTLER_NO_L3_POLL_FAILS:-40}" maxs="${OSTLER_NO_L3_POLL_MAX_S:-9000}"
+    start="$(date +%s)"
+    while :; do
+        if out="$(box_run "kill -0 ${pid} 2>/dev/null && echo ALIVE || echo DEAD")" && [ -n "${out}" ]; then
+            fails=0
+            case "${out}" in
+                *DEAD*) return 0 ;;
+            esac
+        else
+            fails=$((fails + 1))
+            [ "${fails}" -lt "${maxfails}" ] || return 1
+        fi
+        now="$(date +%s)"
+        [ $((now - start)) -lt "${maxs}" ] || return 1
+        sleep "${every}"
+    done
 }
 
 # Print the box script's stderr (never discarded) and remove the staging dir.
