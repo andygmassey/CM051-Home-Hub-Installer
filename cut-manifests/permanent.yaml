@@ -1665,6 +1665,27 @@ entries:
       kind: box_walk_probe
       probe: "l3_not_prefetched"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, no_l3_in_tool_results row). The probe
+  # cannot PASS on a box by design: the outbound arm reads CANNOT-RUN "on box; PROVEN
+  # by composition" because 133 has no capture hook for the tool result the daemon
+  # feeds the model.
+  - id: box-walk-no-l3-in-tool-results
+    title: "advisory: L0 and L3 never reach an outbound path (timeline API labels every event, reply-debt and brief withhold L0 and L3), L2 control present"
+    incident: >-
+      133 privacy rule: outbound passes only L1, L2 and untagged; L0, L3 and
+      unparseable are withheld. Seeds a synthetic L2 control, L0 and L3 through
+      CM048's own serialisers and the shipped pwg-convo writer, then reads the
+      timeline (API arm: every event carries its own privacy_level), reply-debt
+      and the morning-brief copy (delivery none). The timeline's outbound arm is
+      CANNOT-RUN on box and PROVEN by composition (arm (a) labels, oa's boundary
+      filter drops what the label withholds). CAVEAT (Archie): the wiki, mirror
+      and docker-volume removal paths read 0 -> 0 on the box in run 11 because no
+      compile or fda tick fell inside the window; they are proven by self-tests
+      only, not by a live removal.
+    proof:
+      kind: box_walk_probe
+      probe: "no_l3_in_tool_results"
+
   - id: box-walk-chat-reminder-routes-to-home
     title: "box-walk probe must PASS: chat_reminder_routes_to_home"
     incident: >-
