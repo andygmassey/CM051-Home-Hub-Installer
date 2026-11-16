@@ -192,7 +192,11 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
         if [ -n "$GONE" ]; then
             # ABSENT from the pin is the PASS here. Present means the removal
             # never reached the tree being cut.
-            if [ "$(grep -cF -- "$GONE" "$PINNED")" -eq 0 ]; then
+            # WHOLE-LINE (-x), v1.0.119: a substring match counted the deleted
+            # line inside its own longer replacement (CM051 #3218, a one-line
+            # append) and called a landed removal ABSENT. A removal is undone
+            # only if the exact line is back.
+            if [ "$(grep -cxF -- "$GONE" "$PINNED" || true)" -eq 0 ]; then
                 IN=$((IN+1))
                 echo "  IN THE PIN    ${ticket}  by REMOVAL: the line it deleted is absent from the pinned install.sh"
             else

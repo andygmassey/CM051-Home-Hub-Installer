@@ -1,6 +1,6 @@
 """The Doctor says so when the owner's under-18 list cannot be read.
 
-Andy 2026-10-19 (project_minors_flag). The ingest reads the owner's under-18
+The owner 2026-10-19 (project_minors_flag). The ingest reads the owner's under-18
 list (``~/.ostler/minors.json``, env ``OSTLER_MINORS_FILE``) on every import and
 FAILS CLOSED: a file that is present but unreadable stops imports, because
 "unknown" must not be read as "nobody is a child". Imports stopping with no word

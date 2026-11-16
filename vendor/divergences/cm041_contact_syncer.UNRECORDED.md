@@ -348,3 +348,68 @@ shape on the MINUS side: upstream syncer.py carries a US-format example number
 in a comment the vendored copy does not take). The checked-in patch is stale
 against the new pin and does not apply; the content gate reads RED for this
 tree, as it did on main before this change.
+
+## 2026-10-29, NEW-119, board row 963: a failed read never overwrites
+
+Tree: cm041/contact_syncer (vendor/cm041/contact_syncer). Location and shape only.
+
+| file | change |
+|---|---|
+| `syncer.py` | `_upsert_qdrant` reads the existing point through `qdrant_collection.read_existing_payload` (the bare `except Exception: pass` is gone). An unreadable store skips the upsert, logs, increments `qdrant_writes_skipped_unreadable`, returns False. Both callers add a `stage: qdrant_read` row to `skipped`. A missing collection is still a readable "no point". |
+| `facebook_friends.py`, `linkedin_connections.py` | the preservation block read an undefined name `existing` (NameError once a point was readable); now reads `_existing.payload`. |
+
+UPSTREAM ROW: CM041 `contact_syncer/syncer.py` still carries the bare `pass`
+(its #172 fixed only the social writers); the same change is owed to CM041.
+Retires when CM041 takes it and the tree is re-pinned.
+
+NOT FIXED HERE (separate cause): in all three social writers the
+`PointStruct` is built BEFORE the preservation block mutates `payload`, and
+pydantic copies the dict, so the preserved fields never reach the store.
+
+
+## 2026-10-29, NEW-119 (same PR): the social writers store the fields they preserve
+
+Tree: cm041/contact_syncer (vendor/cm041/contact_syncer). Location and shape only.
+
+| file | change |
+|---|---|
+| `facebook_friends.py`, `linkedin_connections.py`, `instagram_social.py` | `upsert_qdrant` built its `PointStruct` BEFORE the preservation block. pydantic validates `payload` into its own dict, so every preserved field (last_contact pair, source, and in instagram_social the close_friend hint, names, organisation, job title, emails, phones) never reached the store. The `PointStruct` is now built after preservation, directly before the upsert. |
+
+UPSTREAM ROWS (owed to CM041; retire when CM041 takes them and the tree is re-pinned):
+- CM041 `contact_syncer/{facebook_friends,linkedin_connections,instagram_social}.py`: the same PointStruct-before-preservation order.
+- CM041 `contact_syncer/syncer.py` `_upsert_qdrant`: the bare `except Exception: pass` after a failed retrieve (row 963 above).
+
+NON-VENDORED COPY IN THIS REPO, same two defects, NOT changed here: the
+top-level `contact_syncer/` (not under vendor/) carries the bare pass at
+`contact_syncer/syncer.py:1044` and the PointStruct-before-preservation order
+at `facebook_friends.py:319`, `linkedin_connections.py:553`,
+`instagram_social.py:375`. It is owed the same two changes, or its removal if
+nothing stages it.
+
+## 2026-10-30 (v1.0.121): a two-card survivor is its own cards' node
+
+Tree `cm041/contact_syncer`, file `syncer.py`, `_node_holds_a_different_canonical_key`.
+The ASK now also requires that the node does NOT hold the incoming card's
+`icloud_contact_uid`. Before, a node holding BOTH of one person's cards (made
+by the converge path's ratified exception, `identity_resolver/exact_identifier.py`)
+was refused for each of its own cards on every contact-resync, and a fresh
+node was minted per card per tick. Measured on the v1.0.120 walk box (Mini16,
+shapes only): one person, 8 live Person nodes, 2 uids between them, creation
+stamps spread across resync ticks. A node holding only a different card still
+refuses. The same change is applied to the non-vendored top-level
+`contact_syncer/syncer.py` twin.
+
+Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py` (wired in
+`.github/workflows/rule-2-holds-on-the-write.yml`).
+
+UPSTREAM ROW: none owed. CM041 main (fe3290d) has no write-side RULE 2 guard
+in `contact_syncer/syncer.py` at all; it lives only in this tree.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.

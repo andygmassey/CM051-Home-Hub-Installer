@@ -223,7 +223,10 @@ def test_commitments_carry_a_per_row_privacy_level(server):
     code, body = get(server, "/api/v1/commitments")
     assert code == 200, body
     levels = {c["action"]: c.get("privacy_level") for c in body["commitments"]}
-    assert levels == {"tagged L1": "L1", "untagged": "L2", "garbage": "L3"}, levels
+    # A tagged-but-unparseable level resolves to L3 (fail closed) and the
+    # reader now DROPS L3 rows (v1.0.121 second batch), so "garbage" is
+    # withheld rather than served with an L3 label.
+    assert levels == {"tagged L1": "L1", "untagged": "L2"}, levels
 
 
 def test_derived_preferences_route_serves_the_graph(server):

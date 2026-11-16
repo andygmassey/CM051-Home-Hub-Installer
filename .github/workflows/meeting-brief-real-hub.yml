@@ -25,6 +25,7 @@ on:
       - 'install.sh'
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/meeting_syncer/brief.py'
+      - 'vendor/cm041/meeting_syncer/calendar_client.py'
       - 'vendor/cm041/pwg_privacy.py'
       - 'vendor/cm041/identity_resolver/compartment.py'
       - 'vendor/ostler_security/**'

@@ -1,0 +1,175 @@
+{
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LAW": {
+  "text": "Ostler peut transcrire en texte consultable vos conversations orales, appels et réunions. Cela ne concerne que les conversations que vous choisissez de transcrire. Les règles sur l'enregistrement de personnes qui parlent varient selon les pays : à certains endroits (l'Allemagne et la France, par exemple), toutes les personnes présentes doivent d'abord donner leur accord.",
+  "src_hash": "c37b6c70c7a5",
+  "src": "Ostler can turn spoken conversations you capture – calls and meetings – into searchable text; this is only about audio you choose to transcribe. Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL": {
+  "text": "Note juridique : l'enregistrement de la parole peut être encadré par le droit national, par exemple le paragraphe 201 du Code pénal allemand (Verletzung der Vertraulichkeit des Wortes) ou l'article 226-1 du Code pénal français, indépendamment du droit de la protection des données. En tant que personne qui effectue l'enregistrement sur ce Mac, vous êtes responsable de la conformité. Creative Machines ne reçoit jamais vos enregistrements et n'y est pas partie.",
+  "src_hash": "03eef4cb097a",
+  "src": "Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_CORE": {
+  "text": "Les lois sur l'enregistrement des conversations varient selon les pays, et certaines exigent l'accord préalable de tous les participants. Vérifiez la législation en vigueur là où vous vous trouvez. Ostler n'envoie jamais votre audio où que ce soit.",
+  "src_hash": "ae2e34ddc27b",
+  "src": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_LOCAL": {
+  "text": "Ostler transcrit l'audio capturé sur l'appareil qui l'a capturé et supprime aussitôt l'audio. Il n'est jamais conservé ni envoyé, y compris vers votre propre Mac.",
+  "src_hash": "2f082d42faf6",
+  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_PREFIX": {
+  "text": "Mention légale :",
+  "src_hash": "47dcbe0a8fcf",
+  "src": "Legal note:"
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_DE": {
+  "text": "En Allemagne, l'enregistrement de la parole prononcée en privé est également encadré par l'article 201 du Code pénal (Verletzung der Vertraulichkeit des Wortes).",
+  "src_hash": "2686fb877e90",
+  "src": "In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes)."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_EU": {
+  "text": "Le RGPD s'applique : vous êtes le responsable du traitement de ce que vous capturez, y compris les données de catégorie particulière (RGPD, article 4(7)). Le consentement explicite est la base légale (article 9(2)(a)), et pour un usage personnel et domestique, l'article 2(2)(c) limite encore le champ d'application.",
+  "src_hash": "92459cf69a6e",
+  "src": "The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_FR": {
+  "text": "En France, l'enregistrement de paroles prononcées à titre privé sans le consentement de leur auteur est également encadré par l'article 226-1 du Code pénal.",
+  "src_hash": "7f3ab56dce88",
+  "src": "In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_GB": {
+  "text": "Le RGPD britannique (UK GDPR) s'applique : vous êtes le responsable du traitement de ce que vous capturez, y compris les données de catégorie particulière (UK GDPR, article 4(7)). Le consentement explicite est la base légale (article 9(2)(a)), et pour un usage personnel et domestique, l'article 2(2)(c) limite encore le champ d'application.",
+  "src_hash": "c9b5f3c4b96e",
+  "src": "UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_HK": {
+  "text": "À Hong Kong, l'ordonnance sur les données personnelles (protection de la vie privée) (Cap. 486) et ses principes de protection des données, tels que la collecte de données personnelles par des moyens licites et loyaux, peuvent s'appliquer à ce que vous capturez. Hong Kong n'impose pas de règle générale exigeant l'accord de tous avant d'enregistrer une conversation à laquelle vous participez, mais cela ne rend pas tout enregistrement licite.",
+  "src_hash": "06c98588f1c9",
+  "src": "In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_REGION_US": {
+  "text": "Aux États-Unis, la loi fédérale autorise l'enregistrement d'une conversation avec le consentement d'une seule des personnes qui y participent, mais certains États américains, dont la Californie, exigent le consentement de tous. Vérifiez la législation de l'État où vous et les autres personnes vous trouvez.",
+  "src_hash": "2142c43bb73b",
+  "src": "In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
+ },
+ "install_sh::MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_RESPONSIBILITY": {
+  "text": "En tant que personne qui effectue l'enregistrement sur ce Mac, vous êtes responsable du respect de la loi. Creative Machines ne reçoit jamais vos enregistrements et n'y est pas partie.",
+  "src_hash": "5deac693a830",
+  "src": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "install_sh::MSG_INFO_LICENCE_CHECK_UPSTREAM_TERMS_BEFORE_COMMERCIAL": {
+  "text": "Licence : %s – vérifiez les conditions de la licence d'origine avant tout usage commercial.",
+  "src_hash": "753246eaa2a6",
+  "src": "Licence: %s – check upstream terms before commercial use."
+ },
+ "install_sh::MSG_INFO_UK_GDPR_ARTICLE_9_REQUIRED_SPECIAL": {
+  "text": "      (RGPD du Royaume-Uni, article 9 : requis pour les catégories particulières de données).",
+  "src_hash": "6592e60a90f7",
+  "src": "      (UK GDPR Article 9 - required for special-category data)."
+ },
+ "install_sh::MSG_LEGAL_ENGLISH_PREVAILS": {
+  "text": "Ceci est une traduction. En cas de divergence avec la version anglaise, la version anglaise prévaut.",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
+ },
+ "install_sh::MSG_PROMPT_CONSENT_SPOKEN_CAPTURE_HELP": {
+  "text": "En bref : lorsque vous enregistrez une conversation orale pour la transcrire, c'est à vous d'obtenir le consentement que la loi exige. La saisie de texte et la messagerie ne sont pas concernées.\n\nOstler peut transcrire en texte consultable vos conversations orales, appels et réunions. Cela ne concerne que les conversations que vous choisissez de transcrire.\n\nCe que nous vous demandons :\n• Obtenez le consentement que la loi de votre pays exige avant d'enregistrer une conversation orale.\n• Indiquez clairement que la conversation est enregistrée : dites-le, ou gardez un indicateur visible activé.\n• En cas de doute, laissez cette option désactivée. Vos conversations écrites fonctionnent dans les deux cas, et vous pourrez l'activer plus tard dans Réglages.\n\nNote juridique : l'enregistrement de la parole peut être encadré par le droit national, indépendamment du droit de la protection des données, par exemple le paragraphe 201 du Code pénal allemand ou l'article 226-1 du Code pénal français. En tant que personne qui effectue l'enregistrement, vous êtes responsable de la conformité. Creative Machines ne reçoit jamais vos enregistrements.",
+  "src_hash": "ffeffc552826",
+  "src": "In short: when you capture spoken audio to transcribe it, getting any consent the law requires is your responsibility. Typing and messaging are not affected.\n\nOstler can turn spoken conversations you capture – calls and meetings – into searchable text. This is only about audio you choose to transcribe.\n\nWhat we ask of you:\n• Get whatever consent your local law requires before you capture audio.\n• Make it clear audio is being captured – say so, or keep a visible indicator on.\n• If in doubt, leave this off. Your text conversations work either way, and you can turn it on later in Settings.\n\nLegal note: recording the spoken word can be regulated by national law independently of data-protection law – for example section 201 of the German Criminal Code or Article 226-1 of the French Penal Code. As the person making the recording, you are responsible for compliance. Creative Machines never receives your recordings."
+ },
+ "install_sh::MSG_TERMS_LANGUAGE": {
+  "text": "Langue. Les présentes conditions sont rédigées en anglais. Toute traduction est fournie à titre indicatif uniquement. En cas de divergence entre une traduction et la version anglaise, la version anglaise prévaut.",
+  "src_hash": "25ee357c8384",
+  "src": "Language. These terms are written in English. Any translation is provided for convenience only. If a translation differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
+ },
+ "install_sh::MSG_TERMS_PERSONAL_USE_LEGAL": {
+  "text": "Ostler est concédé sous licence pour un usage personnel et non commercial par une personne physique. Creative Machines n'est ni responsable du traitement ni sous-traitant des informations que vous conservez sur votre Mac, n'en reçoit aucune, et ne garantit pas qu'un enregistrement ou une capture donnés soient licites dans votre juridiction.",
+  "src_hash": "02aa266c82e2",
+  "src": "Ostler is licensed for personal, non-commercial use by a natural person. Creative Machines is not a data controller or processor of the information you keep on your Mac, receives none of it, and gives no warranty that any particular recording or capture is lawful in your jurisdiction."
+ },
+ "install_sh::MSG_WARN_COULD_NOT_INSTALL_LEGAL_CONSENT_STRINGS": {
+  "text": "Impossible d'installer le paquet legal/ des textes de consentement ; poursuite de l'installation",
+  "src_hash": "d76e73b0ac9b",
+  "src": "Could not install legal/ consent-strings package; continuing"
+ },
+ "install_sh::MSG_WARN_LEGAL_PACKAGE_NOT_BUNDLED_CONSENT_DEGRADED": {
+  "text": "Le package legal n'est pas inclus dans l'installateur. Les contrôles de consentement (article 9, WhatsApp, voix) généreront une erreur ModuleNotFoundError tant qu'il ne sera pas réinstallé.",
+  "src_hash": "925de39a061f",
+  "src": "legal package not bundled with installer. Article 9 / WhatsApp / voice consent gates will raise ModuleNotFoundError until re-installed."
+ },
+ "viewcopy::consent_article_9/legal_note": {
+  "text": "Mention légale : vous êtes le responsable du traitement de toutes les données de catégorie particulière qu'Ostler traite sur ce Mac (article 4(7) du RGPD britannique). Creative Machines ne reçoit jamais aucune de ces données. Votre consentement explicite ci-dessus (article 9(2)(a) du RGPD britannique) constitue la base légale du traitement. Pour un usage personnel et domestique, l'article 2(2)(c) en limite en outre la portée. Ce consentement est révocable à tout moment, sans effet sur les traitements déjà effectués.",
+  "src_hash": "a4fc71a80e6c",
+  "src": "Legal note: You are the data controller for all special-category data Ostler processes on this Mac (UK GDPR Article 4(7)). Creative Machines never receives any of this data. Your explicit consent above (UK GDPR Article 9(2)(a)) is the lawful basis for processing. For personal and household use, Article 2(2)(c) further limits scope. This consent is revocable at any time without affecting processing that has already taken place."
+ },
+ "viewcopy::consent_spoken_capture/legal_core": {
+  "text": "Les lois sur l'enregistrement des conversations varient selon les pays, et certaines exigent l'accord préalable de tous les participants. Vérifiez la loi qui s'applique chez vous. Ostler n'envoie votre audio nulle part.",
+  "src_hash": "ae2e34ddc27b",
+  "src": "Recording laws differ by country, and some require everyone taking part to agree first. Check the law where you are. Ostler never sends your audio anywhere."
+ },
+ "viewcopy::consent_spoken_capture/legal_local": {
+  "text": "Ostler transcrit l'audio capté sur l'appareil qui l'a capté et supprime aussitôt l'audio. Il n'est jamais conservé ni envoyé, y compris vers votre propre Mac.",
+  "src_hash": "2f082d42faf6",
+  "src": "Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept or sent, including to your own Mac."
+ },
+ "viewcopy::consent_spoken_capture/legal_note": {
+  "text": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes on your devices and never keeps or sends the audio, but you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.",
+  "src_hash": "00aee79eb6b2",
+  "src": "Legal note: Rules on recording people speaking vary by country – in some places (Germany and France, for example) everyone taking part must agree first. Ostler transcribes captured audio on the device that captured it and deletes the audio straight away. It is never kept and never sent anywhere, including to your own Mac. That does not remove this duty: you still need consent where your local law requires it. Recording the spoken word can be regulated by national law in its own right – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "viewcopy::consent_spoken_capture/legal_prefix": {
+  "text": "Mention légale :",
+  "src_hash": "47dcbe0a8fcf",
+  "src": "Legal note:"
+ },
+ "viewcopy::consent_spoken_capture/legal_region_de": {
+  "text": "En Allemagne, l'enregistrement de la parole prononcée en privé est également encadré par l'article 201 du Code pénal (Verletzung der Vertraulichkeit des Wortes).",
+  "src_hash": "2686fb877e90",
+  "src": "In Germany, recording the privately spoken word is also regulated by section 201 of the Criminal Code (Verletzung der Vertraulichkeit des Wortes)."
+ },
+ "viewcopy::consent_spoken_capture/legal_region_eu": {
+  "text": "Le RGPD s'applique : vous êtes le responsable du traitement des données que vous captez, y compris les éventuelles catégories particulières de données (RGPD, article 4(7)). Le consentement explicite est la base légale (article 9(2)(a)), et pour un usage personnel et domestique, l'article 2(2)(c) limite en outre le champ d'application.",
+  "src_hash": "92459cf69a6e",
+  "src": "The GDPR applies: you are the data controller for what you capture, including any special-category data (GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+ },
+ "viewcopy::consent_spoken_capture/legal_region_fr": {
+  "text": "En France, l'enregistrement de paroles prononcées à titre privé sans le consentement de leur auteur est également encadré par l'article 226-1 du Code pénal.",
+  "src_hash": "7f3ab56dce88",
+  "src": "In France, recording words spoken in private without the speaker's consent is also regulated by Article 226-1 of the Penal Code."
+ },
+ "viewcopy::consent_spoken_capture/legal_region_gb": {
+  "text": "Le RGPD du Royaume-Uni (UK GDPR) s'applique : vous êtes le responsable du traitement des données que vous captez, y compris les éventuelles catégories particulières de données (UK GDPR, article 4(7)). Le consentement explicite est la base légale (article 9(2)(a)), et pour un usage personnel et domestique, l'article 2(2)(c) limite en outre le champ d'application.",
+  "src_hash": "c9b5f3c4b96e",
+  "src": "UK GDPR applies: you are the data controller for what you capture, including any special-category data (UK GDPR Article 4(7)). Explicit consent is the lawful basis (Article 9(2)(a)), and for personal and household use Article 2(2)(c) further limits scope."
+ },
+ "viewcopy::consent_spoken_capture/legal_region_hk": {
+  "text": "À Hong Kong, l'ordonnance sur les données personnelles (protection de la vie privée) (Personal Data (Privacy) Ordinance, Cap. 486) et ses principes de protection des données, tels que la collecte de données personnelles par des moyens licites et loyaux, peuvent s'appliquer à ce que vous captez. Hong Kong n'a pas de règle générale exigeant que tous les participants donnent leur accord avant que vous enregistriez une conversation à laquelle vous participez, mais cela ne rend pas tout enregistrement licite.",
+  "src_hash": "06c98588f1c9",
+  "src": "In Hong Kong, the Personal Data (Privacy) Ordinance (Cap. 486) and its data protection principles, such as collecting personal data by lawful and fair means, can apply to what you capture. Hong Kong has no general rule that everyone must agree before you record a conversation you take part in, but that does not make every recording lawful."
+ },
+ "viewcopy::consent_spoken_capture/legal_region_us": {
+  "text": "Aux États-Unis, la loi fédérale autorise l'enregistrement d'une conversation avec le consentement d'une seule des personnes qui y participent, mais certains États américains, dont la Californie, exigent le consentement de tous. Vérifiez la loi de l'État où vous et les autres personnes vous trouvez.",
+  "src_hash": "2142c43bb73b",
+  "src": "In the US, federal law allows a conversation to be recorded with the consent of one person taking part, but some US states, including California, require everyone's consent. Check the law of the state you and the other people are in."
+ },
+ "viewcopy::consent_spoken_capture/legal_responsibility": {
+  "text": "En tant que personne qui effectue l'enregistrement sur ce Mac, vous êtes responsable de la conformité. Creative Machines ne reçoit jamais vos enregistrements et n'y est pas partie.",
+  "src_hash": "5deac693a830",
+  "src": "As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them."
+ },
+ "viewcopy::consent_third_party/legal_note": {
+  "text": "Note juridique : pour les données que vous importez sur ce Mac, vous êtes le responsable du traitement et le sous-traitant au titre du droit britannique et européen (RGPD du Royaume-Uni, articles 4(7) et 4(8)). Creative Machines ne reçoit jamais ces données et n’est pas le responsable du traitement. Votre traitement à des fins personnelles ou domestiques relève de l’article 2(2)(c) du RGPD du Royaume-Uni et de l’UE. En savoir plus sur docs.ostler.ai/privacy/third-party-data.",
+  "src_hash": "f501ce001078",
+  "src": "Legal note: For records you import to this Mac, you are the data controller and processor under UK and EU law (UK GDPR Article 4(7) and 4(8)). Creative Machines never receives this data and is not the controller. Your processing for personal and household purposes falls within UK/EU GDPR Article 2(2)(c). Read more at docs.ostler.ai/privacy/third-party-data."
+ },
+ "viewcopy::legal/english_prevails": {
+  "text": "Ceci est une traduction. En cas de divergence avec la version anglaise, la version anglaise prévaut.",
+  "src_hash": "4be4e180ad13",
+  "src": "This is a translation. If it differs from the English version, the English version prevails.",
+  "origin": "agent draft 2026-10-24, unreviewed"
+ }
+}

@@ -191,6 +191,7 @@ from diagnostic_copy import (
     OLLAMA_NOT_PINNED_FIX,
     OLLAMA_NOT_PINNED_REASON_UNKNOWN,
     OLLAMA_NOT_PINNED_REASONS,
+    OLLAMA_MODELS_UNVERIFIED_FMT,
     OLLAMA_NOT_PINNED_TITLE,
     LAST_UPGRADE_ROLLED_BACK_DETAIL_FMT,
     LAST_UPGRADE_ROLLED_BACK_FIX,
@@ -244,10 +245,6 @@ from diagnostic_copy import (
     REDIS_UNREACHABLE_FIX,
     REDIS_UNREACHABLE_FIX_COMMAND_FMT,
     REDIS_UNREACHABLE_TITLE,
-    STALE_IMPORT_DETAIL,
-    STALE_IMPORT_FIX,
-    STALE_IMPORT_FIX_COMMAND,
-    STALE_IMPORT_TITLE_FMT,
     WIKI_CONTAINER_STOPPED_DETAIL_FMT,
     WIKI_CONTAINER_STOPPED_FIX,
     WIKI_CONTAINER_STOPPED_FIX_COMMAND_FMT,
@@ -300,9 +297,31 @@ from diagnostic_copy import (
     WIKI_UNREACHABLE_FIX,
     WIKI_UNREACHABLE_FIX_COMMAND,
     WIKI_UNREACHABLE_TITLE,
+    WIKI_COMPILE_KILLED_DETAIL,
+    WIKI_COMPILE_KILLED_FIX,
+    WIKI_COMPILE_KILLED_FIX_COMMAND,
+    WIKI_COMPILE_KILLED_OOM_DETAIL,
+    WIKI_COMPILE_KILLED_TITLE_FMT,
+    WIKI_COMPILE_KILL_TIME_FMT,
+    WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+    WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+    WIKI_SUMMARIES_KILLED_TITLE_FMT,
+    STORE_LABELS,
+    STORE_RESTARTED_DETAIL_FMT,
+    STORE_RESTARTED_FIX,
+    STORE_RESTARTED_FIX_COMMAND,
+    STORE_RESTARTED_OOM_TITLE_FMT,
+    STORE_RESTARTED_TITLE_FMT,
+    STORE_RESTART_UNCHECKED_DETAIL_FMT,
+    STORE_RESTART_UNCHECKED_TITLE,
 )
 from status_collector import (
+    STORE_RESTART_WINDOW_S,
     WIKI_URL,
+    collect_store_restarts,
+    read_store_restart_state,
+    read_wiki_compile_kills,
+    write_store_restart_state,
     detect_ostler_prefix,
     is_native_deployment,
     is_ostler_container,
@@ -572,6 +591,11 @@ def check_wiki_health(snapshot: Any) -> list[dict]:
             "risk": "low",
             "category": "runtime",
         })
+
+    # A compile that was KILLED (v1.0.126, from the 125 walk): RED, read
+    # before the port probe for the same reason as the stall above. The wiki
+    # answering is exactly what made this one invisible.
+    findings.extend(_wiki_compile_kill_findings())
 
     wiki_svc = next((s for s in snapshot.services if s.name == "wiki"), None)
     if not wiki_svc:
@@ -898,6 +922,129 @@ def check_listener_watchdog(snapshot: Any) -> list[dict]:
                 "category": "runtime",
             })
     return findings
+
+
+def _wiki_compile_kill_findings() -> list[dict]:
+    """One CRITICAL finding per wiki-compile phase whose last run was killed.
+
+    wiki-recompile-tick.sh writes the marker when a compile dies on a signal
+    and removes it when one finishes, so a present marker means the wiki IS
+    stale right now. Never raises: a reader failure becomes a warning that
+    says it could not check, never silence and never a fabricated cause.
+    """
+    out: list[dict] = []
+    try:
+        kills = read_wiki_compile_kills()
+    except Exception:  # noqa: BLE001
+        log.warning("wiki compile-kill markers could not be read", exc_info=True)
+        kills = []
+    for k in kills:
+        if k.unreadable:
+            out.append({
+                "severity": "warning",
+                "title": WIKI_COMPILE_KILL_UNREADABLE_TITLE,
+                "detail": WIKI_COMPILE_KILL_UNREADABLE_DETAIL,
+                "fix": WIKI_COMPILE_KILLED_FIX,
+                "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+                "risk": "low",
+                "category": "runtime",
+            })
+            continue
+        when = (
+            k.at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+            if k.at is not None else "an unknown time"
+        )
+        titles = (
+            WIKI_SUMMARIES_KILLED_TITLE_FMT if k.phase == "summaries"
+            else WIKI_COMPILE_KILLED_TITLE_FMT
+        )
+        out.append({
+            "severity": "critical",
+            "title": titles.get(k.cause, titles["unknown"]).format(time=when),
+            "detail": (
+                WIKI_COMPILE_KILLED_OOM_DETAIL if k.cause == "oom"
+                else WIKI_COMPILE_KILLED_DETAIL
+            ),
+            "fix": WIKI_COMPILE_KILLED_FIX,
+            "fix_command": WIKI_COMPILE_KILLED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    return out
+
+
+def check_store_restarts(snapshot: Any) -> list[dict]:
+    """A data store that NEWLY restarted in the last day is a CRITICAL.
+
+    v1.0.126, from the 125 box: the OOM killer took oxigraph, Docker restarted
+    it, and every probe answered. Evidence of a new restart is an oom event
+    (or State.OOMKilled) for THAT store, or its RestartCount rising past the
+    count recorded on the previous look. A fresh StartedAt alone is what
+    every reboot looks like and is NOT evidence (Archie, #3364). The first
+    look only records a baseline. A store docker could not report on gets a
+    "could not check" warning, never silence.
+    """
+    from datetime import datetime, timezone
+    try:
+        rows, err = collect_store_restarts()
+    except Exception as exc:  # noqa: BLE001
+        rows, err = [], f"{type(exc).__name__}"
+    def _unchecked(reason: str) -> dict:
+        return {
+            "severity": "warning",
+            "title": STORE_RESTART_UNCHECKED_TITLE,
+            "detail": STORE_RESTART_UNCHECKED_DETAIL_FMT.format(reason=reason),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        }
+    if err:
+        return [_unchecked(err)]
+    now = datetime.now(tz=timezone.utc)
+    state = read_store_restart_state()
+    new_state = dict(state)
+    out: list[dict] = []
+    for r in rows:
+        label = STORE_LABELS.get(r.name, r.name)
+        if r.restart_count < 0:
+            out.append(_unchecked(f"{label} was not in docker's answer"))
+            continue
+        prev = state.get(r.name) if isinstance(state.get(r.name), dict) else {}
+        prev_count = prev.get("count") if isinstance(prev.get("count"), int) else None
+        rec = {"count": r.restart_count}
+        detected_at = prev.get("detected_at")
+        oom = bool(prev.get("oom"))
+        if r.oom or (prev_count is not None and r.restart_count > prev_count):
+            when_dt = r.started_at or now
+            detected_at = when_dt.isoformat()
+            oom = r.oom
+        if detected_at:
+            rec["detected_at"] = detected_at
+            rec["oom"] = oom
+        new_state[r.name] = rec
+        if not detected_at:
+            continue
+        try:
+            at = datetime.fromisoformat(detected_at)
+        except ValueError:
+            continue
+        if (now - at).total_seconds() > STORE_RESTART_WINDOW_S:
+            continue
+        when = at.astimezone().strftime(WIKI_COMPILE_KILL_TIME_FMT)
+        fmt = STORE_RESTARTED_OOM_TITLE_FMT if oom else STORE_RESTARTED_TITLE_FMT
+        out.append({
+            "severity": "critical",
+            "title": fmt.format(time=when),
+            "detail": STORE_RESTARTED_DETAIL_FMT.format(store=label),
+            "fix": STORE_RESTARTED_FIX,
+            "fix_command": STORE_RESTARTED_FIX_COMMAND,
+            "risk": "low",
+            "category": "runtime",
+        })
+    if new_state != state:
+        write_store_restart_state(new_state)
+    return out
 
 
 _WIKI_STALL_MIN_TICKS = 3   # 10-minute StartInterval, so ~30 minutes
@@ -1304,23 +1451,19 @@ def check_memory_pressure(snapshot: Any) -> list[dict]:
 
 
 def check_gdpr_export_age(snapshot: Any) -> list[dict]:
-    """Warn if GDPR exports might be stale."""
-    findings = []
+    """Per-platform export age, from the watcher's high-water store.
 
-    if snapshot.last_import_date and snapshot.current_date:
-        days_since = (snapshot.current_date - snapshot.last_import_date).days
-        if days_since > 90:
-            findings.append({
-                "severity": "info",
-                "title": STALE_IMPORT_TITLE_FMT.format(days=days_since),
-                "detail": STALE_IMPORT_DETAIL,
-                "fix": STALE_IMPORT_FIX,
-                "fix_command": STALE_IMPORT_FIX_COMMAND,
-                "risk": "low",
-                "category": "configuration",
-            })
+    Reads ``snapshot.export_imports`` (collected by status_collector from
+    state/export-scan/high_water.tsv). ``None`` means the store was not
+    collected at all, which is silence by construction, so it is not a finding.
+    An unreadable store is a finding ("couldn't check"), never a clean pass.
+    """
+    import export_status
 
-    return findings
+    state = getattr(snapshot, "export_imports", None)
+    if state is None:
+        return []
+    return export_status.stale_findings(state)
 
 
 def check_docker_resources(snapshot: Any) -> list[dict]:
@@ -1742,10 +1885,13 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
     except OSError:
         return []
     kv = {}
+    unverified = []  # install.sh appends model_unverified=<model> per model pulled while deferred
     for line in text.splitlines():
         if "=" in line:
             k, _, v = line.partition("=")
             kv[k.strip()] = v.strip()
+            if k.strip() == "model_unverified" and v.strip():
+                unverified.append(v.strip())
     if kv.get("ollama_pin") != "deferred":
         return []
     rc = kv.get("ollama_pin_reason", "").rpartition("=")[2]
@@ -1754,7 +1900,8 @@ def check_ollama_pin(snapshot: Any) -> list[dict]:
         "severity": "warning",
         "title": OLLAMA_NOT_PINNED_TITLE,
         "detail": OLLAMA_NOT_PINNED_DETAIL_FMT.format(
-            version=kv.get("ollama_pin_version") or "?", reason=reason),
+            version=kv.get("ollama_pin_version") or "?", reason=reason)
+        + (OLLAMA_MODELS_UNVERIFIED_FMT.format(models=", ".join(unverified)) if unverified else ""),
         "fix": OLLAMA_NOT_PINNED_FIX,
         "risk": "low",
         "category": "installation",
@@ -2701,28 +2848,78 @@ def check_parked_facts(snapshot: Any) -> list[dict]:
     return findings
 
 
-def _tm_isexcluded(path: str) -> "tuple[str, str]":
-    """Query tmutil about one path, LIVE.
+# Where the Time Machine answer comes from. Doctor never asks tmutil itself.
+#
+# v1.0.121 (NEW-121, measured on the v1.0.120 box): this rule used to run
+# `tmutil isexcluded <folder>` from Doctor's own python, for ~/.ostler,
+# ~/Ostler and ~/.colima. Doctor is a launchd job whose program is
+# the bundled python, so TCC charged tmutil's reads to python3.11: two
+# preflights (SystemPolicyAllFiles, SystemPolicyDocumentsFolder) and one
+# NON-preflight SystemPolicyDocumentsFolder request, which is the shape that
+# shows a customer "python3 would like to access files in your Documents
+# folder". The Documents request comes from the ~/Ostler argv (and
+# the os.path.isdir() on it that gated the call); ~/.ostler and ~/.colima are
+# outside every TCC-protected folder.
+#
+# The answer is now measured by the hourly fda-rerun tick
+# (`ostler-assistant run-source fda-rerun` -> sealed tick.sh -> ~/.ostler/bin/
+# ostler-fda, function _ostler_tm_status_record). That chain is a fork+wait
+# child of the signed, Full-Disk-Access-holding daemon, so TCC charges the
+# reads to ai.ostler.assistant. It writes this file, and Doctor only READS it:
+# no subprocess, and no stat of any path under ~/Documents.
+TM_STATUS_FILE_REL = os.path.join("state", "time_machine_exclusion.tsv")
+# The writer runs hourly (OSTLER_FDA_RERUN_INTERVAL_S=3600, background QoS).
+# Six missed ticks is no longer a current answer: "could not check", not a pass.
+TM_STATUS_MAX_AGE_SECONDS = 6 * 3600
 
-    Returns ("excluded" | "included" | "cannot", detail). Measured output on
-    macOS 26: "[Excluded]  <p>", "[Included]  <p>", "[UNKNOWN]   <p>", all
-    exit 0, so only the leading tag answers the question. Anything that is
-    not a readable tag is "cannot": a check that did not run is not a pass.
+
+def _tm_status_path() -> str:
+    """~/.ostler/state/time_machine_exclusion.tsv, from HOME like the writer.
+
+    The writer (the ostler-fda wrapper) sets OSTLER_DIR="${HOME}/.ostler"
+    itself, so the reader resolves it the same way and never from OSTLER_DIR.
     """
-    import subprocess
+    return os.path.join(os.path.expanduser("~"), ".ostler", TM_STATUS_FILE_REL)
+
+
+def _tm_read_status(now: "float | None" = None) -> "tuple[dict, str]":
+    """Read the fda-rerun tick's Time Machine status file.
+
+    Returns ({folder: (state, detail)}, reason). reason is "" when the file is
+    present, parseable and fresh; otherwise it says why there is no current
+    answer, and the dict is empty. state is one of "excluded", "included",
+    "cannot", "absent" exactly as the writer recorded it.
+    """
+    path = _tm_status_path()
     try:
-        proc = subprocess.run(["tmutil", "isexcluded", path],
-                              capture_output=True, text=True, timeout=10)
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
     except FileNotFoundError:
-        return "cannot", "tmutil not found"
-    except (OSError, subprocess.SubprocessError) as exc:
-        return "cannot", f"{type(exc).__name__}"
-    out = (proc.stdout or "").strip()
-    if out.startswith("[Excluded]"):
-        return "excluded", out
-    if out.startswith("[Included]"):
-        return "included", out
-    return "cannot", (out or (proc.stderr or "").strip() or f"exit {proc.returncode}")[:120]
+        return {}, "not checked yet: the hourly background check has not run"
+    except OSError as exc:
+        return {}, f"status file unreadable ({type(exc).__name__})"
+    recorded_at = None
+    rows: dict = {}
+    for line in lines:
+        parts = line.split("\t")
+        if parts[0] == "recorded_at" and len(parts) >= 2:
+            try:
+                recorded_at = int(parts[1])
+            except ValueError:
+                recorded_at = None
+        elif parts[0] == "folder" and len(parts) >= 3:
+            state = parts[1]
+            if state not in ("excluded", "included", "cannot", "absent"):
+                state = "cannot"
+            rows[parts[2]] = (state, parts[3] if len(parts) > 3 else "")
+    if recorded_at is None:
+        return {}, "status file carries no time"
+    age = (time.time() if now is None else now) - recorded_at
+    if age > TM_STATUS_MAX_AGE_SECONDS:
+        return {}, f"last checked {int(age // 3600)} hours ago"
+    if age < -300:
+        return {}, "status file is dated in the future"
+    return rows, ""
 
 
 def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
@@ -2731,31 +2928,32 @@ def check_time_machine_exclusion(snapshot: Any) -> list[dict]:
     Status-honesty sweep I1: the installer used to print "excluded from Time
     Machine backups" after `tmutil addexclusion ... 2>/dev/null || true`, so a
     refused exclusion was reported as done. The installer now reads it back,
-    and this rule asks again on every Doctor run, so a failure (or an
-    exclusion removed later) stays visible. A folder that does not exist has
-    nothing to back up and is skipped.
+    and this rule reports the hourly re-measurement (see TM_STATUS_FILE_REL),
+    so a failure (or an exclusion removed later) stays visible. A folder that
+    does not exist has nothing to back up and is skipped.
+
+    Spawns NO subprocess and touches no path under ~/Documents (NEW-121).
     """
-    import shutil
     import sys
-    if sys.platform != "darwin" and shutil.which("tmutil") is None:
-        # No Time Machine on this platform at all: not applicable, rather
-        # than a check that failed to run. On a Mac tmutil is part of the OS,
-        # so its absence there IS reported (as "could not check") below.
+    if sys.platform != "darwin" and not os.path.exists(_tm_status_path()):
+        # No Time Machine off macOS and nothing recorded: not applicable,
+        # rather than a check that failed to run.
         return []
     home = os.path.expanduser("~")
     secrets_dir = os.path.join(home, ".ostler")
-    folders = [secrets_dir, os.path.join(home, "Documents", "Ostler"),
+    # Path STRINGS only. Doctor must not stat ~/Ostler: the writer
+    # records "absent" for a folder that does not exist.
+    folders = [secrets_dir, os.path.join(home, "Ostler"),
                os.path.join(home, ".colima")]
+    rows, reason = _tm_read_status()
     findings: list[dict] = []
-    cannot: list[str] = []
-    for folder in folders:
-        if not os.path.isdir(folder):
-            continue
-        state, detail = _tm_isexcluded(folder)
-        if state == "excluded":
+    cannot: list[str] = [reason] if reason else []
+    for folder in (folders if not reason else []):
+        state, detail = rows.get(folder, ("cannot", "not in the status file"))
+        if state in ("excluded", "absent"):
             continue
         if state == "cannot":
-            cannot.append(detail)
+            cannot.append(detail or "no answer recorded")
             continue
         findings.append({
             "severity": "warning",
@@ -2993,6 +3191,7 @@ ALL_RULES = [
     check_qdrant_health,
     check_oxigraph_health,
     check_wiki_health,
+    check_store_restarts,
     check_engine_supervisor_present,
     check_listener_watchdog,
     check_redis_health,

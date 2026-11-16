@@ -1,10 +1,626 @@
+--- /dev/null
++++ b/_vendor/__init__.py
+@@ -0,0 +1,19 @@
++"""CM051-local vendored dependencies for the contact_syncer package.
++
++This directory is a CM051 GRAFT. It does not exist in CM041 at this tree's
++pinned_sha, and it is deliberately nested INSIDE the package rather than
++sitting beside it.
++
++WHY NESTED, when upstream CM041 puts ``_vendor/`` at its repo root.
++install.sh stages this pipeline by copying NAMED directories into
++PIPELINE_DIR -- ``contact_syncer``, ``meeting_syncer``, ``identity_resolver``,
++``pwg_privacy.py`` and ``requirements.txt``, and nothing else (install.sh
++around the contact_syncer staging block). A repo-root sibling called
++``_vendor`` would therefore never be copied, and the import would fail at
++runtime on a customer Mac while passing every check in this repo. Nesting it
++inside ``contact_syncer/`` means the existing ``cp -R contact_syncer`` carries
++it with no install.sh change at all.
++
++The consequence is the import spelling: ``contact_syncer._vendor...`` here,
++where upstream writes ``_vendor...``. See contact_syncer/usage.py.
++"""
+--- /dev/null
++++ b/_vendor/ostler_usage_journal/__init__.py
+@@ -0,0 +1,28 @@
++"""The usage-journal writer, vendored for the contact_syncer pipeline.
++
++``usage_journal.py`` in this directory is a BYTE-IDENTICAL copy of
++``vendor/ostler_fda/usage_journal.py`` in this same repo. sha256 of both is
++
++    27cae1e3c764dc4f7cbcd06b7355a557c7e9638a4c2abbbc4dfd26053400bc5e
++
++DO NOT EDIT usage_journal.py IN PLACE. It is a copy, and the property that
++makes it safe is that it is a copy of a file which already ships and is
++already tested (tests/test_vendored_fda_writes_the_usage_journal.sh proves the
++ostler_fda copy writes a record BY EXECUTION). Re-copy it from
++vendor/ostler_fda/usage_journal.py when that file changes; the equality is
++asserted by tests/test_cm041_usage_journal_producer.sh, so an edit here goes
++red rather than silently forking the reader and the writer.
++
++WHY A COPY AND NOT AN IMPORT. contact_syncer runs from PIPELINE_DIR and
++ostler_fda is never staged there. install.sh says so in its own words at the
++settling-progress writer block: "neither has ostler_fda on its path (this
++script copies contact_syncer, meeting_syncer and identity_resolver into
++PIPELINE_DIR -- never ostler_fda)". So the writer has to travel with the
++package that calls it.
++
++NOTE ON THE DIGEST, because upstream's differs. CM041's own copy at
++_vendor/ostler_usage_journal/usage_journal.py carries a two-line vendoring
++header and therefore hashes differently (33f1d8a5...) while its BODY is
++identical. This copy omits that header on purpose, so the whole-file digest
++is checkable against the file it was copied from with no offset arithmetic.
++"""
+--- /dev/null
++++ b/_vendor/ostler_usage_journal/usage_journal.py
+@@ -0,0 +1,265 @@
++"""Local-model usage journal writer for the "What your Mac did" panel.
++
++The daemon shows the customer a monthly breakdown of the work their machine
++did, split by *purpose*: ingesting, enriching, answering, noticing. The
++``answering`` row is written by the Rust daemon itself. Everything else
++happens in short-lived Python processes in other repos, which cannot reach
++the daemon's ``tokio::task_local``. So the contract between them is a file:
++
++    <workspace_dir>/state/costs.jsonl
++
++One JSON object per line, append-only. The reader is
++``zeroclaw-config/src/cost/tracker.rs``; the record shape is
++``zeroclaw-config/src/cost/types.rs::CostRecord``. The full contract is
++``HR015/launch/USAGE_JOURNAL_CONTRACT.md``.
++
++**The hard rule: MEASURED, NEVER ESTIMATED.** If the runtime does not hand
++you a token count, write no record. Do not estimate from character length,
++do not divide by four, do not carry forward the last figure. This number is
++shown to a paying customer beside a price comparison. A missing record is a
++gap somebody can close; a guessed record is a fact that cannot be
++distinguished from a real one once it is in the file.
++
++Real counts come only from Ollama's ``prompt_eval_count`` / ``eval_count``,
++on ``/api/embed``, ``/api/generate`` and ``/api/chat``. NOT the legacy
++``/api/embeddings``, which returns the vector alone.
++
++Invariants enforced here, mirroring :mod:`ostler_fda.settling_progress`:
++ * An unknown purpose is a **programming error** and raises ``ValueError``.
++   The Rust side REJECTS an unknown purpose string rather than coercing it,
++   so ``"enrichment"`` (a plausible typo for ``"enriching"``) would make the
++   whole line unparseable and silently shrink the customer's totals.
++ * An I/O failure is an **environment problem** and is swallowed with a
++   ``logger.warning``. Usage accounting must never abort the work it
++   measures.
++
++No PII is written: model name, token counts, timestamp and a run label.
++``session_id`` identifies the RUN, never the person.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import os
++import uuid
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Optional
++
++logger = logging.getLogger(__name__)
++
++
++# ── The five valid purpose strings ────────────────────────────────────────────
++#
++# Exact match required by `zeroclaw-config/src/cost/types.rs::Purpose`, which
++# is `#[serde(rename_all = "snake_case")]` over a closed enum. Serde REJECTS
++# an unknown variant, so a typo does not degrade to `unattributed` -- it makes
++# the entire record unparseable and the reader counts it as an unreadable line.
++PURPOSES = frozenset({
++    "ingesting",      # reading a source in for the first time
++    "enriching",      # turning raw material into facts, summaries, pages
++    "answering",      # work done because a person asked
++    "noticing",       # work the assistant chose to do unprompted
++    "unattributed",   # the serde default; the producer genuinely does not know
++})
++
++
++def _expand(raw: str) -> Path:
++    """Expand a leading ``~`` the way the daemon's ``expand_tilde_path`` does."""
++    return Path(os.path.expanduser(raw.strip()))
++
++
++def _default_config_dir() -> Path:
++    """``$HOME/.ostler``, matching the daemon's ``default_config_dir()``.
++
++    The daemon prefers the ``HOME`` env var over the passwd database, so we
++    do the same: a process launched with a different HOME must resolve to the
++    same tree the daemon is reading.
++    """
++    home = os.environ.get("HOME", "").strip()
++    if home:
++        return Path(home) / ".ostler"
++    return Path.home() / ".ostler"
++
++
++def _config_dir_from_marker(default_config_dir: Path) -> Optional[Path]:
++    """Read ``active_workspace.toml``, mirroring ``load_persisted_workspace_dirs``.
++
++    A malformed or empty marker is ignored (the daemon logs and falls
++    through), and a relative ``config_dir`` is resolved against the default
++    config dir, exactly as the Rust does.
++    """
++    marker = default_config_dir / "active_workspace.toml"
++    try:
++        contents = marker.read_text(encoding="utf-8")
++    except OSError:
++        return None
++
++    raw = ""
++    for line in contents.splitlines():
++        line = line.strip()
++        if not line.startswith("config_dir"):
++            continue
++        _, _, value = line.partition("=")
++        raw = value.strip().strip('"').strip("'").strip()
++        break
++
++    if not raw:
++        return None
++
++    parsed = _expand(raw)
++    return parsed if parsed.is_absolute() else default_config_dir / parsed
++
++
++def _workspace_for(workspace_env: Path) -> Path:
++    """Port of ``schema.rs::resolve_config_dir_for_workspace``, workspace half.
++
++    The installer sets ``ZEROCLAW_WORKSPACE=$OSTLER_DIR/assistant-config``,
++    which is a CONFIG dir, not a workspace -- so the daemon appends
++    ``workspace`` when it finds a ``config.toml`` beside it. Getting this
++    branch wrong writes the journal to a directory nothing reads, which is
++    indistinguishable from a producer that was never wired.
++    """
++    if (workspace_env / "config.toml").exists():
++        return workspace_env / "workspace"
++
++    legacy = workspace_env.parent / ".zeroclaw"
++    if (legacy / "config.toml").exists():
++        return workspace_env
++    if workspace_env.name == "workspace":
++        return workspace_env
++
++    return workspace_env / "workspace"
++
++
++def resolve_journal_path() -> Path:
++    """Resolve ``<workspace_dir>/state/costs.jsonl`` the way the daemon does.
++
++    Precedence, mirroring ``schema.rs::resolve_runtime_config_dirs``:
++      1. ``ZEROCLAW_CONFIG_DIR``            -> ``<dir>/workspace``
++      2. ``OSTLER_WORKSPACE`` / ``ZEROCLAW_WORKSPACE`` -> :func:`_workspace_for`
++      3. ``~/.ostler/active_workspace.toml`` marker -> ``<config_dir>/workspace``
++      4. default                            -> ``~/.ostler/workspace``
++
++    Resolved PER CALL, never at import. A producer that caches this at import
++    time and a daemon that resolves it at boot can disagree after an env
++    change, and the disagreement is silent on both sides.
++
++    Deliberately NOT keyed on ``OSTLER_HOME``: that name carries two meanings
++    in this product (task #325) and neither of them is this one.
++    """
++    config_dir_env = os.environ.get("ZEROCLAW_CONFIG_DIR", "").strip()
++    if config_dir_env:
++        return _expand(config_dir_env) / "workspace" / "state" / "costs.jsonl"
++
++    workspace_env = (
++        os.environ.get("OSTLER_WORKSPACE", "").strip()
++        or os.environ.get("ZEROCLAW_WORKSPACE", "").strip()
++    )
++    if workspace_env:
++        return _workspace_for(_expand(workspace_env)) / "state" / "costs.jsonl"
++
++    default_config_dir = _default_config_dir()
++    from_marker = _config_dir_from_marker(default_config_dir)
++    if from_marker is not None:
++        return from_marker / "workspace" / "state" / "costs.jsonl"
++
++    return default_config_dir / "workspace" / "state" / "costs.jsonl"
++
++
++def record_usage(
++    model: str,
++    input_tokens: Optional[int],
++    output_tokens: Optional[int],
++    purpose: str,
++    session_id: str,
++    *,
++    journal_path: Optional[Path] = None,
++) -> bool:
++    """Append one MEASURED local-model usage record. Returns True if written.
++
++    ``input_tokens`` / ``output_tokens`` come straight from the runtime.
++    Pass ``None`` for a count the runtime did not report -- it is treated as
++    zero for the total but does NOT on its own suppress the record, so a
++    pure-embedding call (which reports prompt tokens and no output tokens) is
++    still recorded. When BOTH are absent or zero there is nothing measured
++    and no record is written.
++
++    Raises ``ValueError`` on an unknown purpose (a programming error).
++    Never raises on I/O (an environment problem): a full disk must not abort
++    an ingest run.
++    """
++    if purpose not in PURPOSES:
++        raise ValueError(
++            f"unknown purpose {purpose!r}; must be one of {sorted(PURPOSES)}. "
++            "The daemon rejects an unknown purpose and the whole record is lost."
++        )
++
++    prompt = int(input_tokens or 0)
++    completion = int(output_tokens or 0)
++    if prompt <= 0 and completion <= 0:
++        # Nothing measured. Per the contract: write no record rather than
++        # inventing one. The absence is visible on the panel as a gap.
++        return False
++
++    record = {
++        "id": str(uuid.uuid4()),
++        "session_id": session_id,
++        "usage": {
++            "model": model,
++            "input_tokens": prompt,
++            "output_tokens": completion,
++            "total_tokens": prompt + completion,
++            # Zero is not a placeholder: a local model bought nothing. The
++            # panel prices this against a cloud rate card at render time.
++            "cost_usd": 0.0,
++            "timestamp": datetime.now(timezone.utc)
++            .isoformat(timespec="seconds")
++            .replace("+00:00", "Z"),
++            "purpose": purpose,
++        },
++    }
++
++    path = journal_path or resolve_journal_path()
++    try:
++        path.parent.mkdir(parents=True, exist_ok=True)
++        line = json.dumps(record, separators=(",", ":")) + "\n"
++        # One open-append-close per record, and one write() per line. Records
++        # are well under the 4 KB macOS pipe/file atomicity threshold, so
++        # concurrent producers interleave whole lines rather than corrupting
++        # each other. An O_APPEND write is positioned by the kernel, so no
++        # lock is needed and none is taken -- a lock here would put a
++        # contention point in the path of the work being measured.
++        with path.open("a", encoding="utf-8") as handle:
++            handle.write(line)
++        return True
++    except OSError as exc:
++        logger.warning(
++            "usage journal write failed (%s): %s", type(exc).__name__, exc
++        )
++        return False
++
++
++def tokens_from_ollama(response: dict) -> tuple[Optional[int], Optional[int]]:
++    """Extract MEASURED token counts from an Ollama JSON response.
++
++    Returns ``(prompt_eval_count, eval_count)``, either of which may be
++    ``None`` when the endpoint did not report it. The legacy
++    ``/api/embeddings`` endpoint reports neither, which is why callers on
++    that endpoint record nothing at all rather than guessing.
++
++    A non-integer value is treated as absent rather than coerced: a string
++    or float here means the response shape changed, and a silently coerced
++    number would enter the customer's total as though it were measured.
++    """
++    if not isinstance(response, dict):
++        return (None, None)
++
++    def _count(key: str) -> Optional[int]:
++        value = response.get(key)
++        # bool is a subclass of int; True would become 1 tokens.
++        if isinstance(value, bool) or not isinstance(value, int):
++            return None
++        return value if value > 0 else None
++
++    return (_count("prompt_eval_count"), _count("eval_count"))
+--- a/carddav.py
++++ b/carddav.py
+@@ -119,15 +119,95 @@
+             url = f"{parsed.scheme}://{parsed.netloc}{href}"
+         resp = self._request("GET", url=url, headers={"Accept": "text/vcard"})
+         return resp.text
++
++    # -- the snapshot that makes a PUT reversible ------------------------------
++
++    #: One directory per process run, so a single import is one restore point.
++    _snapshot_dir: Optional[str] = None
++
++    def _snapshot_before_write(self, href: str) -> None:
++        """Save the server's CURRENT vCard before we overwrite it.
++
++        🔴 THIS IS A CUSTOMER-DATA SAFETY NET AND IT MUST FAIL CLOSED.
++
++        `put_vcard` writes to the customer's real address book. A CardDAV PUT
++        propagates to every device on that account. Until this existed there
++        was NO backup anywhere in the shipping code -- searched for backup /
++        snapshot / export / preserve across the vendored tree and the
++        installer, and the only backup that existed was of OUR graph, which
++        protects our data and not theirs.
++
++        Design notes, each of which is load-bearing:
++
++        * **We re-GET rather than trusting the caller.** `put_vcard` is handed
++          the MODIFIED text; the original lives only in the caller's local. A
++          caller that forgets to pass it would leave us snapshotting the very
++          thing we are about to write. Re-fetching costs one round trip and
++          removes a whole class of caller mistake.
++
++        * **Failure raises.** A snapshot that quietly returns on error is the
++          same defect as a guard that cannot go red: the PUT proceeds, the
++          operator sees success, and the undo does not exist. If we cannot
++          save it, we do not overwrite it.
++
++        * **Never overwrite an existing snapshot file.** Two edits to the same
++          contact in one run must not collapse into one restore point -- the
++          first snapshot is the pre-Ostler state and it is the one worth
++          keeping.
++        """
++        import hashlib
++        import json
++        import os
++        from datetime import datetime, timezone
++
++        if CardDAVClient._snapshot_dir is None:
++            root = os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler")
++            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++            d = os.path.join(root, "backups", "contacts", stamp)
++            os.makedirs(d, exist_ok=True)
++            CardDAVClient._snapshot_dir = d
+ 
++        d = CardDAVClient._snapshot_dir
++        key = hashlib.sha256(href.encode("utf-8")).hexdigest()[:32]
++        path = os.path.join(d, f"{key}.vcf")
++
++        if os.path.exists(path):
++            return  # first snapshot of this contact in this run wins
++
++        original = self.get_vcard(href)
++
++        tmp = path + ".partial"
++        with open(tmp, "w", encoding="utf-8") as fh:
++            fh.write(original)
++        os.replace(tmp, path)  # atomic: a reader never sees a half-written card
++
++        with open(os.path.join(d, "manifest.jsonl"), "a", encoding="utf-8") as fh:
++            fh.write(json.dumps({
++                "href": href,
++                "file": os.path.basename(path),
++                "bytes": len(original.encode("utf-8")),
++                "sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
++                "saved_at": datetime.now(timezone.utc).isoformat(),
++            }) + "\n")
++
+     def put_vcard(self, href: str, vcard_text: str, etag: str) -> None:
+         """Update an existing vCard via PUT with ETag concurrency check.
+ 
++        🔴 SNAPSHOTS THE SERVER'S CURRENT CARD FIRST, AND REFUSES TO WRITE IF
++        THAT FAILS. See `_snapshot_before_write`. This writes to the
++        customer's real address book and syncs to all their devices; it must
++        be undoable.
++
+         Args:
+             href: the resource path (from get_etags)
+             vcard_text: the full modified vCard text
+             etag: the current ETag (from get_etags) for If-Match safety
+         """
++        # Deliberately NOT wrapped in try/except. If we cannot save the
++        # original we do not overwrite it -- an unbacked-up write is the
++        # failure this whole function exists to prevent.
++        self._snapshot_before_write(href)
++
+         if href.startswith("http"):
+             url = href
+         else:
+--- a/facebook_events.py
++++ b/facebook_events.py
+@@ -4,7 +4,7 @@
+ 
+ Stores event name, date, location (when available), and description
+ as PersonFacts about the user — these become timeline entries in the
+-wiki and are searchable via Marvin.
++wiki and are searchable via the assistant.
+ 
+ Usage:
+     python -m contact_syncer.facebook_events \
 --- a/facebook_friends.py
 +++ b/facebook_friends.py
-@@ -437,6 +437,20 @@
-                         config.DEFAULT_PRIVACY_LEVEL,
+@@ -16,11 +16,16 @@
+         --json /path/to/your_friends.json \
+         [--dry-run] [--limit N] [--verbose]
+ 
+-Idempotent: re-running upserts by deterministic ID (from name hash).
++Idempotent (CM051 F6): every facebook_friend signal records a stable
++per-friend ``pwg:sourceKey`` (name + friendship timestamp). A re-import of the
++same friend attaches to the node that already carries that key, BEFORE any
++fuzzy resolution, so a same-named node that appeared since the last import
++cannot steal the friendship onto a second node.
+ """
+ from __future__ import annotations
+ 
+ import argparse
++import hashlib
+ import json
+ import os
+ import sys
+@@ -128,6 +133,7 @@
+     extra = {
+         "friended_on": friended_on,
+         "timestamp": timestamp,
++        "source_key": friend_source_key(display_name, timestamp),
+     }
+ 
+     return identity, extra
+@@ -151,6 +157,63 @@
+ def _escape(s: str) -> str:
+     """Escape a string for SPARQL literal."""
+     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
++
++
++# ── Stable per-friend key (CM051 F6) ─────────────────────────────────
++#
++# Facebook friends carry only a name and a friendship timestamp, so the
++# resolver can place them by FUZZY NAME alone, and a fuzzy match is not
++# stable across runs: a same-named node that arrives between two imports
++# (a Messenger correspondent, a contact card) wins the tie on the next run.
++# Measured on Ostler DMG #16: the same export imported twice left 1152
++# facebook_friend signals on 1152 nodes for 897 friends. The key below is the
++# friend's identity AS THE EXPORT STATES IT, recorded on the signal, and it is
++# consulted before the resolver is.
++
++
++def friend_source_key(display_name: str, timestamp: Any) -> str:
++    try:
++        ts = int(timestamp or 0)
++    except (TypeError, ValueError):
++        ts = 0
++    raw = f"{(display_name or '').strip().casefold()}|{ts}"
++    return "facebook_friend:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
++
++
++def load_friend_index(resolver: Any) -> Tuple[Dict[str, str], Dict[Tuple[str, str], str]]:
++    """Every node already carrying a facebook_friend signal, indexed two ways.
++
++    ``by_key``: sourceKey -> node (signals written by this importer since F6).
++    ``legacy``: (casefolded displayName, signalDate) -> node, for signals
++    written before the key existed, so the first re-import after upgrade also
++    lands on the existing node instead of re-running the fuzzy match.
++    Ties resolve to the lexically first node URI, so the choice is stable.
++    """
++    sparql = (
++        "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++        "SELECT ?p ?k ?n ?d WHERE {\n"
++        "  ?p pwg:hasSignal ?s .\n"
++        '  ?s pwg:signalType "facebook_friend" .\n'
++        "  OPTIONAL { ?s pwg:sourceKey ?k }\n"
++        "  OPTIONAL { ?p pwg:displayName ?n }\n"
++        "  OPTIONAL { ?s pwg:signalDate ?d }\n"
++        "}"
++    )
++    rows = resolver._sparql_query(sparql).get("results", {}).get("bindings", [])
++    by_key: Dict[str, str] = {}
++    legacy: Dict[Tuple[str, str], str] = {}
++    for row in sorted(rows, key=lambda r: r.get("p", {}).get("value", "")):
++        p = row.get("p", {}).get("value")
++        if not p:
++            continue
++        k = row.get("k", {}).get("value")
++        if k:
++            by_key.setdefault(k, p)
++        n = (row.get("n", {}).get("value") or "").strip().casefold()
++        d = row.get("d", {}).get("value") or ""
++        if n and d:
++            legacy.setdefault((n, d), p)
++    return by_key, legacy
+ 
+ 
+ def create_person_oxigraph(
+@@ -205,6 +268,8 @@
+     triples.append(f"<{person_uri}> pwg:hasSignal <{signal_uri}>")
+     triples.append(f"<{signal_uri}> a pwg:RelationshipSignal")
+     triples.append(f'<{signal_uri}> pwg:signalType "facebook_friend"')
++    if extra.get("source_key"):
++        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
+     triples.append(
+         f'<{signal_uri}> pwg:privacyLevel '
+         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"'
+@@ -241,6 +306,8 @@
+         f'<{signal_uri}> pwg:privacyLevel '
+         f'"{_pm.level_for(rdf_type="RelationshipSignal", source="facebook_friend")}"',
+     ]
++    if extra.get("source_key"):
++        triples.append(f'<{signal_uri}> pwg:sourceKey "{_escape(extra["source_key"])}"')
+     if extra.get("friended_on"):
+         triples.append(
+             f'<{signal_uri}> pwg:signalDate "{_escape(extra["friended_on"])}"'
+@@ -338,12 +405,6 @@
+         payload["observed_at"] = observed_at
+ 
+     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+-    point = PointStruct(
+-        id=point_uuid,
+-        vector=vector,
+-        payload=payload,
+-    )
+-
+     # Check if point exists — if so, preserve existing last_contact
+     # (which may have been set by actual meetings/conversations)
+     # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+@@ -369,19 +430,29 @@
+         # last-write-wins. Preserving the timestamp without its value would
+         # create the same inconsistency the KeyError was hiding, so the pair
+         # moves together or not at all.
+-        ex_ts = existing[0].payload.get("last_contact_ts")
+-        ex_lc = existing[0].payload.get("last_contact")
++        ex_ts = _existing.payload.get("last_contact_ts")
++        ex_lc = _existing.payload.get("last_contact")
+         if ex_ts and ex_lc and ex_ts > last_contact_ts:
+             payload["last_contact"] = ex_lc
+             payload["last_contact_ts"] = ex_ts
+         # Preserve source if already richer
+-        ex_source = existing[0].payload.get("source", "")
++        ex_source = _existing.payload.get("source", "")
+         if ex_source and ex_source != "facebook_friends":
+             payload["source"] = ex_source
+ 
+     # #629: nothing pre-creates the people collection before the social
+     # writers run; ensure it (idempotently) so the first upsert cannot 404.
+     ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
++    # BUILT AFTER PRESERVATION, NOT BEFORE (NEW-119). The PointStruct used to
++    # be built above the preservation block. pydantic validates `payload` into
++    # its OWN dict, so every preserved field written into `payload` afterwards
++    # never reached the store: the richer stored values were overwritten with
++    # this importer's poorer ones, silently.
++    point = PointStruct(
++        id=point_uuid,
++        vector=vector,
++        payload=payload,
++    )
+     qdrant.upsert(collection_name=collection, points=[point])
+ 
+ 
+@@ -414,6 +485,14 @@
+ 
+     counts = {"total": len(friends), "matched": 0, "created": 0, "skipped": 0,
+               "errors": 0}
++    # F6: nodes that already carry a friendship from an earlier import.
++    try:
++        by_key, legacy = load_friend_index(resolver)
++    except Exception as e:  # an unreadable index must not mint duplicates silently
++        print(f"Could not read existing Facebook friendships ({e}); refusing to "
++              f"re-resolve them by name.", file=sys.stderr)
++        counts["errors"] = len(friends)
++        return counts
+     print(f"Importing {len(friends)} Facebook friends...")
+ 
+     for i, entry in enumerate(friends, 1):
+@@ -431,6 +510,17 @@
+             # only have names (no email, phone, or URL to match on).
+             match = resolver.resolve(identity, use_fuzzy=True)
+ 
++            # F6: a friend this importer has already placed goes back to the
++            # SAME node, whatever the fuzzy match now prefers. Tombstones
++            # still win (checked on the resolver's answer just below).
++            known = by_key.get(extra["source_key"]) or legacy.get(
++                (identity.display_name.strip().casefold(), extra.get("friended_on") or "")
++            )
++            if known and not (match and match.match_type == "forgotten"):
++                from identity_resolver.models import MatchResult as _MR
++                match = _MR(person_uri=known, match_type="facebook_source_key",
++                            confidence=1.0, details="already imported (sourceKey)")
++
+             # Forgotten (tombstoned) people are never created or enriched.
+             if match and match.match_type == "forgotten":
+                 counts["skipped"] += 1
+@@ -476,6 +566,20 @@
                      )
                  counts["created"] += 1
-+
+ 
 +                # Register the new person in the resolver's in-memory fuzzy
 +                # index so LATER rows in this SAME run dedupe against it. The
 +                # candidate snapshot is loaded once and frozen; without this a
@@ -18,12 +634,535 @@
 +                    org=identity.organization,
 +                    linkedin_url=identity.linkedin_url,
 +                )
- 
++
              # Qdrant upsert (embed + write)
              if qdrant and not dry_run:
+                 embed_text_str = identity.display_name
+--- a/google_calendar.py
++++ b/google_calendar.py
+@@ -251,8 +251,19 @@
+ #   }
+ #
+ # ``match`` is compared case-insensitively against the event's candidate
+-# identities (source_calendar / organizer / organizer_email). A missing file
+-# means "nothing confirmed yet" -> auto-detection alone.
++# identities (source_calendar / organizer / organizer_email).
++#
++# ``confirmed`` (bool) is the OPERATOR-DECISION flag and it is what makes
++# this map authoritative. ``seed_calendar_provenance`` below writes one
++# UNCONFIRMED entry per calendar the ingest discovers, so the file exists
++# and onboarding has a concrete list to present; only a human answer sets
++# ``confirmed: true``. An entry written by hand to the shape documented
++# above (carrying a ``type`` or a ``privacy_level``) counts as confirmed --
++# a human wrote it.
++#
++# NOTHING WROTE THIS FILE UNTIL 2026-09-16, AND THAT WAS THE BUG. There
++# were three references to the path in the whole repo and all three were
++# inside this reader. See ``_UNCONFIRMED_PRIVACY`` for what that did.
+ CALENDAR_PROVENANCE_PATH = os.environ.get(
+     "OSTLER_CALENDAR_PROVENANCE",
+     os.path.expanduser("~/.ostler/calendars.json"),
+@@ -276,11 +287,55 @@
+     "family": "L1",
+     "work": "L2",
+     "shared": "L2",
++    # ``other`` is a type the operator can pick in lib/ostler-confirm-calendars.py
++    # (VALID_TYPES), documented there as personal-grade. It had no entry here,
++    # so a calendar the operator CONFIRMED as "other" (holidays, birthdays,
++    # subscribed) fell to the fail-closed L3 and its events vanished silently.
++    "other": "L1",
+ }
+-# Fail-closed default: missing / unknown / unclassified / unparseable -> L3.
++# Fail-closed default for a CONFIRMED calendar whose type we cannot read:
++# the operator answered, and the answer did not classify it -> L3.
+ _DEFAULT_PRIVACY = "L3"
+ 
++# Default for a calendar the operator has NOT yet confirmed.
++#
++# WHY THIS IS NOT L3, and why that is not a re-opening of BATCH1 #2.
++#
++# BATCH1 #2 set the unclassified default to L3 so "an un-confirmed
++# calendar's events stay private UNTIL THE OPERATOR CLASSIFIES THEM AT
++# ONBOARDING". That is a sound rule and its premise was false in the
++# shipped product: no onboarding step existed, nothing ever wrote
++# calendars.json, so every entry took this branch and the hold was not
++# provisional, it was permanent. MEASURED 2026-09-16 against the two
++# calendar shapes a Google Takeout actually produces (a primary calendar
++# named by the account address, and a shared "Family" calendar): 2 of 2
++# resolved to L3, and ``_owner_denotes_operator`` was False for BOTH --
++# including the operator's own diary, because X-WR-CALNAME on a primary
++# calendar is an EMAIL ADDRESS and the operator-token set holds names.
++# So the customer's whole calendar was ingested and then withheld from
++# the wiki, search and the daily brief, with no surface that could ever
++# release it.
++#
++# L1 is the level this same package's canonical model already assigns to
++# an unrecognised source: ``privacy_model.level_for(source="mystery")``
++# is L1, pinned by test_privacy_model.test_unknown_source_fails_closed_to_private.
++# L1 is PRIVATE -- assistant-usable, owner's own pages only, never
++# broadcast -- and is NOT in ``privacy_model.PUBLISHABLE_LEVELS``, which
++# holds L2 alone. So nothing becomes publishable by this change.
++#
++# The partner-diary leak BATCH1 #3 F1 was really about is guarded
++# SEPARATELY and is untouched here: ``pwg:aboutPerson`` is still withheld
++# unless ``_owner_denotes_operator`` holds, so a third party's event is
++# still never attributed to the operator, and ``pwg:sourceCalendar`` still
++# carries whose diary it is for the by-owner readers.
++#
++# Once the operator HAS confirmed their calendars, an entry that is not
++# among them still falls to ``_DEFAULT_PRIVACY`` -- a new calendar
++# appearing after confirmation is held back, which is what BATCH1 #2
++# wanted and could not previously express.
++_UNCONFIRMED_PRIVACY = "L1"
+ 
++
+ def load_calendar_provenance(
+     path: Optional[str] = None,
+ ) -> List[Dict[str, str]]:
+@@ -301,13 +356,144 @@
+     if not isinstance(entries, list):
+         return []
+     return [e for e in entries if isinstance(e, dict) and e.get("match")]
++
++
++def calendar_label_for_ics(ics_path: str) -> str:
++    """The owning-calendar label for an export file, without parsing events.
++
++    Same priority the importer uses: ``X-WR-CALNAME`` first, then the
++    export filename stem, skipping the generic stems that carry no owner
++    signal. Returns "" when neither yields anything.
++    """
++    try:
++        with open(ics_path, "r", encoding="utf-8", errors="replace") as f:
++            # The header sits before the first VEVENT; a calendar export can
++            # be hundreds of MB, so do not read the whole file for it.
++            head = f.read(65536)
++    except OSError:
++        head = ""
++    name = _extract_calendar_name(head)
++    if name:
++        return name
++    stem = os.path.splitext(os.path.basename(ics_path))[0].strip()
++    if stem and stem.lower() not in _GENERIC_ICS_STEMS:
++        return stem
++    return ""
++
++
++def seed_calendar_provenance(
++    labels: List[str],
++    path: Optional[str] = None,
++) -> int:
++    """Write the calendar map the reader has always assumed existed.
++
++    THE DEFECT THIS CLOSES. ``calendars.json`` is documented above as the
++    authoritative owner/type map "that the onboarding step writes and this
++    ingest reads". Measured 2026-09-16 on origin/main: three references to
++    the path in the entire repo, and ALL THREE were inside this reader --
++    no writer anywhere. (Positive control, same command shape:
++    ``whatsapp_pair.json`` resolves to 5 files, writer included.) The file
++    therefore never existed on any install, ``load_calendar_provenance``
++    always returned ``[]``, and every event took the unconfirmed branch.
++
++    This seeds one UNCONFIRMED entry per calendar the ingest discovered,
++    so that (a) the file exists, (b) onboarding and the assistant have a
++    concrete list of this customer's calendars to ask about rather than
++    having to rediscover them, and (c) the operator's answer has somewhere
++    to land. It deliberately does NOT guess ``type`` or ``privacy_level``:
++    a guessed classification wearing the shape of a confirmed one is worse
++    than no entry, and ``_match_confirmed`` skips these for exactly that
++    reason.
++
++    An entry the operator has already confirmed is NEVER overwritten, and
++    entries for calendars not in this export are preserved -- an import of
++    one calendar must not erase the answers given about another.
++
++    Returns the number of entries ADDED. Never raises: a seed that cannot
++    be written must not break an import, and the ingest degrades to
++    exactly the behaviour it had before this existed.
++    """
++    p = path or CALENDAR_PROVENANCE_PATH
++    wanted = []
++    seen = set()
++    for label in labels:
++        clean = (label or "").strip()
++        key = clean.lower()
++        if clean and key not in seen:
++            seen.add(key)
++            wanted.append(clean)
++    if not wanted:
++        return 0
++
++    existing = load_calendar_provenance(p)
++    known = {str(e.get("match", "")).strip().lower() for e in existing}
++    added = [
++        {"match": label, "owner": "", "type": "", "confirmed": False}
++        for label in wanted
++        if label.lower() not in known
++    ]
++    if not added:
++        return 0
++
++    try:
++        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
++        # Atomic: a half-written map read by the next import would look
++        # like a malformed file and silently degrade to "nothing
++        # confirmed", discarding the operator's answers.
++        tmp = f"{p}.tmp"
++        with open(tmp, "w", encoding="utf-8") as f:
++            json.dump({"calendars": existing + added}, f, indent=2)
++            f.write("\n")
++        os.replace(tmp, p)
++    except OSError as exc:
++        print(f"⚠️  could not write the calendar map at {p}: {exc}")
++        return 0
++    return len(added)
+ 
+ 
++def _is_confirmed(entry: Dict[str, str]) -> bool:
++    """True when this entry carries an OPERATOR DECISION, not a seed.
++
++    An explicit ``confirmed`` boolean wins -- that is what the onboarding
++    answer sets, and what ``seed_calendar_provenance`` sets to False.
++
++    With no such key the entry predates the flag or was hand-written to
++    the documented shape, and a ``type`` or ``privacy_level`` means a
++    human filled it in. A bare ``{match, owner}`` with neither is a seed.
++    """
++    flag = entry.get("confirmed")
++    if isinstance(flag, bool):
++        return flag
++    return bool(
++        str(entry.get("type") or "").strip()
++        or str(entry.get("privacy_level") or "").strip()
++    )
++
++
++def onboarding_has_confirmed(provenance: List[Dict[str, str]]) -> bool:
++    """True once the operator has confirmed AT LEAST ONE calendar.
++
++    This is the distinction the old code could not draw. It read an empty
++    list for both "onboarding has never run" and "onboarding ran and this
++    calendar was not among the answers", and applied the same permanent
++    L3 to both. Only the second of those is a decision worth failing
++    closed on; see ``_UNCONFIRMED_PRIVACY``.
++    """
++    return any(_is_confirmed(e) for e in provenance or [])
++
++
+ def _match_confirmed(
+     provenance: List[Dict[str, str]], event: Dict[str, Any]
+ ) -> Optional[Dict[str, str]]:
+-    """Return the confirmed provenance entry whose ``match`` equals one of
+-    this event's candidate calendar identities (case-insensitive), or None."""
++    """Return the CONFIRMED provenance entry whose ``match`` equals one of
++    this event's candidate calendar identities (case-insensitive), or None.
++
++    A seeded, unconfirmed entry is deliberately NOT returned: it carries
++    no type and no level, so treating it as authoritative would send the
++    event to ``_TYPE_DEFAULT_PRIVACY.get("", _DEFAULT_PRIVACY)`` -- L3 --
++    and the seeding would have re-created the very burial it exists to
++    end, while looking like it had fixed it.
++    """
+     if not provenance:
+         return None
+     candidates = {
+@@ -322,11 +508,49 @@
+     if not candidates:
+         return None
+     for entry in provenance:
++        if not _is_confirmed(entry):
++            continue
+         if str(entry.get("match", "")).strip().lower() in candidates:
+             return entry
+     return None
++
++
++def _entry_is_set_aside(entry: Dict[str, Any]) -> bool:
++    """True when the operator's map sets this calendar ASIDE (``include`` false).
++
++    Birthdays, holidays, subscribed and Siri-suggestion calendars are written
++    as ``type: other, include: false``. They are nobody's diary: their events
++    must reach no store at any level. Accepts the JSON boolean or its string
++    spellings; an absent key means included.
++    """
++    inc = entry.get("include")
++    if isinstance(inc, bool):
++        return not inc
++    if isinstance(inc, str):
++        return inc.strip().lower() in ("0", "false", "no")
++    return False
+ 
+ 
++def event_is_set_aside(
++    provenance: Optional[List[Dict[str, str]]], event: Dict[str, Any]
++) -> bool:
++    """True when this event belongs to a calendar the operator set aside."""
++    candidates = {
++        c.strip().lower()
++        for c in (
++            event.get("source_calendar", ""),
++            event.get("organizer", ""),
++            event.get("organizer_email", ""),
++        )
++        if c and c.strip()
++    }
++    return any(
++        _entry_is_set_aside(e)
++        and str(e.get("match", "")).strip().lower() in candidates
++        for e in provenance or []
++    )
++
++
+ def resolve_calendar_provenance(
+     event: Dict[str, Any],
+     provenance: Optional[List[Dict[str, str]]] = None,
+@@ -335,14 +559,32 @@
+ 
+     Operator-confirmed config is authoritative for owner and type; the
+     auto-detected owner (``_derive_source_calendar``) is the fallback.
+-    Privacy level fails CLOSED: an explicit, recognised confirmed
+-    ``privacy_level`` wins; otherwise the confirmed type derives it
+-    (personal/family -> L1, work/shared -> L2); an unknown/unclassified
+-    type or an entirely unconfirmed calendar defaults to L3, not L1.
++
++    Privacy level, in three cases rather than the old two:
++
++    * this calendar IS confirmed -- an explicit recognised
++      ``privacy_level`` wins, else the confirmed type derives it
++      (personal/family -> L1, work/shared -> L2), else L3. Unchanged.
++    * this calendar is not confirmed but OTHERS ARE -- onboarding ran and
++      did not cover this one, so it is genuinely new. Fails closed to L3
++      until the operator is asked about it.
++    * NOTHING is confirmed -- onboarding has not happened. L1: private,
++      assistant-usable, owner's pages only, never publishable. See
++      ``_UNCONFIRMED_PRIVACY`` for why holding these at L3 was permanent
++      rather than provisional.
+     """
+     auto_owner = _derive_source_calendar(event)
+-    confirmed = _match_confirmed(provenance or [], event)
++    provenance = provenance or []
++    confirmed = _match_confirmed(provenance, event)
+ 
++    if confirmed and _entry_is_set_aside(confirmed):
++        # Defence in depth: ingest drops these events before any level is
++        # needed, but a caller that asks anyway gets fail-closed L3.
++        return (
++            str(confirmed.get("owner") or "").strip() or auto_owner,
++            "",
++            _DEFAULT_PRIVACY,
++        )
+     if confirmed:
+         owner = str(confirmed.get("owner") or "").strip() or auto_owner
+         cal_type = str(confirmed.get("type") or "").strip().lower()
+@@ -355,11 +597,13 @@
+             # type, failing closed to L3 for an unknown/unclassified type.
+             privacy = _TYPE_DEFAULT_PRIVACY.get(cal_type, _DEFAULT_PRIVACY)
+     else:
+-        # Unconfirmed calendar: onboarding has not classified it yet, so it
+-        # fails closed to L3 (most restrictive) rather than defaulting open.
+         owner = auto_owner
+         cal_type = ""  # unclassified: onboarding assigns type, not ingest
+-        privacy = _DEFAULT_PRIVACY
++        privacy = (
++            _DEFAULT_PRIVACY
++            if onboarding_has_confirmed(provenance)
++            else _UNCONFIRMED_PRIVACY
++        )
+     return owner, cal_type, privacy
+ 
+ 
+@@ -420,6 +664,8 @@
+     """
+     if provenance is None:
+         provenance = load_calendar_provenance()
++    if event_is_set_aside(provenance, event):
++        return  # set-aside calendar: no event reaches any store
+     summary = _escape(event["summary"])
+     location = _escape(event.get("location", ""))
+     dtstart = event.get("dtstart", "")
+@@ -562,6 +808,10 @@
+             print(f"  [{i}/{len(events)}] {dtstart} - {summary}"
+                   + (f" ({n_attendees} attendees)" if n_attendees else ""))
+ 
++        if event_is_set_aside(provenance, event):
++            counts["set_aside"] = counts.get("set_aside", 0) + 1
++            continue  # no store write, no attendee resolution
++
+         try:
+             if not dry_run:
+                 write_calendar_event(
+--- a/import_all.py
++++ b/import_all.py
+@@ -35,6 +35,7 @@
+ from __future__ import annotations
+ 
+ import argparse
++import hashlib
+ import json
+ import os
+ import sys
+@@ -67,6 +68,49 @@
+     return None
+ 
+ 
++# ── One export, one import per run (CM051 F6) ──────────────────────
++#
++# ostler-import calls this module once PER ROOT, and the same export can sit
++# under two roots: on the Ostler DMG #16 walk, ~/Downloads/01 - Facebook held
++# the archive extracted into facebook-<user>-<date>-<id>/ AND extracted flat
++# beside it, both were detected, and the same your_friends.json was imported
++# twice ("Importing 897 Facebook friends..." x2). The run ledger is a file
++# named by OSTLER_IMPORT_RUN_LEDGER (ostler-import creates one per
++# invocation); each source file's sha256 is claimed once, so identical bytes
++# reached by a second path are skipped and SAID, while a different export is
++# still imported. With no ledger set (a hand run of this module) the claim is
++# per process, which is the old behaviour for a single root.
++_RUN_CLAIMS: Dict[str, str] = {}
++
++
++def claim_source(kind: str, path: str) -> str | None:
++    """Claim ``path`` for this run. Returns None if it is new, else the path
++    the same bytes were first imported from."""
++    h = hashlib.sha256()
++    with open(path, "rb") as fh:
++        for chunk in iter(lambda: fh.read(1 << 20), b""):
++            h.update(chunk)
++    key = f"{kind}\t{h.hexdigest()}"
++    ledger = os.environ.get("OSTLER_IMPORT_RUN_LEDGER", "").strip()
++    if ledger:
++        try:
++            with open(ledger, "r", encoding="utf-8") as fh:
++                for line in fh:
++                    k1, _, rest = line.rstrip("\n").partition("\t")
++                    k2, _, first = rest.partition("\t")
++                    if f"{k1}\t{k2}" == key:
++                        return first
++        except FileNotFoundError:
++            pass
++        with open(ledger, "a", encoding="utf-8") as fh:
++            fh.write(f"{key}\t{path}\n")
++        return None
++    if key in _RUN_CLAIMS:
++        return _RUN_CLAIMS[key]
++    _RUN_CLAIMS[key] = path
++    return None
++
++
+ def run_import(
+     exports_dir: str,
+     *,
+@@ -128,7 +172,11 @@
+ 
+     # ── 4. Facebook Friends ─────────────────────────────────────
+     friends_path = find_export(base, ["your_friends.json"])
+-    if friends_path:
++    first_seen = claim_source("facebook_friends", friends_path) if friends_path else None
++    if friends_path and first_seen:
++        print(f"⏭  Facebook Friends - this export was already imported this run "
++              f"(from {first_seen}), skipping the copy at {friends_path}")
++    elif friends_path:
+         print("👥 Facebook Friends found")
+         from contact_syncer.facebook_friends import import_friends
+         results["facebook_friends"] = import_friends(
+@@ -141,7 +189,11 @@
+     # ── 5. Facebook Events ──────────────────────────────────────
+     events_dir = find_dir(base, ["events"])
+     events_check = find_export(base, ["event_invitations.json", "your_events.json"])
+-    if events_check:
++    events_first = claim_source("facebook_events", events_check) if events_check else None
++    if events_check and events_first:
++        print(f"⏭  Facebook Events - this export was already imported this run "
++              f"(from {events_first}), skipping the copy at {events_check}")
++    elif events_check:
+         events_directory = str(Path(events_check).parent)
+         print("📅 Facebook Events found")
+         from contact_syncer.facebook_events import import_events
+@@ -184,13 +236,28 @@
+     if ics_paths:
+         print(f"📆 Google Calendar found ({len(ics_paths)} calendar file(s))")
+         from contact_syncer.google_calendar import (
++            calendar_label_for_ics,
+             import_calendar,
+             load_calendar_provenance,
++            seed_calendar_provenance,
+         )
+-        # Operator-confirmed owner/type map (authoritative; written by the
+-        # end-of-install onboarding confirmation). Loaded once and shared
+-        # across every calendar file. Empty when nothing confirmed yet ->
+-        # ingest auto-detection is the fallback.
++        # SEED THE MAP BEFORE READING IT. calendars.json is documented as
++        # the authoritative owner/type map "that the onboarding step
++        # writes and this ingest reads", and until 2026-09-16 nothing in
++        # the repo wrote it -- every reference was inside the reader. This
++        # is the writer. It records WHICH calendars this customer has, as
++        # unconfirmed entries, so the operator's later answer has a list
++        # to attach to. It never guesses a type and never overwrites a
++        # confirmed entry.
++        seeded = seed_calendar_provenance(
++            [calendar_label_for_ics(p) for p in ics_paths]
++        )
++        if seeded:
++            print(f"   recorded {seeded} calendar(s) awaiting confirmation")
++        # Operator-confirmed owner/type map (authoritative). Loaded once
++        # and shared across every calendar file. Entries seeded above are
++        # present but unconfirmed, so ingest auto-detection still governs
++        # owner, and privacy follows the unconfirmed default.
+         provenance = load_calendar_provenance()
+         agg = {"total": 0, "written": 0, "attendees_matched": 0,
+                "attendees_new": 0, "errors": 0, "calendars": len(ics_paths)}
 --- a/instagram_social.py
 +++ b/instagram_social.py
-@@ -598,6 +598,20 @@
+@@ -377,12 +377,6 @@
+         payload["relationship_hint"] = "close_friend"
+ 
+     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+-    point = PointStruct(
+-        id=point_uuid,
+-        vector=vector,
+-        payload=payload,
+-    )
+-
+     # Check if point exists — preserve richer data if present
+     #
+     # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+@@ -437,6 +431,16 @@
+     # #629: nothing pre-creates the people collection before the social
+     # writers run; ensure it (idempotently) so the first upsert cannot 404.
+     ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
++    # BUILT AFTER PRESERVATION, NOT BEFORE (NEW-119). The PointStruct used to
++    # be built above the preservation block. pydantic validates `payload` into
++    # its OWN dict, so every preserved field written into `payload` afterwards
++    # never reached the store: the richer stored values were overwritten with
++    # this importer's poorer ones, silently.
++    point = PointStruct(
++        id=point_uuid,
++        vector=vector,
++        payload=payload,
++    )
+     qdrant.upsert(collection_name=collection, points=[point])
+ 
+ 
+@@ -447,7 +451,7 @@
+     """Best-effort conversion of Instagram username to a display name.
+ 
+     Strips trailing digits, replaces separators with spaces, title-cases.
+-    E.g. "janedoe" stays as "janedoe" (no separators to split on),
++    E.g. "janedoe" becomes "@janedoe" (a handle, not a name),
+     "jane.doe" → "Jane Doe", "john.smith.779" → "John Smith".
+     """
+     # Remove common suffixes like trailing numbers after dots/underscores
+@@ -460,6 +464,10 @@
+     # Title case if contains spaces (looks like a real name)
+     if " " in clean:
+         clean = clean.title()
++    elif clean:
++        # A bare handle is not a name. Keep it recognisably a handle so it
++        # never reads as the person's real name downstream (S9 row 3).
++        clean = "@" + clean.lstrip("@")
+     return clean
+ 
+ 
+@@ -640,6 +648,20 @@
                          connection_timestamp=timestamp,
                      )
                  counts["created"] += 1
@@ -46,7 +1185,53 @@
              if qdrant and not dry_run:
 --- a/linkedin_connections.py
 +++ b/linkedin_connections.py
-@@ -727,7 +727,13 @@
+@@ -570,12 +570,6 @@
+         payload["observed_at"] = observed_at
+ 
+     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+-    point = PointStruct(
+-        id=point_uuid,
+-        vector=vector,
+-        payload=payload,
+-    )
+-
+     # Check if point exists — if so, preserve existing last_contact
+     # (which may have been set by actual meetings/conversations)
+     # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+@@ -601,19 +595,29 @@
+         # last-write-wins. Preserving the timestamp without its value would
+         # create the same inconsistency the KeyError was hiding, so the pair
+         # moves together or not at all.
+-        ex_ts = existing[0].payload.get("last_contact_ts")
+-        ex_lc = existing[0].payload.get("last_contact")
++        ex_ts = _existing.payload.get("last_contact_ts")
++        ex_lc = _existing.payload.get("last_contact")
+         if ex_ts and ex_lc and ex_ts > last_contact_ts:
+             payload["last_contact"] = ex_lc
+             payload["last_contact_ts"] = ex_ts
+         # Preserve source if already richer
+-        ex_source = existing[0].payload.get("source", "")
++        ex_source = _existing.payload.get("source", "")
+         if ex_source and ex_source != "linkedin_connections":
+             payload["source"] = ex_source
+ 
+     # #629: nothing pre-creates the people collection before the social
+     # writers run; ensure it (idempotently) so the first upsert cannot 404.
+     ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
++    # BUILT AFTER PRESERVATION, NOT BEFORE (NEW-119). The PointStruct used to
++    # be built above the preservation block. pydantic validates `payload` into
++    # its OWN dict, so every preserved field written into `payload` afterwards
++    # never reached the store: the richer stored values were overwritten with
++    # this importer's poorer ones, silently.
++    point = PointStruct(
++        id=point_uuid,
++        vector=vector,
++        payload=payload,
++    )
+     qdrant.upsert(collection_name=collection, points=[point])
+ 
+ 
+@@ -758,7 +762,13 @@
      for i, row in enumerate(rows, 1):
          identity, extra = row_to_identity(row)
  
@@ -61,7 +1246,7 @@
              counts["skipped"] += 1
              continue
  
-@@ -799,6 +805,21 @@
+@@ -837,6 +847,21 @@
                      )
                  counts["created"] += 1
  
@@ -85,7 +1270,7 @@
                  embed_text_str = (
 --- a/linkedin_messages.py
 +++ b/linkedin_messages.py
-@@ -306,15 +306,22 @@
+@@ -312,15 +312,22 @@
                              config.USER_ID,
                              config.DEFAULT_PRIVACY_LEVEL,
                          )
@@ -115,6 +1300,66 @@
                  # Write messaging relationship signal
                  if not dry_run:
                      conv["conv_id"] = conv_id
+--- a/places_ingest.py
++++ b/places_ingest.py
+@@ -489,6 +489,22 @@
+             len(payloads),
+         )
+         status = "error_empty_result"
++
++    # Third guard (walk #16: "0 written, 979 errors ... status=ok"). A step
++    # whose writes all fail is an error, never ok. Any upsert error means the
++    # status cannot be ok; ALL failing is reported separately so the log names
++    # the worse case. An earlier guard's status is kept (first cause wins).
++    if upsert_counts["errors"] > 0 and status == "ok":
++        if upsert_counts["written"] == 0:
++            status = "error_write_failed"
++        else:
++            status = "error_partial_write"
++        logger.warning(
++            "PLACES INGEST GUARD: %d of %d place points failed to write "
++            "(%d written). status=%s",
++            upsert_counts["errors"], len(payloads),
++            upsert_counts["written"], status,
++        )
+ 
+     return {
+         "status": status,
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,12 +1,23 @@
+-vobject>=0.9.6
+-httpx>=0.27,<1.0
+-phonenumbers>=8.13.0
++vobject>=0.9.9,<1.0
++httpx>=0.28.1,<1.0
++phonenumbers>=8.13.0,<10.0
+ # qdrant-client: 1.x is API-stable. Pin to the major; allow patches and
+ # minors so security fixes pull through without manual intervention.
+-# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (52 / 52).
+-qdrant-client>=1.15,<2.0
++# Verified against 1.16.1 on 2026-04-26: contact_syncer tests pass (30 / 30,
++# with CM041's identity_resolver on PYTHONPATH per the cross-repo dep).
++qdrant-client>=1.18.0,<2.0
+ 
+-# nameparser: imported by identifier_quality.py (added in PR #109 alongside
+-# rapidfuzz, also undeclared). Two undeclared deps in one PR, both of which
+-# failed at import time, not at assert time.
+-nameparser>=1.1,<2.0
++# rapidfuzz: replaces the hand-rolled Jaro-Winkler in
++# identity_resolver/normalise.py (C++ core, MIT). Verified on real name pairs
++# from the graph before the swap -- max delta 0.028 and ZERO crossings of the
++# 0.85 merge threshold, so no customer's merge decisions change. Pinned to the
++# major; 3.x has been API-stable since 2023.
++rapidfuzz>=3.14.0,<4.0
++
++# nameparser: structured first/middle/last/suffix. Replaces hand-rolled word
++# sorting and suffix regexes, and is the only one of the two that gets CJK
++# ordering right (yamada taro -> first=taro last=yamada), which the hand-rolled
++# version could not do at all.
++# CAVEAT, verified not assumed: it parses "Jane Ross via LinkedIn" to
++# last="LinkedIn", so the source-suffix stripper must run BEFORE it.
++nameparser>=2.1.0,<3.0
 --- a/syncer.py
 +++ b/syncer.py
 @@ -1,4 +1,4 @@
@@ -123,44 +1368,124 @@
  from __future__ import annotations
  
  import argparse
-@@ -38,6 +38,7 @@
- from identity_resolver.normalise import (  # type: ignore[import-untyped]
-     clean_display_name,
-     normalise_email,
-+    normalise_phone,
- )
+@@ -35,6 +35,7 @@
+ from contact_syncer.photo_storage import remove_photo, write_photo
+ from contact_syncer.relationship_labels import is_relationship_label
+ from contact_syncer.person_audit import record_person_removal
++from contact_syncer.qdrant_collection import read_existing_payload
  
- # Qdrant client
-@@ -122,7 +123,7 @@
-             current_ctag = ""
+ from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
+ from identity_resolver.forget_tombstone import MATCH_TYPE as FORGOTTEN
+@@ -49,35 +50,88 @@
+ from qdrant_client import QdrantClient
+ from qdrant_client.models import PointStruct
  
-         if current_ctag and current_ctag == old_ctag and old_etags:
--            print("CTag unchanged — no contacts modified since last sync. Skipping.")
-+            print("CTag unchanged – no contacts modified since last sync. Skipping.")
-             return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+-# Vendored settling-progress writer for the wiki homepage "still getting to know
+-# you" panel (channel: "contacts"). See _vendor/ostler_settling_progress/. The
+-# helper writes ~/.ostler/state/settling_progress.d/contacts.json atomically;
+-# CM044 reads that shard. Empty shards / write errors are logged and swallowed
+-# by the helper so a full disk cannot abort the syncer.
+-from _vendor.ostler_settling_progress.settling_progress import report_settling_progress
++# ---------------------------------------------------------------------------
++# v1.0.111 contact photos from the local AddressBook store.
++#
++# Before this, _read_abcddb_as_vcards selected no image column, so on every
++# customer install (ostler-contact-resync forces this path) no address-book
++# photo ever reached write_photo: the walk box had no PHOTO_DIR at all.
++#
++# Where macOS keeps a contact's image is NOT measured on a real store by this
++# change (reading one needs Full Disk Access, which no agent shell holds), so
++# every known shape is tried and the per-store counter line logged by the
++# reader is the instrument: a walk reads it from contact-resync.log.
++#   1. a blob that already starts with image magic (plain inline storage);
++#   2. CoreData external-storage framing: 0x01 + bytes (inline) or
++#      0x02 + UUID (bytes in .<store>_SUPPORT/_EXTERNAL_DATA/<UUID>);
++#   3. the legacy per-store Images/<uid without ':ABPerson'> file.
++# Full image first, thumbnail second. Anything that is not an image is
++# counted and dropped; vcard_parser sniffs again and enforces its 5 MiB cap.
++# ---------------------------------------------------------------------------
++_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a")
++_EXTERNAL_REF_RE = re.compile(rb"^[0-9A-Fa-f-]{36}$")
  
-         # Step 2: Get ETags and determine changes
-@@ -135,8 +136,8 @@
-                 f"{len(deleted_hrefs)} deleted."
-             )
-         else:
--            # Initial sync — fetch everything
--            print("Initial sync — fetching all vCards...")
-+            # Initial sync – fetch everything
-+            print("Initial sync – fetching all vCards...")
-             vcard_texts = self.carddav.get_all_vcards()
-             current_etags = self.carddav.get_etags()
-             deleted_hrefs = []
-@@ -164,7 +165,7 @@
-             if i % 100 == 0 or i == total:
-                 pct = int(i / total * 100) if total else 0
-                 print(
--                    f"Syncing contacts: {i}/{total} ({pct}%) — "
-+                    f"Syncing contacts: {i}/{total} ({pct}%) – "
-                     f"{counts['person']} people, {counts['business']} businesses, "
-                     f"{counts['errors']} errors"
-                 )
-@@ -184,7 +185,7 @@
+ 
+-# Throttle: report at start, on the last item, or every 30s. Per-item writes
+-# during the heaviest phase of an install would be thousands of tiny writes.
+-_SETTLING_THROTTLE_SECONDS = 30.0
++def _is_image(data: Optional[bytes]) -> bool:
++    return bool(data) and any(data.startswith(m) for m in _IMAGE_MAGIC)
+ 
+ 
+-def _safe_report_settling(**kwargs: Any) -> None:
+-    """Belt-and-braces wrapper: the helper already swallows I/O errors, but a
+-    programming error (unknown kwarg) must never abort the ingest loop."""
+-    try:
+-        report_settling_progress(**kwargs)
+-    except Exception as exc:  # pragma: no cover -- defensive belt-and-braces
+-        logger.warning(
+-            "settling-progress: unexpected error from report_settling_progress "
+-            "(%s: %s); dropping update",
+-            type(exc).__name__, exc,
+-        )
++def _abcddb_blob_image(db_path: Any, blob: Any) -> Tuple[Optional[bytes], str]:
++    if not blob:
++        return None, ""
++    data = bytes(blob)
++    if _is_image(data):
++        return data, "inline"
++    if data[:1] == b"\x01" and _is_image(data[1:]):
++        return data[1:], "inline"
++    if data[:1] == b"\x02":
++        ref = data[1:].split(b"\x00", 1)[0].strip()
++        if _EXTERNAL_REF_RE.match(ref):
++            ext = (db_path.parent / ("." + db_path.stem + "_SUPPORT")
++                   / "_EXTERNAL_DATA" / ref.decode("ascii"))
++            try:
++                body = ext.read_bytes() if ext.is_file() else b""
++            except OSError:
++                body = b""
++            if _is_image(body):
++                return body, "external"
++    return None, "not_image"
+ 
+ 
++def _abcddb_photo_bytes(db_path: Any, row: Any, uid: str,
++                        stats: Dict[str, int]) -> Optional[bytes]:
++    seen_bad = False
++    for key in ("image", "thumb"):
++        try:
++            blob = row[key]
++        except (KeyError, IndexError):
++            blob = None
++        data, how = _abcddb_blob_image(db_path, blob)
++        if data:
++            stats[how] += 1
++            return data
++        seen_bad = seen_bad or how == "not_image"
++    if uid:
++        name = uid.split(":", 1)[0]
++        if re.match(r"^[0-9A-Za-z-]+$", name):
++            f = db_path.parent / "Images" / name
++            try:
++                body = f.read_bytes() if f.is_file() else b""
++            except OSError:
++                body = b""
++            if _is_image(body):
++                stats["images_dir"] += 1
++                return body
++    stats["not_image" if seen_bad else "none"] += 1
++    return None
++
++
+ class ContactSyncer:
+     """Orchestrates the full contact sync pipeline."""
+ 
++    # Qdrant writes skipped because the existing point could not be read.
++    qdrant_writes_skipped_unreadable: int = 0
++
+     def __init__(self, cfg: Any = None) -> None:
+         self.cfg = cfg or config
+         self.carddav = CardDAVClient(
+@@ -218,7 +272,7 @@
              uid_for_log = parsed.get("uid")
              fn_for_log = parsed.get("fn")
  
@@ -169,18 +1494,40 @@
              # contact cannot crash the whole sync.
              try:
                  contact_type = classify_contact(parsed)
-@@ -206,7 +207,7 @@
+@@ -240,7 +294,7 @@
                      _cleaned = clean_display_name(parsed.get("fn") or "")
                      if _cleaned:
                          parsed["fn"] = _cleaned
 -                    # Person or unclassified — create person node
 +                    # Person or unclassified – create person node
                      person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
-                     description = self._build_description(parsed)
-                     qdrant_queue.append(
-@@ -334,35 +335,54 @@
+                     if person_uri is None:
+                         counts[contact_type] -= 1
+@@ -299,13 +353,19 @@
+ 
+             for idx, item in enumerate(qdrant_queue):
+                 if idx < len(all_vectors):
+-                    self._upsert_qdrant(
++                    if not self._upsert_qdrant(
+                         person_id=item["person_id"],
+                         person_uri=item["person_uri"],
+                         parsed=item["parsed"],
+                         vector=all_vectors[idx],
+                         contact_type=item.get("contact_type", "person"),
+-                    )
++                    ):
++                        skipped.append({
++                            "uid": item["parsed"].get("uid"),
++                            "fn": None,
++                            "stage": "qdrant_read",
++                            "error": "existing point unreadable; not overwritten",
++                        })
+ 
+         # Step 7: Update state
+         if not dry_run:
+@@ -395,59 +455,56 @@
          def _log(msg: str) -> None:
-             print(msg, file=sys.stderr)
+             logger.info(msg)
  
 -        if not os.path.isfile(vcf_path):
 -            _log(f"vCard file not found: {vcf_path}")
@@ -197,10 +1544,6 @@
 -                "errors": [{"stage": "read", "error": str(exc)}],
 -                "deleted": 0,
 -            }
--
--        if not text.strip():
--            _log("vCard file is empty.")
--            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 +        text = ""
 +        if os.path.isfile(vcf_path):
 +            try:
@@ -215,6 +1558,10 @@
 +        else:
 +            _log(f"vCard file not found: {vcf_path}; will try AddressBook fallback.")
  
+-        if not text.strip():
+-            _log("vCard file is empty.")
+-            return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
+-
          # Split the concatenated multi-vCard file. iCloud's export glues
          # BEGIN:VCARD ... END:VCARD blocks together with no separator
          # other than the newline before the next BEGIN.
@@ -226,6 +1573,11 @@
 +        if total > 0:
 +            _log(f"Found {total} vCards in {vcf_path}.")
  
+-        # Settling-progress: emit the initial shard once, up front, then throttle
+-        # to every _SETTLING_THROTTLE_SECONDS during the loop. Contacts is
+-        # always connected on macOS (the address book is a system-wide store),
+-        # so needs_source=False even on the empty-queue path.
+-        settling_started_at = datetime.now(timezone.utc).isoformat()
 +        # Fallback: read directly from ~/Library/Application Support/
 +        # AddressBook/Sources/<UUID>/AddressBook-v22.abcddb. The osascript
 +        # vcf export the installer runs ahead of this step can produce
@@ -239,6 +1591,13 @@
 +        # only holds the local-only "On My Mac" address book and is
 +        # typically near-empty on iCloud-only customers.
          if total == 0:
+-            _safe_report_settling(
+-                channel="contacts",
+-                done=0,
+-                total=0,
+-                needs_source=False,
+-                started_at=settling_started_at,
+-            )
 +            try:
 +                abcddb_vcards = self._read_abcddb_as_vcards()
 +            except Exception as exc:
@@ -253,11 +1612,273 @@
 +            _log("No vCards in file and AddressBook fallback returned 0.")
              return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
  
+-        _safe_report_settling(
+-            channel="contacts",
+-            done=0,
+-            total=total,
+-            needs_source=False,
+-            started_at=settling_started_at,
+-        )
+-        settling_last_tick = time.monotonic()
+-        settling_done = 0
+-
          counts = {"person": 0, "business": 0, "unclassified": 0, "errors": 0}
-@@ -453,7 +473,219 @@
+         skipped: List[Dict[str, Any]] = []
+         qdrant_queue: List[Dict[str, Any]] = []
+@@ -456,77 +513,58 @@
+             if i % 100 == 0 or i == total:
+                 _log(f"  Hydrating contacts: {i}/{total}")
+ 
+-            # Outer try/finally so the settling tick fires whether the item was
+-            # written, skipped, or errored -- `continue` inside the nested
+-            # blocks still triggers the outer finally.
+             try:
+-                try:
+-                    parsed = parse_vcard(vcard_text)
+-                except Exception as exc:
+-                    counts["errors"] += 1
+-                    skipped.append({"uid": None, "fn": None, "stage": "parse", "error": str(exc)})
+-                    continue
++                parsed = parse_vcard(vcard_text)
++            except Exception as exc:
++                counts["errors"] += 1
++                skipped.append({"uid": None, "fn": None, "stage": "parse", "error": str(exc)})
++                continue
+ 
+-                uid_for_log = parsed.get("uid")
+-                fn_for_log = parsed.get("fn")
++            uid_for_log = parsed.get("uid")
++            fn_for_log = parsed.get("fn")
+ 
+-                try:
+-                    contact_type = classify_contact(parsed)
+-                    counts[contact_type] = counts.get(contact_type, 0) + 1
++            try:
++                contact_type = classify_contact(parsed)
++                counts[contact_type] = counts.get(contact_type, 0) + 1
+ 
+-                    if dry_run:
+-                        continue
++                if dry_run:
++                    continue
+ 
+-                    if contact_type == "business":
+-                        self._write_business_oxigraph(parsed)
+-                    else:
+-                        # Clean person display names (emoji/symbol edge-strip +
+-                        # duplicate-token collapse) before seeding the node.
+-                        _cleaned = clean_display_name(parsed.get("fn") or "")
+-                        if _cleaned:
+-                            parsed["fn"] = _cleaned
+-                        person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
+-                        if person_uri is None:
+-                            counts[contact_type] -= 1
+-                            skipped.append({
+-                                "uid": uid_for_log, "fn": None, "stage": "forgotten",
+-                                "error": "person was forgotten (tombstone); not created",
+-                            })
+-                            continue
+-                        description = self._build_description(parsed)
+-                        qdrant_queue.append(
+-                            {
+-                                "person_id": person_id,
+-                                "person_uri": person_uri,
+-                                "parsed": parsed,
+-                                "description": description,
+-                                "contact_type": contact_type,
+-                            }
+-                        )
+-                except Exception as exc:
+-                    counts["errors"] += 1
+-                    skipped.append({
+-                        "uid": uid_for_log,
+-                        "fn": fn_for_log,
+-                        "stage": "write",
+-                        "error": f"{type(exc).__name__}: {exc}",
+-                    })
+-                    continue
+-            finally:
+-                settling_done = i
+-                _now_tick = time.monotonic()
+-                if (
+-                    settling_done == total
+-                    or _now_tick - settling_last_tick >= _SETTLING_THROTTLE_SECONDS
+-                ):
+-                    _safe_report_settling(
+-                        channel="contacts",
+-                        done=settling_done,
+-                        total=total,
+-                        needs_source=False,
+-                        started_at=settling_started_at,
++                if contact_type == "business":
++                    self._write_business_oxigraph(parsed)
++                else:
++                    # Clean person display names (emoji/symbol edge-strip +
++                    # duplicate-token collapse) before seeding the node.
++                    _cleaned = clean_display_name(parsed.get("fn") or "")
++                    if _cleaned:
++                        parsed["fn"] = _cleaned
++                    person_id, person_uri = self._resolve_and_write_person(parsed, contact_type)
++                    if person_uri is None:
++                        counts[contact_type] -= 1
++                        skipped.append({
++                            "uid": uid_for_log, "fn": None, "stage": "forgotten",
++                            "error": "person was forgotten (tombstone); not created",
++                        })
++                        continue
++                    description = self._build_description(parsed)
++                    qdrant_queue.append(
++                        {
++                            "person_id": person_id,
++                            "person_uri": person_uri,
++                            "parsed": parsed,
++                            "description": description,
++                            "contact_type": contact_type,
++                        }
+                     )
+-                    settling_last_tick = _now_tick
++            except Exception as exc:
++                counts["errors"] += 1
++                skipped.append({
++                    "uid": uid_for_log,
++                    "fn": fn_for_log,
++                    "stage": "write",
++                    "error": f"{type(exc).__name__}: {exc}",
++                })
++                continue
+ 
+         # Batch-embed + upsert Qdrant for people (mirrors sync()).
+         if qdrant_queue and not dry_run:
+@@ -542,13 +580,19 @@
+ 
+             for idx, item in enumerate(qdrant_queue):
+                 if idx < len(all_vectors):
+-                    self._upsert_qdrant(
++                    if not self._upsert_qdrant(
+                         person_id=item["person_id"],
+                         person_uri=item["person_uri"],
+                         parsed=item["parsed"],
+                         vector=all_vectors[idx],
+                         contact_type=item.get("contact_type", "person"),
+-                    )
++                    ):
++                        skipped.append({
++                            "uid": item["parsed"].get("uid"),
++                            "fn": None,
++                            "stage": "qdrant_read",
++                            "error": "existing point unreadable; not overwritten",
++                        })
+ 
+         imported = counts["person"] + counts["business"] + counts["unclassified"]
+         _log(
+@@ -564,7 +608,344 @@
          }
  
      # -- helpers --------------------------------------------------------------
++
++
++    # -- helpers --------------------------------------------------------------
++
++
++    # -----------------------------------------------------------------------
++    # ONLY THE USER'S OWN ADDRESS BOOK.
++    # -----------------------------------------------------------------------
++    # MEASURED 2026-09-06 on one operator install. Sources are described here
++    # by ROLE AND COUNT, never by their identifiers: a source uuid is an
++    # instance-specific identifier and this file ships to customers.
++    #
++    #   source A   ~1600 cards   registered mbuseragent | iCloud
++    #   source B      44 cards   registered com.apple.AddressBookSourceSync
++    #   source C     ~590 cards   not registered as an account at all
++    #
++    # Source B was a HOUSEHOLD MEMBER'S PHONE address book: kinship words and
++    # nicknames rather than full names. macOS's AddressBookSourceSync pulls a
++    # DEVICE's local contacts up into the owning iCloud account and blends them
++    # into All Contacts, so it never appears as a separate account in
++    # Contacts.app and the operator could not find it when he looked for it.
++    #
++    # Merging that book in caused a real defect. A card whose given name was
++    # a kinship word shared several phone numbers and addresses with a real
++    # person's own card, so identity resolution merged the two onto one node,
++    # and the display-name chooser then composed the kinship word with that
++    # person's surname. The composed name existed in no source. See the paired
++    # fix in identity_resolver/canonical_name.py, which refuses the weld; this
++    # change stops the second card arriving in the first place.
++    #
++    # THE DISCRIMINATOR IS THE ACCOUNT REGISTRATION, NOT A HARDCODED UUID,
++    # because every customer's UUIDs differ:
++    #   mbuseragent                      the user's own iCloud contacts -> IN
++    #   com.apple.AddressBookSourceSync  a device's local book         -> OUT
++    #   not registered as an account     unknown provenance            -> OUT
++    #
++    # FAIL-OPEN ON PURPOSE, AND THIS IS THE JUDGEMENT CALL. If Accounts4.sqlite
++    # cannot be read at all -- absent, locked, permissions -- every source is
++    # INCLUDED and a warning is logged. Excluding on an unreadable oracle would
++    # silently empty a customer's contacts, which is a worse failure than the
++    # one being fixed. A source is only ever dropped on a POSITIVE reading that
++    # says it is not theirs.
++    #
++    # TO ROLL BACK WITHOUT A DEPLOY: OSTLER_CONTACT_SOURCES=all restores the
++    # previous union-everything behaviour exactly. Or name the sources you want
++    # explicitly, comma-separated:
++    #   OSTLER_CONTACT_SOURCES=<uuid-or-prefix>,<uuid-or-prefix>
++    # Every source and its verdict is logged either way, so what was read is
++    # always recoverable from the install log.
++    def _source_is_the_users_own(self, source_uuid: str) -> bool:
++        import os as _os
++        import sqlite3 as _sqlite3
++        from pathlib import Path as _Path
++
++        override = (_os.environ.get("OSTLER_CONTACT_SOURCES") or "").strip()
++        if override:
++            if override.lower() == "all":
++                logger.info("contact source %s: INCLUDED (OSTLER_CONTACT_SOURCES=all)", source_uuid[:8])
++                return True
++            wanted = {w.strip() for w in override.split(",") if w.strip()}
++            keep = any(source_uuid == w or source_uuid.startswith(w) for w in wanted)
++            logger.info("contact source %s: %s (OSTLER_CONTACT_SOURCES allowlist)",
++                        source_uuid[:8], "INCLUDED" if keep else "SKIPPED")
++            return keep
++
++        accounts = _Path.home() / "Library" / "Accounts" / "Accounts4.sqlite"
++        if not accounts.is_file():
++            logger.warning(
++                "contact source %s: INCLUDED -- no Accounts4.sqlite to classify it. "
++                "Cannot-read is not cannot-trust; failing open so contacts are never "
++                "silently emptied.", source_uuid[:8])
++            return True
++        try:
++            conn = _sqlite3.connect(f"file:{accounts}?mode=ro", uri=True)
++            try:
++                row = conn.execute(
++                    "SELECT ZOWNINGBUNDLEID FROM ZACCOUNT WHERE ZIDENTIFIER = ?",
++                    (source_uuid,),
++                ).fetchone()
++            finally:
++                conn.close()
++        except _sqlite3.Error as exc:
++            logger.warning(
++                "contact source %s: INCLUDED -- Accounts4.sqlite unreadable (%s). "
++                "Failing open rather than dropping a source on a broken oracle.",
++                source_uuid[:8], exc)
++            return True
++
++        bundle = (row[0] if row and row[0] else "") or ""
++        if not row:
++            logger.info(
++                "contact source %s: SKIPPED -- not registered as an account, so its "
++                "provenance is unknown. OSTLER_CONTACT_SOURCES can re-include it.",
++                source_uuid[:8])
++            return False
++        if bundle == "com.apple.AddressBookSourceSync":
++            logger.info(
++                "contact source %s: SKIPPED -- AddressBookSourceSync, i.e. another "
++                "DEVICE's local address book synced into this account, not the "
++                "user's own contacts. OSTLER_CONTACT_SOURCES can re-include it.",
++                source_uuid[:8])
++            return False
++        logger.info("contact source %s: INCLUDED (owning bundle %s)", source_uuid[:8], bundle)
++        return True
 +
 +    def _read_abcddb_as_vcards(self) -> List[str]:
 +        """Read every populated AddressBook-v22.abcddb under ~/Library
@@ -294,13 +1915,16 @@
 +        if sources.is_dir():
 +            for p in sorted(sources.glob("*/AddressBook-v22.abcddb")):
 +                if p.is_file() and p.stat().st_size > 0:
-+                    db_paths.append(p)
++                    if self._source_is_the_users_own(p.parent.name):
++                        db_paths.append(p)
 +
 +        if not db_paths:
 +            return []
 +
 +        vcards: List[str] = []
 +        for db_path in db_paths:
++            photo_stats = {"inline": 0, "external": 0, "images_dir": 0,
++                           "none": 0, "not_image": 0}
 +            try:
 +                conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 +                conn.row_factory = _sqlite3.Row
@@ -344,7 +1968,13 @@
 +                    _col("ZBIRTHDAYDAY", "birth_day"),
 +                    _col("ZBIRTHDAY", "birth_day_only"),
 +                    _col("Z_PK", "pk"),
++                    # v1.0.111 contact photos. Neither column is guaranteed
++                    # on every macOS build, so both go through _col (absent
++                    # -> NULL) exactly like the birthday columns above.
++                    _col("ZIMAGEDATA", "image"),
++                    _col("ZTHUMBNAILIMAGEDATA", "thumb"),
 +                ])
++                photo_cols = [c for c in ("ZIMAGEDATA", "ZTHUMBNAILIMAGEDATA") if c in avail]
 +                try:
 +                    rows = conn.execute(
 +                        f"SELECT {sel} FROM ZABCDRECORD"
@@ -353,7 +1983,7 @@
 +                    logger.warning("ZABCDRECORD read failed in %s: %s", db_path, exc)
 +                    conn.close()
 +                    continue
- 
++
 +                # Pre-fetch emails + phones + addresses for all rows
 +                # in this DB, then group by parent PK. One pass each
 +                # rather than N queries.
@@ -445,10 +2075,22 @@
 +                                )
 +                            except (TypeError, ValueError):
 +                                pass
++                    photo = _abcddb_photo_bytes(db_path, r, uid, photo_stats)
++                    if photo:
++                        # vCard 3.0 ENCODING=b, one unfolded line: the shape
++                        # vcard_parser._PHOTO_LINE_RE extracts and sniffs, so
++                        # the existing _persist_photo path writes it to
++                        # PHOTO_DIR and foaf:img / profile_photo_path follow.
++                        lines.append(
++                            "PHOTO;ENCODING=b:" + base64.b64encode(photo).decode("ascii"))
 +                    if uid:
 +                        lines.append(f"UID:{uid}")
 +                    lines.append("END:VCARD")
 +                    vcards.append("\n".join(lines))
++                logger.warning(
++                    "abcddb photos in %s: columns=%s %s", db_path.parent.name or "top",
++                    ",".join(photo_cols) or "none",
++                    " ".join(f"{k}={v}" for k, v in sorted(photo_stats.items())))
 +            except Exception as exc:
 +                logger.warning("Failed to read contacts from %s: %s", db_path, exc)
 +            finally:
@@ -456,7 +2098,7 @@
 +                    conn.close()
 +                except Exception:
 +                    pass
-+
+ 
 +        # Dedup across source DBs by UID. Without this, contacts that
 +        # appear in both the local-only AddressBook and an iCloud Source
 +        # would import twice.
@@ -474,16 +2116,161 @@
      def _build_description(
          self, parsed: Dict[str, Any], facts: Optional[List[str]] = None
      ) -> str:
-@@ -657,7 +889,7 @@
+@@ -670,8 +1051,11 @@
+         parsed: Dict[str, Any],
+         vector: List[float],
+         contact_type: str = "person",
+-    ) -> None:
+-        """Upsert a single person point into Qdrant."""
++    ) -> bool:
++        """Upsert a single person point into Qdrant.
++
++        Returns False, having written nothing, when the existing point could
++        not be read (counted in qdrant_writes_skipped_unreadable)."""
+         # Fresh-install self-heal: make sure the collection exists before
+         # the first upsert of the run, sized from this real embedding.
+         # Once per syncer run via the _collection_ensured latch (#638).
+@@ -685,7 +1069,7 @@
+         # sentinel values ("" / 0) - we have no actual contact-event
+         # evidence.
+         #
+-        # Historical bug (Lester demo, 2026-04-27): this branch used
++        # Historical bug (advisor demo, 2026-04-27): this branch used
+         # to fall back to the vCard REV (the card's modification
+         # timestamp) when no prior signal existed. REV is not a
+         # contact event - it's "when the contact card was last
+@@ -705,20 +1089,31 @@
+         last_contact_ts: int = 0
+         last_contact: str = ""
+         point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
+-        try:
+-            existing = self.qdrant.retrieve(
+-                collection_name=self.cfg.QDRANT_COLLECTION,
+-                ids=[point_uuid],
+-                with_payload=True,
++        # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
++        # This was one `try` around the retrieve and the preservation with
++        # `except Exception: pass  # point doesn't exist yet, fine`, followed
++        # by an UNCONDITIONAL upsert. A transient store failure took the same
++        # path as "no such point", and the upsert replaced the stored record
++        # (last_contact included) with a partial one, silently (board row
++        # 963). A missing collection is still a readable "no point" (first
++        # run). Same shape as the CM041 #172 social writers.
++        existing = read_existing_payload(
++            self.qdrant, self.cfg.QDRANT_COLLECTION, point_uuid
++        )
++        if not existing.readable:
++            self.qdrant_writes_skipped_unreadable += 1
++            logger.warning(
++                "Qdrant read failed for %s; NOT overwriting the stored record "
++                "(%d skipped this run)",
++                point_uuid, self.qdrant_writes_skipped_unreadable,
+             )
+-            if existing and existing[0].payload:
+-                existing_ts = existing[0].payload.get("last_contact_ts") or 0
+-                existing_lc = existing[0].payload.get("last_contact") or ""
+-                if existing_ts:
+-                    last_contact_ts = existing_ts
+-                    last_contact = existing_lc
+-        except Exception:
+-            pass  # point doesn't exist yet, fine
++            return False
++        if existing.payload:
++            existing_ts = existing.payload.get("last_contact_ts") or 0
++            existing_lc = existing.payload.get("last_contact") or ""
++            if existing_ts:
++                last_contact_ts = existing_ts
++                last_contact = existing_lc
+ 
+         payload = {
+             "person_id": person_id,
+@@ -728,19 +1123,19 @@
+             "family_name": parsed.get("family_name") or "",
+             "organization": parsed.get("org") or "",
+             "job_title": parsed.get("title") or "",
+-            # Normalised to E.164 -- see the identical rationale on emails
+-            # below: _create_person_oxigraph/_update_person_oxigraph key the
+-            # IdentityResolver lookup on normalised values, so a Qdrant
+-            # payload holding the raw-as-typed string would disagree with the
+-            # Oxigraph identifier it is supposed to mirror (CM051 #2545).
+-            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107): kept in
+-            # lockstep with the Oxigraph writers below, which refuse the same
+-            # non-phone values -- otherwise the Qdrant mirror would carry an
+-            # internal-id/LID-shaped value Oxigraph no longer does.
++            # Normalised to E.164, as the Oxigraph identifiers below are, so the
++            # Qdrant payload agrees with the identifier it mirrors (CM041 #182,
++            # CM051 #2545; grafted for v1.0.107).
++            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
++            # graft): normalise_phone() is a pass-through formatter, not a
++            # validator, so an internal-id/LID-shaped vCard value sailed
++            # straight through unchanged. is_possible_phone (shape only, not
++            # libphonenumber's narrower "currently assigned" check) refuses
++            # it without also refusing real numbers in unvalidated ranges.
+             "phones": [
+-                normalise_phone(p["value"], self.cfg.DEFAULT_COUNTRY_CODE)
++                normalise_phone(p["value"], self.resolver.default_country_code)
+                 for p in parsed.get("phones", [])
+-                if p.get("value") and is_possible_phone(p["value"], self.cfg.DEFAULT_COUNTRY_CODE)
++                if p.get("value") and is_possible_phone(p["value"], self.resolver.default_country_code)
+             ],
+             "emails": [e["value"] for e in parsed.get("emails", [])],
+             "icloud_uid": parsed.get("uid") or "",
+@@ -770,6 +1165,7 @@
+             collection_name=self.cfg.QDRANT_COLLECTION,
+             points=[point],
+         )
++        return True
+ 
+     def _resolve_and_write_person(
+         self, parsed: Dict[str, Any], contact_type: str
+@@ -791,7 +1187,7 @@
              emails=emails,
          )
  
 -        # Try identity resolution — use_fuzzy=False because the CardDAV path
 +        # Try identity resolution – use_fuzzy=False because the CardDAV path
          # has a strong identifier (iCloud UID). Fuzzy name matching is disabled
-         # here to prevent first-name collisions (e.g. "Sandra Andersson" being
-         # incorrectly merged into "Sandra Stewart" via Jaro-Winkler prefix
-@@ -676,6 +908,18 @@
+         # here to prevent first-name collisions (e.g. "Jane Andersen" being
+         # incorrectly merged into "Jane Stewart" via Jaro-Winkler prefix
+@@ -799,6 +1195,37 @@
+         # explicitly opt in (e.g. WhatsApp / email ingest).
+         match = self.resolver.resolve(identity, use_fuzzy=False)
+ 
++        # RULE 2 OF THE DEDUPE RULESET, ON THE WRITE AND NOT ONLY ON THE MATCH.
++        # `icloud_contact_uid` is unique-by-construction: one macOS Contacts
++        # card, for ever. If the node the resolver picked already carries a
++        # DIFFERENT one, these are two people and must not be merged, whichever
++        # tier produced the match. The resolver's own RULE 2 guard runs against
++        # a candidate snapshot loaded once per run, so it cannot see a uid that
++        # a card earlier in the SAME run has just written. This asks the graph.
++        incoming_uid = parsed.get("uid") or ""
++        if match and match.person_uri and incoming_uid:
++            conflict = self._node_holds_a_different_canonical_key(
++                match.person_uri, incoming_uid
++            )
++            if conflict is None:
++                # CANNOT-READ IS NOT "NO CONFLICT". Declining the match mints a
++                # duplicate, which a later merge can repair; accepting it welds
++                # two people into one node, which it cannot.
++                logger.error(
++                    "RULE 2 unverifiable for %s; declining the match for card %s",
++                    match.person_uri,
++                    incoming_uid,
++                )
++                match = None
++            elif conflict:
++                logger.warning(
++                    "RULE 2: %s already holds a different icloud_contact_uid; "
++                    "card %s gets its own person node",
++                    match.person_uri,
++                    incoming_uid,
++                )
++                match = None
++
+         # A person erased by /people/<slug>/forget: write nothing, not even a
+         # photo. (None, None) tells both sync loops to skip the contact.
+         if match and match.match_type == FORGOTTEN:
+@@ -815,6 +1242,18 @@
              person_uri = f"https://schema.ostler.ai/ontology#person_{person_id}"
              self._persist_photo(person_uri, parsed)
              self._create_person_oxigraph(person_uri, person_id, parsed, contact_type)
@@ -502,7 +2289,7 @@
  
          return person_id, person_uri
  
-@@ -684,7 +928,7 @@
+@@ -823,7 +1262,7 @@
  
          Side-effect: mutates ``parsed["profile_photo_path"]`` to the final
          path, or leaves it absent if the card had no photo. Failures are
@@ -511,7 +2298,7 @@
          contact record from syncing.
          """
          photo = parsed.get("photo")
-@@ -737,7 +981,7 @@
+@@ -883,7 +1322,7 @@
              triples.append(f'<{person_uri}> pwg:notes "{notes}"')
          if birthday:
              triples.append(f'<{person_uri}> pwg:birthday "{birthday}"^^xsd:date')
@@ -520,28 +2307,82 @@
          # FOAF is the de-facto vocabulary for person-to-depicting-image; we
          # use foaf:img (the primary image) rather than foaf:depiction (any
          # image containing the person). The value is a file URI because the
-@@ -763,11 +1007,19 @@
+@@ -907,49 +1346,38 @@
+                 f'<{id_uri}> pwg:identifierValue "{parsed["uid"]}"'
+             )
  
+-        # Phones are written as NORMALISED identifiers (E.164 via
+-        # normalise_phone), mirroring the email handling below. Without this,
+-        # the SAME real number arriving two different ways (iCloud's
+-        # "MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK" vs WhatsApp's "MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK") writes two different
+-        # identifierValue strings, so IdentityResolver.find_by_identifier --
+-        # which normalises the INCOMING value before looking it up -- never
+-        # finds the existing node and mints a second Person for the same
+-        # human (CM051 #2545). A duplicate raw value within one vCard is
+-        # deduped exactly as seen_emails dedupes below.
+-        #
+-        # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107): a vCard
+-        # "phone" field is not guaranteed to hold a phone number at all -- a
+-        # 14/15-digit WhatsApp LID or another app's internal id can land in
+-        # this field verbatim. normalise_phone() is a best-effort FORMATTER,
+-        # not a validator: when phonenumbers cannot parse/validate a value it
+-        # returns the ORIGINAL STRING UNCHANGED rather than refusing, so an
+-        # internal-id-shaped value sailed straight through into
+-        # identifierType "phone" (measured on a cold v1.0.107 install: 8 of
+-        # 3,307 phone identifiers were exactly 14 digits, all on
+-        # contact_syncer-minted person_<hex12> URIs with this file's own
+-        # id_<hex>_phoneN naming). is_possible_phone -- SHAPE, not assigned-
+-        # range validity -- is the discriminator; is_valid_phone would also
+-        # reject real numbers in ranges libphonenumber has not catalogued
+-        # as issued, including this repo's own Ofcom fiction-reserved test
+-        # fixture range (measured: is_valid_phone("MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK") is
+-        # False). See identity_resolver/normalise.py::is_possible_phone.
+-        # repo already uses for exactly this refusal elsewhere (CM051 #2543,
+-        # repair_lid_as_phone.py) -- reused here rather than reinvented.
++        # A duplicate number within one vCard (the same number typed in two
++        # formats) is written once, as seen_emails dedupes below (CM041 #182,
++        # CM051 #2545; grafted for v1.0.107).
+         seen_phones: set = set()
          for idx, phone in enumerate(parsed.get("phones", [])):
+-            raw_phone = phone.get("value") or ""
+-            if not is_possible_phone(raw_phone, self.cfg.DEFAULT_COUNTRY_CODE):
+-                continue
+-            value = normalise_phone(raw_phone, self.cfg.DEFAULT_COUNTRY_CODE)
+-            if not value or value in seen_phones:
+-                continue
+-            seen_phones.add(value)
              id_uri = f"https://schema.ostler.ai/ontology#id_{person_id}_phone{idx}"
 +            # Store the NORMALISED value so it matches what the resolver's
 +            # find_by_identifier queries for. Previously this wrote the raw
 +            # vCard value (e.g. a space-separated international form) while the resolver looked up
 +            # the E.164 form (no spaces), so Tier-1 exact-identifier dedup
 +            # never fired and every repeat minted a duplicate (BW-1).
++            #
++            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
++            # graft): see the identical guard in the Qdrant payload above --
++            # a cold install measured 8 of 3,307 phone identifiers were
++            # exactly 14 digits (a WhatsApp-LID/internal-id shape), all
++            # produced here, because normalise_phone() returns a value it
++            # cannot validate UNCHANGED rather than refusing it.
++            raw_phone_value = phone.get("value") or ""
++            if not is_possible_phone(raw_phone_value, self.resolver.default_country_code):
++                continue
 +            phone_value = normalise_phone(
-+                phone["value"], self.resolver.default_country_code
++                raw_phone_value, self.resolver.default_country_code
 +            )
++            if not phone_value or phone_value in seen_phones:
++                continue
++            seen_phones.add(phone_value)
              triples.append(f"<{person_uri}> pwg:hasIdentifier <{id_uri}>")
              id_triples.append(f"<{id_uri}> a pwg:PersonIdentifier")
              id_triples.append(f'<{id_uri}> pwg:identifierType "phone"')
              id_triples.append(
--                f'<{id_uri}> pwg:identifierValue "{phone["value"]}"'
+-                f'<{id_uri}> pwg:identifierValue "{value}"'
 +                f'<{id_uri}> pwg:identifierValue "{phone_value}"'
              )
              if phone.get("label"):
                  id_triples.append(
-@@ -814,7 +1066,7 @@
+@@ -996,7 +1424,7 @@
  
          Updates mutable scalar properties (displayName/org/jobTitle/contactType)
          AND merges any new identifiers (iCloud UID, phones, emails) from the
@@ -549,29 +2390,326 @@
 +        incoming vCard onto the existing node. Idempotent – adding an
          identifier that already exists is a no-op.
          """
-         fn = (parsed.get("fn") or "").replace('"', '\\"')
-@@ -868,6 +1120,8 @@
+         _raw_fn = parsed.get("fn") or ""
+@@ -1066,23 +1494,13 @@
+             new_ids.append(("icloud_contact_uid", uid, None))
          for phone in parsed.get("phones", []):
              v = phone.get("value") if isinstance(phone, dict) else None
+-            # Normalised for the same reason as _create_person_oxigraph: the
+-            # existence check two lines down (_identifier_exists) compares
+-            # against stored values, which are normalised too since this fix
+-            # -- an un-normalised v here would re-add the same number under a
+-            # second, differently-formatted identifier every sync (CM051 #2545).
+-            #
+-            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107): see
+-            # the identical guard + rationale in _create_person_oxigraph above
+-            # -- this update path writes identifiers through the same
+-            # normalise_phone() pass-through-on-failure, so an existing
+-            # contact whose phone field later changes to a non-phone value
+-            # (e.g. re-synced from a source that writes a LID into the same
+-            # field) needs the same refusal, not just new contacts.
+-            if v and not is_possible_phone(v, self.cfg.DEFAULT_COUNTRY_CODE):
++            # GATED ON is_possible_phone (CM051 walk-defect D, v1.0.107,
++            # graft): see the identical guard in _create_person_oxigraph.
++            if v and not is_possible_phone(v, self.resolver.default_country_code):
+                 v = None
+-            v = normalise_phone(v, self.cfg.DEFAULT_COUNTRY_CODE) if v else None
              if v:
 +                # Normalise to the resolver's lookup form so dedup matches (BW-1).
 +                v = normalise_phone(v, self.resolver.default_country_code)
                  new_ids.append(("phone", v, phone.get("label") if isinstance(phone, dict) else None))
          for email in parsed.get("emails", []):
              raw = email.get("value") if isinstance(email, dict) else None
-@@ -1079,10 +1333,10 @@
-                 ),
-             )
-         except Exception as exc:
--            # Not fatal — business contacts never had a Qdrant point
-+            # Not fatal – business contacts never had a Qdrant point
-             print(f"    (Qdrant delete skipped for {node_uri}: {exc})")
+@@ -1119,6 +1537,76 @@
+         if "person_" in person_uri:
+             return person_uri.split("person_")[-1]
+         return uuid.uuid4().hex[:12]
++
++    def _node_holds_a_different_canonical_key(
++        self, person_uri: str, incoming_uid: str
++    ) -> Optional[bool]:
++        """True if *person_uri* already carries an icloud_contact_uid that is not
++        *incoming_uid*, AND does not also carry *incoming_uid* itself.
++
++        A node that already holds the incoming card's uid IS that card's node,
++        whatever else it holds. The converge path's ratified exception
++        (identity_resolver/exact_identifier.py: same full name plus a shared
++        email, mobile or LinkedIn) folds one person's two Contacts cards into
++        one node holding both uids. Asking only "any OTHER uid here?" refused
++        that survivor for BOTH of its own cards on every sync, so each
++        contact-resync tick minted a fresh node per card (v1.0.120 walk,
++        Mini16: one person, 8 live Person nodes, 2 uids between them). This is
++        the resolver's own rule (two PRESENT and DISJOINT value sets refuse):
++        a node holding only a different card still refuses, so RULE 2 is not
++        loosened.
++
++        Returns None when the graph could not be read. "Could not look" and "no
++        conflict" must not come back as the same value: a read failure that
++        answered False would silently re-open the merge this guard exists to
++        prevent. `_identifier_exists` cannot answer this question -- it is
++        VALUE-scoped, so it asks "is THIS uid here" and is blind to a different
++        one already on the node.
++        """
++        if not incoming_uid:
++            return False
++        safe_val = incoming_uid.replace("\\", "\\\\").replace('"', '\\"')
++        sparql = (
++            "PREFIX pwg: <https://schema.ostler.ai/ontology#>\n"
++            "ASK {\n"
++            f"  <{person_uri}> pwg:hasIdentifier ?id .\n"
++            '  ?id pwg:identifierType "icloud_contact_uid" ;\n'
++            "      pwg:identifierValue ?v .\n"
++            f'  FILTER(str(?v) != "{safe_val}")\n'
++            "  FILTER NOT EXISTS {\n"
++            f"    <{person_uri}> pwg:hasIdentifier ?own .\n"
++            '    ?own pwg:identifierType "icloud_contact_uid" ;\n'
++            "         pwg:identifierValue ?ov .\n"
++            f'    FILTER(str(?ov) = "{safe_val}")\n'
++            "  }\n"
++            "}"
++        )
++        try:
++            resp = httpx.post(
++                f"{self.cfg.OXIGRAPH_URL}/query",
++                content=sparql,
++                headers={
++                    "Content-Type": "application/sparql-query",
++                    "Accept": "application/sparql-results+json",
++                },
++                timeout=30.0,
++             trust_env=False)
++            resp.raise_for_status()
++            payload = resp.json()
++        except Exception as exc:  # noqa: BLE001
++            logger.error(
++                "RULE 2 check could not read the canonical keys on %s: %s",
++                person_uri,
++                exc,
++            )
++            return None
++        if "boolean" not in payload:
++            logger.error(
++                "RULE 2 check got no boolean back for %s; treating as unreadable",
++                person_uri,
++            )
++            return None
++        return bool(payload["boolean"])
+ 
+     def _identifier_exists(self, person_uri: str, id_type: str, id_value: str) -> bool:
+         """Check whether an identifier of the given type/value is already on this node."""
+@@ -1299,7 +1787,7 @@
+             # Not fatal — business contacts never had a Qdrant point
+             logger.warning("    (Qdrant delete skipped for %s: %s)", node_uri, exc)
  
 -        # Photo file: aligns with GDPR erasure — delete any portrait on disk
 +        # Photo file: aligns with GDPR erasure – delete any portrait on disk
          try:
              remove_photo(node_uri, self.cfg.PHOTO_DIR)
          except Exception as exc:
+--- /dev/null
++++ b/test_carddav_snapshot.py
+@@ -0,0 +1,149 @@
++"""A PUT into the customer's address book must be undoable.
++
++WHAT WAS MEASURED, 2026-08-21, before this existed:
++
++    carddav.put_vcard             a real HTTP PUT to the customer's CardDAV
++                                  server -- propagates to every device
++    called from                   linkedin_connections.py:778 (live, not dry-run)
++    reached on install via        install.sh:14422  contact_syncer.import_all
++    backup of the customer's contacts, anywhere in the shipping tree:   NONE
++
++Searched backup / snapshot / export / preserve across vendor/ and install.sh.
++The twelve "backup" hits in install.sh are Time Machine EXCLUSIONS, the
++Oxigraph graph backup, and vault-passphrase notes. The graph backup protects
++OUR data. Nothing protected theirs.
++
++Andy had been told this safety net existed. It did not. These tests are what
++make that statement true rather than intended.
++"""
++from __future__ import annotations
++
++import json
++import os
++import sys
++import tempfile
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++from contact_syncer.carddav import CardDAVClient  # noqa: E402
++
++ORIGINAL = "BEGIN:VCARD\nVERSION:3.0\nFN:A Person\nEND:VCARD\n"
++MODIFIED = "BEGIN:VCARD\nVERSION:3.0\nFN:A Person\nTITLE:Added\nEND:VCARD\n"
++HREF = "/addressbooks/user/default/abc123.vcf"
++
++
++class _Client(CardDAVClient):
++    """Real snapshot code, no network. Records what would have been PUT."""
++
++    def __init__(self, *, current=ORIGINAL, get_raises=False):
++        self.url, self.username, self.password = "https://example/", "u", "p"
++        self._auth = None
++        self._current = current
++        self._get_raises = get_raises
++        self.puts = []
++
++    def get_vcard(self, href):
++        if self._get_raises:
++            raise RuntimeError("server unreachable")
++        return self._current
++
++    def _request(self, method, url=None, **kw):
++        self.puts.append((method, kw.get("content")))
++        return None
++
++
++def _fresh(tmp):
++    CardDAVClient._snapshot_dir = None
++    os.environ["OSTLER_DIR"] = tmp
++
++
++def test_the_original_is_on_disk_before_the_put_lands():
++    """THE POINT. Without this there is no undo."""
++    with tempfile.TemporaryDirectory() as tmp:
++        _fresh(tmp)
++        c = _Client()
++        c.put_vcard(HREF, MODIFIED, "etag-1")
++
++        d = CardDAVClient._snapshot_dir
++        cards = [f for f in os.listdir(d) if f.endswith(".vcf")]
++        assert len(cards) == 1, f"expected one snapshot, found {cards}"
++        saved = open(os.path.join(d, cards[0]), encoding="utf-8").read()
++        assert saved == ORIGINAL, (
++            "the snapshot is not the ORIGINAL card. If this holds the MODIFIED "
++            "text, the backup is of the thing we were about to write and the "
++            "undo restores the damage."
++        )
++        assert c.puts and c.puts[0][0] == "PUT", "the PUT did not happen"
++
++
++def test_a_failed_snapshot_BLOCKS_the_write():
++    """🔴 THE ONE THAT MATTERS MOST.
++
++    A snapshot that swallows its error is worse than none: the PUT proceeds,
++    the run reports success, and the undo silently does not exist. Same shape
++    as a guard that cannot go red.
++    """
++    with tempfile.TemporaryDirectory() as tmp:
++        _fresh(tmp)
++        c = _Client(get_raises=True)
++        try:
++            c.put_vcard(HREF, MODIFIED, "etag-1")
++        except Exception:
++            assert c.puts == [], "the PUT ran anyway after the snapshot failed"
++            return
++        raise AssertionError(
++            "put_vcard returned normally with no snapshot saved — the "
++            "customer's card would have been overwritten with no undo"
++        )
++
++
++def test_the_first_snapshot_of_a_contact_wins():
++    """Two edits in one run must not collapse. The FIRST is the pre-Ostler
++    state and it is the one worth keeping."""
++    with tempfile.TemporaryDirectory() as tmp:
++        _fresh(tmp)
++        c = _Client()
++        c.put_vcard(HREF, MODIFIED, "etag-1")
++        c._current = MODIFIED           # server now holds our edit
++        c.put_vcard(HREF, MODIFIED + "X", "etag-2")
++
++        d = CardDAVClient._snapshot_dir
++        cards = [f for f in os.listdir(d) if f.endswith(".vcf")]
++        assert len(cards) == 1
++        assert open(os.path.join(d, cards[0]), encoding="utf-8").read() == ORIGINAL
++
++
++def test_the_manifest_says_enough_to_restore():
++    with tempfile.TemporaryDirectory() as tmp:
++        _fresh(tmp)
++        _Client().put_vcard(HREF, MODIFIED, "etag-1")
++        line = open(os.path.join(CardDAVClient._snapshot_dir, "manifest.jsonl"),
++                    encoding="utf-8").readline()
++        rec = json.loads(line)
++        for field in ("href", "file", "sha256", "bytes", "saved_at"):
++            assert field in rec, f"manifest cannot drive a restore without {field}"
++        assert rec["href"] == HREF, "without the href nobody knows where to PUT it back"
++
++
++def test_no_partial_file_survives():
++    """A reader must never find a half-written card and treat it as the backup."""
++    with tempfile.TemporaryDirectory() as tmp:
++        _fresh(tmp)
++        _Client().put_vcard(HREF, MODIFIED, "etag-1")
++        leftovers = [f for f in os.listdir(CardDAVClient._snapshot_dir)
++                     if f.endswith(".partial")]
++        assert leftovers == [], leftovers
++
++
++if __name__ == "__main__":
++    failed = 0
++    for name, fn in sorted(globals().items()):
++        if name.startswith("test_") and callable(fn):
++            try:
++                fn()
++                print(f"  ok   {name}")
++            except AssertionError as exc:
++                failed += 1
++                print(f"  FAIL {name}: {exc}")
++    print(f"\n{'FAILED' if failed else 'PASSED'}: {failed} failing")
++    sys.exit(1 if failed else 0)
+--- a/usage.py
++++ b/usage.py
+@@ -1,21 +1,29 @@
+-"""Shared usage-journal wiring for the contact_syncer embed sites (#482).
++"""Shared usage-journal wiring for the contact_syncer embed sites.
+ 
++Grafted into CM051 from CM041 #137 (merged 82f45376). Upstream file:
++``contact_syncer/usage.py``. The ONE adaptation is the import spelling of the
++vendored writer -- see below and see ``contact_syncer/_vendor/__init__.py``.
++
+ Every ``/api/embed`` call in this package turns raw contact data into identity
+ vectors, which is *enrichment*. Each such call reports a MEASURED
+ ``prompt_eval_count`` the daemon's /cost panel needs for its ``enriching`` row.
+ Rather than repeat the record-usage block at every embed clone (``syncer.py``,
+ ``linkedin_career``, ``linkedin_connections``, ``facebook_friends``,
+ ``instagram_social``, ``places_ingest``), they all call
+-:func:`record_embed_usage` here: one implementation, not six copies, the same
+-shape as ``_vendor/ostler_settling_progress``'s single
+-``report_settling_progress``.
++:func:`record_embed_usage` here: one implementation, not six copies.
+ 
+ MEASURED, NEVER ESTIMATED: ``tokens_from_ollama`` returns ``(None, None)`` when
+ Ollama reported no counts and ``record_usage`` then writes nothing. A guessed
+ row would be worse than a missing one on a panel shown to a paying customer
+-beside a price comparison.
++beside a price comparison. NO ROW IS THE CORRECT OUTPUT for an unmeasured call.
+ 
+ Never raises: usage accounting must not abort the ingest it measures.
++
++ROSTER CONTRACT. scripts/usage_journal_producers.tsv row
++``cm041_identity_resolution`` matches on session_prefix ``cm041-`` AND purpose
++``enriching`` -- both, because that file's own header says a producer writing
++the wrong purpose is a defect too. Changing either string here takes that gate
++red, which is the intended direction.
+ """
+ from __future__ import annotations
+ 
+@@ -40,7 +48,13 @@
+     break an ingest run.
+     """
+     try:
+-        from _vendor.ostler_usage_journal.usage_journal import (
++        # CM051 ADAPTATION. Upstream reads
++        # ``from _vendor.ostler_usage_journal.usage_journal import ...``,
++        # because upstream's _vendor/ sits at its repo root and its repo root
++        # is on sys.path. In this repo the writer is nested inside the package
++        # so that install.sh's existing ``cp -R contact_syncer`` carries it;
++        # a repo-root sibling would never be staged into PIPELINE_DIR.
++        from contact_syncer._vendor.ostler_usage_journal.usage_journal import (
+             record_usage,
+             tokens_from_ollama,
+         )
 --- a/vcard_parser.py
 +++ b/vcard_parser.py
 @@ -133,12 +133,61 @@

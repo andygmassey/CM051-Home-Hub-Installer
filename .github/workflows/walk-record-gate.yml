@@ -36,6 +36,9 @@ on:
       - 'scripts/publish_release.sh'
       - 'scripts/post_walk_qa.sh'
       - 'scripts/box_walk_probes/**'
+      # The walk's host and in-VM network samplers, and their test.
+      - 'scripts/walk_net_sampler.sh'
+      - 'tests/test_walk_net_sampler.sh'
       - 'tests/test_promote_scope_refuses_on_the_artefact.sh'
       - 'tests/test_promote_scope_only_ever_grows.sh'
       - 'tests/test_promote_scope_hotfix_base.sh'
@@ -94,6 +97,7 @@ on:
       - 'scripts/tests/test_the_early_pass_rechecks_last_walks_failures.sh'
       - 'tests/test_a_timed_out_turn_is_not_a_broken_assistant.sh'
       - 'tests/test_walk_record_gates_customer_download.sh'
+      - 'tests/test_failed_probe_count_is_distinct_probes.sh'
       - 'tests/test_probe_absence_is_not_an_answer.sh'
       - 'tests/test_probe_pgrep_is_scoped_to_this_account.sh'
       - 'tests/test_no_probe_lives_outside_the_walk_glob.sh'
@@ -117,6 +121,14 @@ on:
       - 'tests/test_the_walk_seeds_the_preference_pair.sh'
       - 'tests/test_cm019_bundle_accepts_the_payload_root.sh'
       - 'tests/test_ttywalk_exports_the_cm019_bundle.sh'
+      - 'tests/test_ttywalk_lang_leg.sh'
+      - 'tests/test_walk_lang_answers_cover_computed_prompts.py'
+      - 'install.sh.strings.*.sh'
+      - 'tests/test_ttywalk_exit_cleanup_lines.sh'
+      - 'tests/test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh'
+      - 'tests/fixtures/lang_leg/**'
+      - 'scripts/lib_walk_lang.sh'
+      - 'scripts/box_walk_probes/lib/gen_walk_answers_lang.py'
       - 'scripts/lib_walk_cm019_bundle.sh'
       # The conversation seed: the third write route, and the only one that
       # needs a model call. Same rule as the two lines above -- the lib and
@@ -136,6 +148,13 @@ on:
       # finished compile) without running the test that guards it.
       - 'scripts/box_walk_probes/lib/wiki_summaries_wait.sh'
       - 'tests/test_the_walk_waits_for_wiki_summaries.sh'
+      - 'tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh'
+      - 'tests/test_walk_timing_reaches_the_record.sh'
+      - 'scripts/box_walk_probes/manifest_reuse_allowlist.tsv'
+      - 'tests/test_a_smoke_walk_can_never_be_clean.sh'
+      - 'tests/test_walk_smoke_scope.sh'
+      - 'scripts/walk_smoke_select.py'
+      - 'scripts/box_walk_probes/smoke_scope.tsv'
       # Same rule as the workflow-self-trigger below, applied to a test: a
       # suite this workflow RUNS but does not WATCH is dark on self-edit --
       # it could be narrowed, or gutted, in a PR that never runs it. I added
@@ -164,6 +183,8 @@ on:
       - 'scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh'
       - 'tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh'
       - 'scripts/lib_walk_owner.sh'
+      - 'tests/test_walk_record_carries_no_home_path.sh'
+      - 'scripts/lib_walk_record_paths.sh'
       - 'tests/test_walk_pass_requires_zero_failed_steps.sh'
       - 'tests/test_walk_port_probe_matches_install_sh.sh'
       - 'tests/test_a_security_note_cannot_claim_a_flag_is_off.sh'
@@ -174,6 +195,7 @@ on:
       - 'tests/test_a_self_test_denominator_counts_itself.sh'
       - 'scripts/box_walk_probes/lib/probe.sh'
       - 'scripts/tests/test_no_store_port_probe_reads_the_credential.sh'
+      - 'scripts/tests/test_no_store_port_probe_exempts_only_loopback_ollama_runners.sh'
       # Walk-failure classification: the records themselves, the tool that
       # answers "what is this a regression of", and the gate that requires the
       # answer. `walks/**` is watched because a NEW walk record is exactly the
@@ -181,6 +203,8 @@ on:
       # record would not run the gate that rejects it.
       - 'walks/**'
       - 'scripts/walk_regression_triage.sh'
+      - 'scripts/walk_vacuous_baselines.tsv'
+      - 'tests/test_walk_triage_never_baselines_a_vacuous_pass.sh'
       - 'scripts/payload_delta.sh'
       - 'gui/Makefile'
       - 'tests/test_a_walk_failure_is_classified.sh'
@@ -261,6 +285,12 @@ jobs:
         if: always()
         run: bash tests/test_walk_record_gates_customer_download.sh
 
+      # v1.0.129 was refused as "7 of 11" when 11 FAIL rows were 7 distinct
+      # probes; the count is now of probes, and every refusal prints the cold row.
+      - name: The failed-probe count is of distinct probes and refusals print cold
+        if: always()
+        run: bash tests/test_failed_probe_count_is_distinct_probes.sh
+
       # A probe that reads an absent path as a definite answer is worse than a
       # probe that fails: it reports a confident verdict about something it
       # never measured. pair_state_agreement did exactly that on 2026-08-26 --
@@ -305,6 +335,13 @@ jobs:
       - name: The regression triage can tell a regression from a never-passed
         if: always()
         run: bash scripts/walk_regression_triage.sh --self-test
+
+      # A walk record stores no denominator, so a pass that examined nothing
+      # reads as PASSED. The triage must skip listed vacuous passes and
+      # CANNOT-RUNs when it picks regression_of.
+      - name: The regression triage never uses a vacuous pass as a baseline
+        if: always()
+        run: bash tests/test_walk_triage_never_baselines_a_vacuous_pass.sh
 
       # "Which commits touch install.sh" is a PROXY for "what reaches the
       # customer", and on 2026-09-07 it missed vendor/VENDOR_MANIFEST.toml,
@@ -581,6 +618,14 @@ jobs:
         if: always()
         run: bash scripts/tests/test_walk_never_enables_whatsapp_and_declares_its_owner.sh
 
+      # v1.0.124: the walk's network samplers. Host lsof and in-VM conntrack,
+      # each with a held nc control that must be SEEN or the sampler reports
+      # CANNOT-RUN; gws_spawn_count and telemetry_hosts must be 0. Six code
+      # mutants inside the test each turn their case red.
+      - name: The walk's network samplers see their controls, gws and telemetry
+        if: always()
+        run: /bin/bash tests/test_walk_net_sampler.sh
+
       - name: The walk owner comes from a driver-local file, is withheld, and synthetic is declared
         if: always()
         run: bash tests/test_walk_driver_takes_owner_from_a_local_file.sh
@@ -592,6 +637,10 @@ jobs:
       - name: The owner identity goes only to a declared owner target, and the record is scanned for it
         if: always()
         run: bash tests/test_walk_owner_identity_only_on_a_declared_owner_target.sh
+
+      - name: The walk record carries no home directory in any field (walks/ is public)
+        if: always()
+        run: bash tests/test_walk_record_carries_no_home_path.sh
 
       # A WALK EXISTS TO FIND DEFECTS AND CANNOT PASS OVER ONE IT WAS TOLD
       # ABOUT. Measured on ttywalk run 3: the marker read
@@ -681,6 +730,11 @@ jobs:
         # -> CANNOT-RUN, the runner's --self-test contract, the same PASS under
         # `zsh -c` where zsh exists, and one mutant per arm proved landed.
         run: /bin/bash scripts/tests/test_no_store_port_probe_reads_the_credential.sh
+
+      - name: no_store_port sweep exempts only loopback ollama runners
+        if: always()
+        # Walk 124 false FAIL (llama-server runners). Red control 0.0.0.0, non-runner, no-parent, bind-ignoring mutant.
+        run: /bin/bash scripts/tests/test_no_store_port_probe_exempts_only_loopback_ollama_runners.sh
 
       - name: A self-test denominator is COUNTED, never TYPED
         if: always()
@@ -911,6 +965,30 @@ jobs:
         if: always()
         run: /bin/bash tests/test_ttywalk_exports_the_cm019_bundle.sh
 
+      # NEW-119: ttywalk.sh --lang <code>, the non-English walk leg. Env line,
+      # generated answers file, invalid-code refusal, no-flag control, cleanup
+      # on failure, and two must-fail mutants, all against a fake box.
+      - name: ttywalk --lang puts OSTLER_LANG on the launch line, stages the answers file, and cleans up
+        if: always()
+        run: /bin/bash tests/test_ttywalk_lang_leg.sh
+
+      # v1.0.121 batch 2: every prompt the English driver answers with a COMPUTED
+      # value (@owner_name, @owner_allowed, @passphrase, country code, timezone)
+      # must have an answer row in the file generated for every shipped locale.
+      # The JA leg aborted on the typed-name fallback prompt, which had none.
+      - name: every computed driver answer is mapped in the generated answers file of every locale
+        if: always()
+        run: python3 tests/test_walk_lang_answers_cover_computed_prompts.py
+
+      # ttywalk.sh exit trap: the --from-dmg detach and temp-dir removal must be
+      # LOGGED (success and failure), with a -force retry; fake hdiutil, two mutants.
+      - name: ttywalk exit trap logs the DMG detach and removes the temp mount dir
+        if: always()
+        run: /bin/bash tests/test_ttywalk_exit_cleanup_lines.sh
+      - name: ttywalk --from-dmg prints hdiutil's stderr and leaks no ostler-dmg temp dir
+        if: always()
+        run: /bin/bash tests/test_ttywalk_from_dmg_prints_hdiutil_stderr_and_leaks_no_tempdir.sh
+
       # THE THIRD WRITE ROUTE, AND THE ONLY ONE THAT NEEDS A MODEL CALL. The
       # two steps above give the walk a PERSON and a PREFERENCE. Nothing had
       # ever put a CONVERSATION through the conversation pipeline, and that
@@ -999,6 +1077,21 @@ jobs:
         if: always()
         run: /bin/bash tests/test_the_walk_waits_for_wiki_summaries.sh
 
+      - name: The early pass adds no assertion the full pass lacks (so it is off by default)
+        if: always()
+        run: /bin/bash tests/test_the_early_pass_adds_no_assertion_the_full_pass_lacks.sh
+
+      - name: Per-probe and per-manifest-row seconds reach the walk record
+        if: always()
+        run: /bin/bash tests/test_walk_timing_reaches_the_record.sh
+      - name: A smoke-tier walk can never record CLEAN, and the release gate refuses it
+        if: always()
+        run: /bin/bash tests/test_a_smoke_walk_can_never_be_clean.sh
+
+      - name: The smoke scope is explicit, covers every probe, and fails wide
+        if: always()
+        run: /bin/bash tests/test_walk_smoke_scope.sh
+
       # THE OTHER HALF OF A HONEST PEOPLE READING. The seed above gives the
       # grounded probe a fact to look for; this gives the two COUNT-reading
       # probes a settled graph to read. On v1.0.78 they measured mid
@@ -1062,6 +1155,8 @@ jobs:
           printf 'broken\t0\n'                   >> walks/v0.0.0-citest.tsv
           printf 'verdict\tCLEAN\n'              >> walks/v0.0.0-citest.tsv
           printf 'qa_exit\t0\n'                  >> walks/v0.0.0-citest.tsv
+          # A CLEAN record needs cold PROVEN (the v1.0.129 walk was not cold).
+          printf 'cold\tPROVEN(synthetic CI control record)\n' >> walks/v0.0.0-citest.tsv
           bash scripts/verify_walk_record.sh v0.0.0-citest "$CITEST_SHA"
           rm -f walks/v0.0.0-citest.tsv /tmp/citest-artefact.bin
 

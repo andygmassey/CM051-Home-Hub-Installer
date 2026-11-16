@@ -40,7 +40,8 @@ from .parsers import (
     NetflixParser,
     AppleTVParser,
     EmailParser,
-    FoursquareParser
+    FoursquareParser,
+    FoodEvidenceParser,
 )
 from .rml import RMLMapper
 
@@ -84,6 +85,7 @@ class IngestPipeline:
             UberParser(),
             WhoopParser(),
             FoursquareParser(),  # Before Netflix - both may match venueRatings
+            FoodEvidenceParser(),  # exact FDA extract names + *.mbox.txt only
             # AFTER AppleParser, deliberately, and the previous comment here
             # said the exact opposite. MEASURED on a real Apple Media Services
             # export: only TWO files are contested and Apple yields MORE on
@@ -708,43 +710,15 @@ class IngestPipeline:
 
         turtle_content = "\n".join(turtle_lines)
 
-        # Insert into Oxigraph
-        #
-        # 🔴 A REFUSAL IS NOT AN ABSENCE (#953). insert_triples returns False on
-        # any non-2xx and logs the status itself; it does NOT raise. Recording
-        # only on the exception left a refusal reporting triples 0 with errors
-        # EMPTY, which is byte-identical to "this batch had nothing to write".
-        #
-        # MEASURED, two arms, one variable, nothing touching a real store:
-        #   endpoint 500 -> {"preferences": 3, "triples": 0, "vectors": 3, "errors": []}
-        #   endpoint 204 -> {"preferences": 3, "triples": 3, "vectors": 3, "errors": []}
-        # The control writes 3, so the 0 means REFUSED rather than "the harness
-        # never works". And vectors is 3 in BOTH arms, so a total graph-write
-        # failure was reported as a healthy batch with a split brain underneath
-        # it: Qdrant holds the preferences, Oxigraph does not, nothing says so.
-        try:
-            success = await self.oxigraph.insert_triples(turtle_content)
-            if success:
-                result["triples"] = len(preferences)
-            else:
-                # The loader already logged the status code. What was missing is
-                # the entry in the structure the CALLER aggregates, because
-                # ingest_file sums these into result["errors"] and the global
-                # stats count that list.
-                result["errors"].append(
-                    f"Oxigraph refused {len(preferences)} preference(s): insert_triples "
-                    f"returned False, so NO triples were written for this batch. The status "
-                    f"code is on the loader's own error line."
-                )
-        except Exception as e:
-            logger.error(f"Oxigraph insert failed: {e}")
-            result["errors"].append(f"Oxigraph error: {e}")
-
-        # Insert into Qdrant
+        # Qdrant FIRST, and the graph mirror only after the points are in. The
+        # vector is what every reader needs; writing the typed node first left a
+        # preference in Oxigraph with no Qdrant point whenever the upsert failed
+        # (returned False, or raised, and nothing rolled the graph back).
+        # Ported from personal-world-graph #471 (d9797d88) onto this tree's
+        # CM051 divergence (the #953 refusal-is-not-absence error entries).
+        ids = [p.id for p in preferences]
         try:
             payloads = [p.to_payload(user_id) for p in preferences]
-            ids = [p.id for p in preferences]
-
             success = await self.qdrant.upsert_vectors(
                 vectors=embeddings,
                 payloads=payloads,
@@ -766,6 +740,42 @@ class IngestPipeline:
         except Exception as e:
             logger.error(f"Qdrant insert failed: {e}")
             result["errors"].append(f"Qdrant error: {e}")
+
+        if result["vectors"] != len(preferences):
+            return result
+
+        # Graph mirror: REPLACE each preference node's owned triples so a
+        # re-ingest with a changed subject does not leave two values behind
+        # (the Qdrant upsert already replaced its point's payload).
+        # 🔴 A REFUSAL IS NOT AN ABSENCE (#953). The graph write returns False on
+        # any non-2xx and logs the status itself; it does NOT raise. Recording
+        # only on the exception left a refusal reporting triples 0 with errors
+        # EMPTY, which is byte-identical to "this batch had nothing to write".
+        #
+        # MEASURED, two arms, one variable, nothing touching a real store:
+        #   endpoint 500 -> {"preferences": 3, "triples": 0, "vectors": 3, "errors": []}
+        #   endpoint 204 -> {"preferences": 3, "triples": 3, "vectors": 3, "errors": []}
+        # The control writes 3, so the 0 means REFUSED rather than "the harness
+        # never works". And vectors is 3 in BOTH arms, so a total graph-write
+        # failure was reported as a healthy batch with a split brain underneath
+        # it: Qdrant holds the preferences, Oxigraph does not, nothing says so.
+        try:
+            success = await self.oxigraph.replace_preference_triples(ids, turtle_content)
+            if success:
+                result["triples"] = len(preferences)
+            else:
+                # The loader already logged the status code. What was missing is
+                # the entry in the structure the CALLER aggregates, because
+                # ingest_file sums these into result["errors"] and the global
+                # stats count that list.
+                result["errors"].append(
+                    f"Oxigraph refused {len(preferences)} preference(s): replace_preference_triples "
+                    f"returned False, so NO triples were written for this batch. The status "
+                    f"code is on the loader's own error line."
+                )
+        except Exception as e:
+            logger.error(f"Oxigraph insert failed: {e}")
+            result["errors"].append(f"Oxigraph error: {e}")
 
         return result
 

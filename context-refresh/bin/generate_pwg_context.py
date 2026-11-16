@@ -174,6 +174,19 @@ REQUEST_TIMEOUT_SECS = 8
 MAX_PEOPLE = 6
 MAX_MEETINGS = 5
 MAX_PREFERENCES = 8
+# Derived preferences ("What you like", the CM019 derive engine's affinities
+# served at GET /api/v1/preferences/derived). Rendered as two labelled lines
+# (likes, dislikes) above the interest-profile lines, so they never displace
+# them. Asked of the route in tier=all, the same tier the walk probe reads.
+MAX_DERIVED_PREFERENCES = 8
+DERIVED_PREFERENCES_PATH = (
+    f"/api/v1/preferences/derived?limit={MAX_DERIVED_PREFERENCES}&tier=all")
+# The levels a derived item may carry and still be shown. The route already
+# serves only L0 to L2 (vendor/cm041/assistant_api/derived_preferences.py
+# SERVED_PRIVACY_LEVELS); restated here so a level the route did not filter,
+# or one this file cannot parse, fails CLOSED rather than reaching the digest.
+# An item with no level is shown, as the route serves it.
+DERIVED_SHOWN_PRIVACY_LEVELS = {"l0", "l1", "l2"}
 MAX_ORGS = 6
 # Calendar events (flights, trips, appointments) surfaced grouped by whose
 # calendar they came from, so the brief never merges one person's trip into
@@ -259,6 +272,16 @@ _SECTION_STATUS: list[tuple[str, int, list[str]]] = []
 # /api/v1/preferences is read by two sections (Tastes, Preferences); one read
 # per build, so the ledger counts one read and one failure, not two.
 _PREFS_CACHE: dict = {}
+# Per-section reason appended to that section's "nothing stored" gap line, for
+# a source that answered 200 but said it could not check (a degraded route).
+# Not a failed read, so it does not move the exit code, but it is not "empty"
+# either, and the model is told which.
+_SECTION_NOTES: dict[str, str] = {}
+
+# (owner, rendered line) -> "YYYY-MM-DD[ HH:MM]" for each calendar line, so the
+# size cap can trim past events before upcoming ones. Filled by
+# _calendar_by_owner_section; a line with no entry is undated.
+_CALENDAR_WHEN: dict[tuple[str, str], str] = {}
 
 
 def _reset_measurements() -> None:
@@ -269,6 +292,8 @@ def _reset_measurements() -> None:
     _SECTION_COUNTS.clear()
     _SECTION_STATUS.clear()
     _PREFS_CACHE.clear()
+    _SECTION_NOTES.clear()
+    _CALENDAR_WHEN.clear()
 
 
 def _note_read(line: str) -> None:
@@ -1059,7 +1084,10 @@ def _meetings_section() -> list[str]:
     the brief exclusively via ``_calendar_by_owner_section`` below, which
     reads the CM041 owner + type provenance and fails closed on L3.
     """
-    data = _get_json("/api/v1/timeline?days=7")
+    # outbound=1: this text enters the assistant's context and channel replies
+    # leave the box, so the route applies the fail-closed L3 filter (default
+    # is the on-box Hub view, which sees every level).
+    data = _get_json("/api/v1/timeline?days=7&outbound=1")
     items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
         items = []
@@ -1097,6 +1125,32 @@ def _meetings_section() -> list[str]:
     return recent
 
 
+def _meeting_outbound_hidden(row: dict) -> bool:
+    """True when a meeting row must not reach the digest (fail-closed L3).
+
+    Same rule as CM041 ``pwg_privacy.is_l3`` / ``_timeline_from_graph(outbound)``:
+    the meeting's own ``pwg:privacyLevel`` and EACH attendee's are combined,
+    one L3 on either axis hides it, a missing item level inherits the
+    attendee's, and no parseable level anywhere (or an unparseable one with
+    nothing to inherit) hides it. An attendee with no level counts as unknown,
+    never skipped. ``_is_withheld`` keeps untagged records and ignores the
+    attendees, which is wrong for a meeting.
+    """
+    def parse(raw):
+        v = str(raw or "").strip().upper()
+        return v if v in ("L0", "L1", "L2", "L3") else None
+
+    def split(raw):
+        return [parse(v) for v in str(raw or "").split("|")] or [None]
+
+    for m in split(row.get("mlevels")):
+        for a in split(row.get("alevels")):
+            levels = [lv for lv in (m, a) if lv is not None]
+            if not levels or "L3" in levels:
+                return True
+    return False
+
+
 def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
     """pwg:Meeting rows in the last (past=True) or next ``days`` days.
 
@@ -1115,16 +1169,21 @@ def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
         order = "?d"
     rows = _sparql_select(
         f"PREFIX pwg: <{PWG_NS}>\n"
-        "SELECT ?summary ?d ?l WHERE {\n"
+        "SELECT ?m ?summary ?d "
+        '(GROUP_CONCAT(DISTINCT STR(?mpriv); SEPARATOR="|") AS ?mlevels) '
+        '(GROUP_CONCAT(DISTINCT COALESCE(STR(?apriv), "none"); SEPARATOR="|") AS ?alevels) '
+        "WHERE {\n"
         "  ?m a pwg:Meeting ; pwg:meetingSummary ?summary ; pwg:meetingDate ?d .\n"
-        "  OPTIONAL { ?m pwg:privacyLevel ?l }\n"
+        "  OPTIONAL { ?m pwg:privacyLevel ?mpriv }\n"
+        "  OPTIONAL { ?m pwg:meetingAttendee ?pa . "
+        "OPTIONAL { ?pa pwg:privacyLevel ?apriv } }\n"
         f'  FILTER(STR(?d) >= "{lo.isoformat()}" && STR(?d) < "{hi.isoformat()}")\n'
-        f"}} ORDER BY {order} LIMIT {limit}"
+        f"}} GROUP BY ?m ?summary ?d ORDER BY {order} LIMIT {limit * 3}"
     ) or []
     now_s = _today().strftime("%Y-%m-%d %H:%M")
     out: list[dict] = []
     for row in rows:
-        if not isinstance(row, dict) or _is_withheld({"level": row.get("l")}):
+        if not isinstance(row, dict) or _meeting_outbound_hidden(row):
             continue
         summary = " ".join((row.get("summary") or "").split())
         date = (row.get("d") or "").strip().replace("T", " ")[:16]
@@ -1136,7 +1195,7 @@ def _meeting_rows(*, past: bool, days: int = 7, limit: int = 20) -> list[dict]:
         if not past and date < now_s:
             continue
         out.append({"summary": summary, "date": date})
-    return out
+    return out[:limit]
 
 
 def _calendar_by_owner_section() -> list[str]:
@@ -1196,6 +1255,9 @@ def _calendar_by_owner_section() -> list[str]:
         if len(bucket) >= MAX_CALENDAR_PER_OWNER:
             continue
         bucket.append(f"- {text}")
+        valid = (row.get("valid") or "").strip().replace("T", " ")[:16]
+        if valid:
+            _CALENDAR_WHEN[(owner, f"- {text}")] = valid
         total += 1
         if total >= MAX_CALENDAR_TOTAL:
             break
@@ -1220,6 +1282,7 @@ def _calendar_by_owner_section() -> list[str]:
         if len(bucket) >= MAX_CALENDAR_PER_OWNER:
             break
         bucket.append(f"- {text}")
+        _CALENDAR_WHEN[("Unattributed", f"- {text}")] = row["date"]
         total += 1
 
     if not grouped:
@@ -1239,7 +1302,83 @@ def _calendar_by_owner_section() -> list[str]:
     return lines
 
 
+PREFERENCES_HEADING = "Preferences and things to keep in mind"
+
+
+def _derived_preferences() -> tuple[list[str], list[str], str | None]:
+    """(likes, dislikes, could_not_check) from GET /api/v1/preferences/derived.
+
+    The route ALWAYS answers 200 and says ``degraded`` with a
+    ``cannot_check`` reason when the derived graph is absent, empty or down
+    (ical-server.py api_preferences_derived). That is returned as the third
+    element so the caller can say so, never rendered as an empty "no likes".
+    A refused or unreachable read is recorded by ``_get_json`` as a failure
+    and comes back here as (``[]``, ``[]``, None): the gap block already
+    declares it COULD NOT BE READ with the status observed.
+
+    Item shape (derived_preferences.py ``_item``): ``label``, ``strength``
+    (negative = a dislike), ``dimension``, optional ``privacy_level``.
+    """
+    data = _get_json(DERIVED_PREFERENCES_PATH)
+    if data is None:
+        return [], [], None
+    if data.get("degraded"):
+        reason = " ".join(str(data.get("cannot_check") or "the route said degraded").split())
+        return [], [], reason[:160]
+    items = data.get("items")
+    if not isinstance(items, list):
+        return [], [], "the route answered without an items list"
+    likes: list[str] = []
+    dislikes: list[str] = []
+    seen: set[str] = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        level = str(it.get("privacy_level") or it.get("privacy") or "").strip().lower()
+        if level and level not in DERIVED_SHOWN_PRIVACY_LEVELS:
+            continue  # L3, "private", or a level this file cannot read: withheld
+        label = " ".join(str(it.get("label") or "").split())[:60]
+        if not label or label.lower() in seen:
+            continue
+        try:
+            strength = float(it.get("strength"))
+        except (TypeError, ValueError):
+            continue
+        if strength == 0:
+            continue
+        seen.add(label.lower())
+        (likes if strength > 0 else dislikes).append(label)
+    # Every served item withheld or unlabelled: nothing to show, and the
+    # section's own count says so ("nothing stored"); it is not a failed check.
+    return likes, dislikes, None
+
+
 def _preferences_section() -> list[str]:
+    """Derived preferences ("What you like"), then the interest profile and
+    the coaching surface.
+
+    The derived lines are labelled as derived so the model can tell them from
+    the interest-profile lines below, which are kept as they were. A degraded
+    derived route is said out loud: inline when the section has other content,
+    otherwise on this section's gap line, never as an empty list.
+    """
+    likes, dislikes, could_not_check = _derived_preferences()
+    derived: list[str] = []
+    if likes:
+        derived.append("- What you like (derived from your history): " + "; ".join(likes))
+    if dislikes:
+        derived.append("- Not keen on (derived from your history): " + "; ".join(dislikes))
+    rest = _profile_preferences_lines()
+    if could_not_check:
+        if rest:
+            derived.append(f"- Derived preferences: could not check ({could_not_check})")
+        else:
+            _SECTION_NOTES[PREFERENCES_HEADING] = (
+                f"Derived preferences could not be checked ({could_not_check}).")
+    return derived + rest
+
+
+def _profile_preferences_lines() -> list[str]:
     """Top preferences from the coaching / observation surface.
 
     Best-effort: the endpoint may be absent on some Hubs. Each observation is
@@ -1744,7 +1883,8 @@ def _unreadable_and_empty_block() -> list[str]:
             observed = "; ".join(failed)
             gaps.append(f"- {heading}: COULD NOT BE READ ({observed})")
         elif count == 0:
-            gaps.append(f"- {heading}: nothing stored.")
+            note = _SECTION_NOTES.get(heading)
+            gaps.append(f"- {heading}: nothing stored." + (f" {note}" if note else ""))
     if not gaps:
         return []
 
@@ -1770,6 +1910,46 @@ def _unreadable_and_empty_block() -> list[str]:
     out.extend(gaps)
     out.append("")
     return out
+
+
+CAL_NAME = "Calendar events by owner"
+PREFERENCES_NAME = "Preferences and things to keep in mind"
+
+
+def _trim_calendar_one(lines: list[str]) -> list[str]:
+    """Remove ONE event line from the rendered calendar block (and an owner
+    header left with no events). Order: past events first, oldest first; then
+    undated; then upcoming events, furthest-future first, so the nearest
+    upcoming event is the last to go."""
+    now_s = _today().strftime("%Y-%m-%d %H:%M")
+    owner = None
+    events: list[tuple[int, int, str]] = []  # (index, rank, when)
+    for i, ln in enumerate(lines):
+        if ln.startswith("**") and ln.endswith(":**"):
+            owner = ln[2:-3]
+            continue
+        when = _CALENDAR_WHEN.get((owner, ln), "")
+        if not when:
+            events.append((i, 1, ""))
+        elif when < now_s:
+            events.append((i, 0, when))      # past: oldest first
+        else:
+            events.append((i, 2, when))      # future: furthest first
+    if not events:
+        return []
+    past = sorted((e for e in events if e[1] == 0), key=lambda e: e[2])
+    undated = [e for e in events if e[1] == 1]
+    future = sorted((e for e in events if e[1] == 2), key=lambda e: e[2], reverse=True)
+    idx = (past or undated or future)[0][0]
+    out = lines[:idx] + lines[idx + 1:]
+    # drop owner headers with no event under them
+    res: list[str] = []
+    for j, ln in enumerate(out):
+        is_hdr = ln.startswith("**") and ln.endswith(":**")
+        if is_hdr and (j + 1 >= len(out) or (out[j + 1].startswith("**") and out[j + 1].endswith(":**"))):
+            continue
+        res.append(ln)
+    return res
 
 
 def build_digest() -> str | None:
@@ -1801,8 +1981,7 @@ def build_digest() -> str | None:
     recent = _run_section("Recent meetings (last 7 days)", _meetings_section)
     calendar_by_owner = _run_section(
         "Calendar events by owner", _calendar_by_owner_section)
-    preferences = _run_section(
-        "Preferences and things to keep in mind", _preferences_section)
+    preferences = _run_section(PREFERENCES_HEADING, _preferences_section)
     orgs = _run_section("Key organisations", _orgs_section)
 
     _SECTION_COUNTS.extend([
@@ -1849,16 +2028,20 @@ def build_digest() -> str | None:
          "", people),
         ("Tastes", "Tastes",
          "The owner's top stored preferences, with the profile's own score.", tastes),
-        ("Channel style", "Channel style",
-         "Counts of the owner's own sent messages per channel; no message text.",
-         channel),
+        ("Preferences and things to keep in mind",
+         "Preferences and things to keep in mind", "", preferences),
         ("Recent meetings (last 7 days)", "Recent meetings (last 7 days)",
          "", recent),
         ("Calendar events by owner", "Calendar events by owner",
          calendar_intro, calendar_by_owner),
-        ("Preferences and things to keep in mind",
-         "Preferences and things to keep in mind", "", preferences),
         ("Key organisations", "Key organisations", "", orgs),
+        # Last, so it is the first dropped under the cap: counts only, the
+        # least useful block. The Preferences block above carries the derived
+        # "What you like" lines; listed after Calendar events it was the block
+        # dropped whenever the digest ran over (walk 121, 3dd087ff).
+        ("Channel style", "Channel style",
+         "Counts of the owner's own sent messages per channel; no message text.",
+         channel),
     ]
     # NOTE: there is deliberately no "## Upcoming meetings" section. Future
     # calendar events are rendered only via "## Calendar events by owner",
@@ -1887,7 +2070,16 @@ def build_digest() -> str | None:
         "",
     ]
 
-    def _render(omitted: list[str]) -> str:
+    # Lines kept per block. The cap trims these a LINE at a time, never a
+    # whole block while it can still shrink (walk 121: a whole-block drop took
+    # Preferences and the Calendar with it).
+    kept: dict[str, list[str]] = {b[0]: list(b[3]) for b in blocks}
+    def _n(lines: list[str]) -> int:
+        return len([x for x in lines if not (x.startswith("**") and x.endswith(":**"))])
+
+    original = {name: _n(lines) for name, lines in kept.items()}
+
+    def _render(omitted: list[str], trimmed: list[str]) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         out: list[str] = [
             "# Personal Context",
@@ -1902,15 +2094,22 @@ def build_digest() -> str | None:
         # those gaps are "nothing there" versus "we could not look". Placed
         # here so a size clip, which cuts from the end, can never remove it.
         gaps = _unreadable_and_empty_block()
+        notes = []
         if omitted:
-            note = ("- Left out to fit the size cap (they hold data; ask with "
-                    "the pwg_ tools): " + ", ".join(omitted) + ".")
+            notes.append("- Left out to fit the size cap (they hold data; ask "
+                         "with the pwg_ tools): " + ", ".join(omitted) + ".")
+        if trimmed:
+            notes.append("- Shortened to fit the size cap (more is stored; ask "
+                         "with the pwg_ tools): " + ", ".join(trimmed) + ".")
+        if notes:
             if gaps:
-                gaps.insert(len(gaps) - 1, note)
+                for n in reversed(notes):
+                    gaps.insert(len(gaps) - 1, n)
             else:
-                gaps = ["## What is not in this digest", "", note, ""]
+                gaps = ["## What is not in this digest", "", *notes, ""]
         out.extend(gaps)
-        for name, heading, intro, lines in blocks:
+        for name, heading, intro, _ in blocks:
+            lines = kept[name]
             if not lines or name in omitted:
                 continue
             out.append(f"## {heading}")
@@ -1923,15 +2122,33 @@ def build_digest() -> str | None:
         out.extend(footer)
         return "\n".join(out)
 
-    omitted: list[str] = []
-    digest = _render(omitted)
-    droppable = [b[0] for b in reversed(blocks) if b[3] and b[0] != "About you"]
-    while len(digest) > MAX_CHARS and droppable:
-        omitted.insert(0, droppable.pop(0))
-        digest = _render(omitted)
+    def _state() -> tuple[list[str], list[str]]:
+        omitted = [n for n in original if original[n] and not kept[n]]
+        trimmed = [f"{n} ({_n(kept[n])} of {original[n]} lines)"
+                   for n in original if kept[n] and _n(kept[n]) < original[n]]
+        return omitted, trimmed
 
-    # Last resort, only when every droppable section is already gone: clip on
-    # a line boundary so we never inject a half-line.
+    digest = _render([], [])
+    # Victims in the order they are trimmed: the reverse of render order, so
+    # the least useful block shrinks first. Preferences and Tastes never go
+    # below one line (nor Calendar: the nearest upcoming event stays), and
+    # About you is never trimmed.
+    floor = {PREFERENCES_NAME: 1, "Tastes": 1, CAL_NAME: 1}
+    victims = [b[0] for b in reversed(blocks) if b[3] and b[0] != "About you"]
+    while len(digest) > MAX_CHARS:
+        for name in victims:
+            if _n(kept[name]) > floor.get(name, 0):
+                break
+        else:
+            break
+        if name == CAL_NAME:
+            kept[name] = _trim_calendar_one(kept[name])
+        else:
+            kept[name].pop()
+        digest = _render(*_state())
+
+    # Last resort, only when every block is already at its floor: clip on a
+    # line boundary so we never inject a half-line.
     if len(digest) > MAX_CHARS:
         clipped = digest[:MAX_CHARS]
         nl = clipped.rfind("\n")

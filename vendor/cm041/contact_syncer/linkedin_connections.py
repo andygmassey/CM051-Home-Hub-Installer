@@ -570,12 +570,6 @@ def upsert_qdrant(
         payload["observed_at"] = observed_at
 
     point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
-    point = PointStruct(
-        id=point_uuid,
-        vector=vector,
-        payload=payload,
-    )
-
     # Check if point exists — if so, preserve existing last_contact
     # (which may have been set by actual meetings/conversations)
     # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
@@ -601,19 +595,29 @@ def upsert_qdrant(
         # last-write-wins. Preserving the timestamp without its value would
         # create the same inconsistency the KeyError was hiding, so the pair
         # moves together or not at all.
-        ex_ts = existing[0].payload.get("last_contact_ts")
-        ex_lc = existing[0].payload.get("last_contact")
+        ex_ts = _existing.payload.get("last_contact_ts")
+        ex_lc = _existing.payload.get("last_contact")
         if ex_ts and ex_lc and ex_ts > last_contact_ts:
             payload["last_contact"] = ex_lc
             payload["last_contact_ts"] = ex_ts
         # Preserve source if already richer
-        ex_source = existing[0].payload.get("source", "")
+        ex_source = _existing.payload.get("source", "")
         if ex_source and ex_source != "linkedin_connections":
             payload["source"] = ex_source
 
     # #629: nothing pre-creates the people collection before the social
     # writers run; ensure it (idempotently) so the first upsert cannot 404.
     ensure_qdrant_collection(qdrant, collection, len(vector) if vector else 0)
+    # BUILT AFTER PRESERVATION, NOT BEFORE (NEW-119). The PointStruct used to
+    # be built above the preservation block. pydantic validates `payload` into
+    # its OWN dict, so every preserved field written into `payload` afterwards
+    # never reached the store: the richer stored values were overwritten with
+    # this importer's poorer ones, silently.
+    point = PointStruct(
+        id=point_uuid,
+        vector=vector,
+        payload=payload,
+    )
     qdrant.upsert(collection_name=collection, points=[point])
 
 

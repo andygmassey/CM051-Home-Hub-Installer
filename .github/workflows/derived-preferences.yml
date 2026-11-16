@@ -18,6 +18,9 @@ name: derived-preferences
 #              prior graph; a below-floor fixture is the red control.
 #   doctor     the Doctor row distinguishes every state and knows every
 #              outcome the shipped runner can write.
+#   route      the REAL writer's graph, read by the REAL vendored CM041 route
+#              builder (GET /api/v1/preferences/derived), matches the shared
+#              contract; an empty derivation is served degraded (red control).
 #
 # Exit 2 is CANNOT-RUN and fails the step.
 
@@ -26,6 +29,8 @@ on:
     paths:
       - 'install.sh'
       - 'vendor/cm019_preferences/services/enrich/src/derive/**'
+      - 'vendor/cm059_editor/compiler/sensitive_topics.py'
+      - 'tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py'
       - 'vendor/cm019_preferences/services/enrich/src/derive_runner.py'
       - 'vendor/cm019_preferences/services/common/strength.py'
       - 'vendor/cm019_preferences/ontology/**'
@@ -34,6 +39,18 @@ on:
       - 'vendor/doctor/agent/web_ui.py'
       - 'tests/test_derive_preferences_is_scheduled.sh'
       - 'tests/test_derive_is_kicked_once_after_install_and_upgrade.sh'
+      - 'tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh'
+      - 'tests/test_derive_first_run_retries_within_30_min.sh'
+      - 'tests/test_derive_agent_env_can_read_system_load.sh'
+      - 'tests/test_derive_reads_conversations_mirror_not_documents.sh'
+      - 'tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh'
+      - 'tests/test_wiki_summary_workers_pinned_at_one_for_every_tier.sh'
+      - 'lib/ostler-resource-tier.sh'
+      - 'lib/ostler-conversations-mirror.sh'
+      - 'wiki-recompile/launchd/**'
+      - 'wiki-recompile/bin/**'
+      - 'vendor/*_source/launchd/**'
+      - 'vendor/*_source/bin/**'
       - 'tests/test_upgrade_refreshes_cm019_and_installs_the_derive_agent.sh'
       - 'tests/test_upgrade_refreshes_assistant_api_and_context_refresh.sh'
       - 'tests/test_upgrade_payload_carries_what_the_upgrade_refreshes.sh'
@@ -45,10 +62,29 @@ on:
       - 'scripts/walk_promote_scope.tsv'
       - 'tests/test_derive_engine_writes_a_derived_preference.py'
       - 'tests/test_vendored_derived_route_privacy_level.py'
+      - 'tests/test_vendored_derived_negatives_survive_cap.py'
+      - 'tests/test_derive_first_pass_progress.py'
+      - 'tests/test_derived_still_learning_surface.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
       - 'tests/test_vendored_derive_covers_all_of_life.py'
+      - 'tests/test_vendored_stated_preferences_reach_the_derive_engine.py'
+      - 'tests/test_vendored_stated_transcripts_reach_the_derive_engine.py'
+      - 'tests/test_stated_model_tick_yields.sh'
+      - 'scripts/ostler-stated-model-tick.sh'
       - 'tests/test_vendored_derive_endpoint_mixes_categories.py'
       - 'tests/test_vendored_derive_tiers_and_rollup.py'
+      - 'tests/test_vendored_food_evidence_reaches_smart_preferences.py'
+      - 'tests/test_food_mbox_consumed_and_pruned.py'
+      - 'vendor/ostler_fda/apple_music_refresh.py'
+      - 'tests/test_dietary_is_never_surfaced.py'
+      - 'vendor/cm059_editor/compiler/project_preferences.py'
+      - 'vendor/cm059_editor/compiler/interest_profile.py'
+      - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
+      - 'tests/test_vendored_derive_patterns.py'
+      - 'tests/test_vendored_enrich_representative_first.py'
+      - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
       - 'tests/test_vendored_derive_scroll_carries_privacy_level.py'
       - 'vendor/cm019_preferences/services/enrich/src/privacy_gate.py'
@@ -65,6 +101,10 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/minors.py'
       - 'vendor/cm019_preferences/services/ingest/src/pipeline.py'
       - 'tests/test_vendored_qid_pass_reaches_the_thematic_rollup.py'
+      - 'tests/test_derived_route_reads_what_the_engine_writes.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/contract/**'
       - '.github/workflows/derived-preferences.yml'
   push:
     branches: [main]
@@ -103,6 +143,24 @@ jobs:
       - name: The derive agent is kicked once after install and after upgrade
         if: always()
         run: bash tests/test_derive_is_kicked_once_after_install_and_upgrade.sh
+      - name: The derive tick records every exit (deferred, yielded, cannot start) and a ceiling runs it anyway under taskpolicy -b
+        if: always()
+        run: bash tests/test_derive_tick_records_every_exit_and_has_a_ceiling.sh
+      - name: A first derive pass that comes back empty is retried within 30 min, then settles to 6h (with mutants)
+        if: always()
+        run: bash tests/test_derive_first_run_retries_within_30_min.sh
+      - name: The derive LaunchAgent's own environment can read system load and cores (sysctl is on its PATH)
+        if: always()
+        run: bash tests/test_derive_agent_env_can_read_system_load.sh
+      - name: The derive tick reads a signed-tick mirror of the conversations, never ~/Documents (no_python_is_tcc_responsible)
+        if: always()
+        run: bash tests/test_derive_reads_conversations_mirror_not_documents.sh
+      - name: Every job that reads the tier lib can find sysctl in its own LaunchAgent environment (discovered by grep; derive-PATH mutant is RED)
+        if: always()
+        run: bash tests/test_every_tier_lib_job_can_find_sysctl_in_its_plist_env.sh
+      - name: The wiki summary-worker cap is pinned at 1 for every tier (tier-map mutant is RED)
+        if: always()
+        run: bash tests/test_wiki_summary_workers_pinned_at_one_for_every_tier.sh
       - name: The vendored engine writes pwg:DerivedPreference nodes from a graph
         # pyoxigraph is test-only (the Hub runs Oxigraph in a container);
         # the other three are the shipped requirements the writer imports.
@@ -128,6 +186,85 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6'
           python3 tests/test_vendored_derived_route_privacy_level.py
+      - name: A first pass says how far it has got while it runs (per-reader timings, in_progress, Doctor reads it)
+        # Real derive_runner.run() over a synthetic pyoxigraph fixture.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_first_pass_progress.py
+      - name: What you like is never blank while the first pass runs (still_learning from the interest profile)
+        # Real ical-server subprocess against a stub store. ical-server refuses
+        # to start without ostler_security (and its cryptography dependency).
+        if: always()
+        run: |
+          python3 -m pip install --quiet cryptography ./vendor/ostler_security
+          python3 tests/test_derived_still_learning_surface.py
+      - name: A stated dislike is served alongside the capped list (any tier, bounded, no dupes)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest 'pyoxigraph>=0.5.11,<0.6'
+          python3 -m pytest -q tests/test_vendored_derived_negatives_survive_cap.py
+      - name: Food evidence reaches smart preferences (restaurants, cuisines, what you buy)
+        # ingest_food stages only the claimed extracts, the parser output derives
+        # through the vendored registry, a diet signal stays private, and the OSM
+        # lookup makes zero requests unless the owner accepted enrichment.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
+          python3 tests/test_vendored_food_evidence_reaches_smart_preferences.py
+          python3 tests/test_food_mbox_consumed_and_pruned.py
+      - name: Grocery diet signals are never surfaced (ratchet on the dietary category)
+        # No reader row, derive code, editor/Front Page code or brief code reads the
+        # category; the projector drops it; the scanner is proven red on a fake row.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_dietary_is_never_surfaced.py
+      - name: What the owner says in conversations reaches the derive engine
+        # CM048 preference facts -> stated evidence with polarity; coffee x3 vs x1,
+        # sichuan/cantonese as two opposite nodes under the shared cuisine keys, a
+        # friend's taste excluded, no message text, a dropped-row mutant, real SHACL.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_stated_preferences_reach_the_derive_engine.py
+      - name: The owner's own lines in extracted transcripts reach the derive engine
+        # Same privacy filters as the fact path (L3, deceased, minors; L2 admitted and
+        # inherited), owner lines only, quoted/forwarded/other people's tastes rejected,
+        # counts and polarity only, no message database opened, tier-model stage order.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_vendored_stated_transcripts_reach_the_derive_engine.py
+      - name: The stated-preference model stage yields to chat (tier defer, slot, tier model only)
+        # DISABLED BY DECISION (precision 33% on 6 graded hits); the wrapper's
+        # guarantees are pinned so enabling it later cannot skip them.
+        if: always()
+        run: bash tests/test_stated_model_tick_yields.sh
+      - name: Trend, say-vs-do contradiction and time-of-day context reach the graph
+        # Real runner, real writer and SHACL gate, pyoxigraph. Red control: the
+        # same run with the derivers unregistered writes none of the fields.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
+          python3 tests/test_vendored_derive_patterns.py
+      - name: Enrichment goes representative-first (one lookup per rollup group)
+        # Biggest artist/album/series/restaurant group first, one lookup each,
+        # before the id-order tail; consent NO makes zero network calls (with a
+        # YES control), resumable, three mutants. RED on the tree without
+        # derive/representatives.py (exit 1). Exit 2 is CANNOT-RUN and fails.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' click httpx pydantic pydantic-settings aiofiles beautifulsoup4 aiolimiter
+          python3 tests/test_vendored_enrich_representative_first.py
+      - name: Derived preferences fade on the same half-life table as memory hygiene
+        # Constants equal the vendored HygieneConfig; recent outranks old
+        # through the shipped registry; dietary dislikes do not decay; two
+        # mutants. Exit 2 is CANNOT-RUN and fails.
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' 'pyshacl>=0.25.0'
+          python3 tests/test_derive_half_life_matches_hygiene.py
       - name: The endpoint's top-N interleaves by category
         if: always()
         run: python3 tests/test_vendored_derive_endpoint_mixes_categories.py
@@ -156,7 +293,7 @@ jobs:
         if: always()
         run: |
           python3 -m pip install --quiet pytest -r vendor/cm019_preferences/requirements.txt \
-            nameparser rapidfuzz phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" rapidfuzz phonenumbers pyyaml
           n="$(python3 -m pytest tests/test_ingest_contract.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
           if [ "${n:-0}" -lt 30 ]; then
@@ -183,3 +320,16 @@ jobs:
       - name: The runner collects and invokes the derived-preferences probe (fake Hub)
         if: always()
         run: bash tests/test_derived_prefs_probe_is_run_by_the_walk.sh
+      - name: The vendored sensitive gate classifies genetic and biometric data (row 2471b)
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0'
+          python3 tests/test_cm019_sensitive_terms_classify_genetic_and_biometric.py
+      - name: The hub route serves what the engine writes
+        # Arm 4 boots the REAL vendored ical-server as a subprocess, which
+        # needs cryptography + httpx (the same set memory-assert-answers-under-load
+        # installs for the other test that starts it).
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0' cryptography httpx
+          python3 tests/test_derived_route_reads_what_the_engine_writes.py

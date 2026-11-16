@@ -20,6 +20,38 @@ LIB="lib/ostler-ingest-slot.sh"
 [ -f "$LIB" ] || { echo "FAIL: $LIB missing"; exit 1; }
 fails=0
 
+# Every process this test starts carries TAG on its command line (the probe is
+# launched as `bash probe.sh TAG`, so every subshell it forks shows TAG), and
+# each probe runs as its own process group (set -m), so the whole payload tree
+# can be reaped by PGID. NEGATIVE-CONTROL payloads are SUPPOSED to stay alive,
+# so nothing else ever stops them: without the reap they leak at 100% cpu,
+# reparented to PID 1 (measured: load average past 400 on a build box).
+TAG="ostler-slot-test-$$"
+CASE_PGIDS=""
+
+reap_group() {
+    local pg="$1" pids
+    [ -n "$pg" ] || return 0
+    # Only pids whose pgid is the one WE created for this case.
+    pids="$(ps -axo pid=,pgid= | awk -v g="$pg" '$2==g{print $1}')"
+    [ -n "$pids" ] || return 0
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null
+    sleep 1
+    pids="$(ps -axo pid=,pgid= | awk -v g="$pg" '$2==g{print $1}')"
+    # shellcheck disable=SC2086
+    [ -z "$pids" ] || kill -9 $pids 2>/dev/null
+    return 0
+}
+
+reap_all() {
+    local g
+    for g in $CASE_PGIDS; do reap_group "$g"; done
+}
+trap reap_all EXIT
+trap 'reap_all; exit 130' INT
+trap 'reap_all; exit 143' TERM
+
 run_case() {
     local label="$1" payload="$2" want="$3"
     local ws; ws="$(mktemp -d)" || return 1
@@ -38,7 +70,15 @@ sleep 12
 if kill -0 "\$work" 2>/dev/null; then echo ALIVE; else echo STOPPED; fi
 kill "\$work" "\$wd" 2>/dev/null
 PROBE
-    local got; got="$(bash "$ws/probe.sh" 2>/dev/null | tail -1)"
+    # Own process group per case (set -m), recorded BEFORE it can leak.
+    set -m
+    bash "$ws/probe.sh" "$TAG" >"$ws/out.log" 2>/dev/null &
+    local ppid=$!
+    set +m
+    CASE_PGIDS="$CASE_PGIDS $ppid"
+    wait "$ppid" 2>/dev/null
+    local got; got="$(tail -1 "$ws/out.log" 2>/dev/null)"
+    reap_group "$ppid"
     if [ "$got" = "$want" ]; then echo "  ok   $label (got $got)"
     else echo "  FAIL $label: expected $want, got ${got:-nothing}"; fails=$((fails+1)); fi
     rm -rf "$ws"
@@ -60,6 +100,20 @@ run_case "NEGATIVE CONTROL: a payload actually burning cpu is left alone" \
 # would have killed healthy ingest on a customer box on every tick.
 run_case "NEGATIVE CONTROL: a parent idle on a pipe while its CHILD works is left alone" \
          'bash -c "(while :; do :; done) | cat >/dev/null"' ALIVE
+
+# SELF-CHECK: nothing tagged with this run's TAG, and nothing left in any case's
+# process group, may survive. A reap that silently did nothing fails here.
+reap_all
+left="$(ps -axo pid=,command= | grep -F -- "$TAG" | grep -v -F 'grep -F')"
+for g in $CASE_PGIDS; do
+    left="$left$(ps -axo pid=,pgid=,command= | awk -v g="$g" '$2==g')"
+done
+if [ -n "$left" ]; then
+    echo "  FAIL self-check: leaked processes survive this test:"; echo "$left"
+    fails=$((fails+1))
+else
+    echo "  ok   self-check: 0 processes survive this test"
+fi
 
 echo
 [ "$fails" = "0" ] && { echo "All cases passed."; exit 0; }

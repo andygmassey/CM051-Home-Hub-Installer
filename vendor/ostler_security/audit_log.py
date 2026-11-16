@@ -119,7 +119,29 @@ class AuditLog:
         # O_NOFOLLOW so an attacker can't race a symlink in before
         # sqlite opens it. See _safe_open_path.
         self._safe_open_path(Path(self.db_path))
+        self._upgrade_plaintext_file()
         self._ensure_schema()
+
+    def _upgrade_plaintext_file(self) -> None:
+        """v1.0.129: a keyed log over an old PLAINTEXT audit.db re-keys it.
+
+        Earlier installs created audit.db unkeyed. Opening that file with a
+        key fails ("not a database"), which the callers swallow, so the
+        audit trail would silently stop. Convert it once instead. No .bak
+        is kept: a backup would be the plaintext copy this removes.
+        """
+        if not self._encryption_key_hex:
+            return
+        try:
+            with open(self.db_path, "rb") as fh:
+                header = fh.read(16)
+        except OSError:
+            return
+        if header == b"SQLite format 3\x00":
+            from .database import migrate_to_encrypted
+            migrate_to_encrypted(
+                self.db_path, self._encryption_key_hex, backup=False,
+            )
 
     @staticmethod
     def _safe_open_path(db_path: Path) -> None:
@@ -313,12 +335,29 @@ def log_event(
     ip_address: Optional[str] = None,
     success: bool = True,
     db_path: Optional[str | Path] = None,
+    encryption_key_hex: Optional[str] = None,
 ) -> None:
     """Write an audit log entry using the default log instance.
 
     If no db_path is provided, uses ~/.ostler/security/audit.db
+
+    v1.0.129: the default log is KEYED. The key is the caller's, else the
+    resolved database key. With neither, the entry is NOT written (ERROR
+    logged) rather than creating a plaintext audit.db.
     """
     global _default_log
+    if _default_log is None and not encryption_key_hex:
+        try:
+            from .db_key import resolve_db_key
+            encryption_key_hex = resolve_db_key().key
+        except Exception:
+            encryption_key_hex = None
+    if _default_log is None and not encryption_key_hex:
+        logger.error(
+            "audit log entry %s dropped: no database key, and an audit.db "
+            "is not created unencrypted", event_type,
+        )
+        return
     if _default_log is None:
         with _default_log_lock:
             # Re-check inside the lock – another thread may have
@@ -328,5 +367,5 @@ def log_event(
                 parent = Path(path).parent
                 parent.mkdir(parents=True, exist_ok=True)
                 parent.chmod(0o700)  # BH-6 fix: restrict directory permissions
-                _default_log = AuditLog(path)
+                _default_log = AuditLog(path, encryption_key_hex)
     _default_log.log(event_type, source, details, ip_address, success)

@@ -31,7 +31,7 @@
 # same thing.
 #
 # WHY THE DIRECT CLI AND NOT THE TRANSCRIPTS FEED. The installer does create
-# ~/Documents/Ostler/Transcripts and the spoken feed is ON by default on a
+# ~/Ostler/Transcripts and the spoken feed is ON by default on a
 # fresh single-user box (install.sh:23186), so dropping a file there looks like
 # the honest route. It is not usable as a WALK step, for four measured reasons:
 #
@@ -599,7 +599,12 @@ PY
 conversation_seed_apply() {
     printf -- '--- CONVERSATION SEED: one fictional voice note, through the shipped pipeline ---\n'
 
-    _CS_CLI="${OSTLER_CONVO_SEED_CLI:-/usr/local/bin/pwg-convo}"
+    # Owner-side link first: a GUI install links into ${OSTLER_DIR}/bin (no /usr/local/bin chown).
+    _CS_CLI="${OSTLER_CONVO_SEED_CLI:-}"
+    if [ -z "$_CS_CLI" ]; then
+        if [ -x "${OSTLER_DIR:-$HOME/.ostler}/bin/pwg-convo" ]; then _CS_CLI="${OSTLER_DIR:-$HOME/.ostler}/bin/pwg-convo"
+        else _CS_CLI=/usr/local/bin/pwg-convo; fi
+    fi
     _CS_SETTINGS="${OSTLER_CONVO_SEED_SETTINGS:-\$HOME/.ostler/settings.yaml}"
     _CS_BUDGET="${OSTLER_CONVO_SEED_BUDGET_S:-900}"
     _CS_CURL="${OSTLER_CONVO_SEED_CURL:-/usr/bin/curl}"
@@ -982,7 +987,7 @@ fi
 #    not ours to predict; the short id is sha1(id)[:8] and is.
 P=\"\$HOME/.ostler/processing/\$ID\"
 if [ -d \"\$P\" ]; then rm -rf \"\$P\"; printf 'PROCESSING_DIR removed %s\n' \"\$P\"; else printf 'PROCESSING_DIR absent\n'; fi
-C=\"\$HOME/Documents/Ostler/Conversations\"
+C=\"\$HOME/Ostler/Conversations\"
 if [ -f \"\$C/\$ID.md\" ]; then rm -f \"\$C/\$ID.md\"; printf 'CONVERSATION_MD removed %s\n' \"\$C/\$ID.md\"; else printf 'CONVERSATION_MD absent\n'; fi
 if [ ! -d \"\$C\" ]; then
   printf 'BUNDLE_DIRS no Conversations directory\n'

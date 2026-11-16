@@ -65,8 +65,15 @@ def harness(monkeypatch):
     monkeypatch.setattr(mod, "_qdrant_ensure_collection", lambda *a, **k: None)
 
     def _upsert(collection, points):
+        # ``upsert_returns`` is how many of the ASKED points land in the whole
+        # sweep. The sweep lands in chunks (PEOPLE_INDEX_CHUNK, v1.0.126), so
+        # it is a budget spent across calls, never a per-call constant.
         n = state["upsert_returns"]
-        return len(points) if n is None else n
+        if n is None:
+            return len(points)
+        take = min(n, len(points))
+        state["upsert_returns"] = n - take
+        return take
 
     monkeypatch.setattr(mod, "_qdrant_upsert_points", _upsert)
     # Prune stage: only reachable on a full landing in the fixed code, but
@@ -124,13 +131,15 @@ def test_a_partial_landing_carries_both_numbers(harness):
     assert res.get("total") == 8679, "the count that was ASKED for must survive onto the error report"
 
 
-def test_a_partial_landing_never_prunes(harness):
-    """THE ARM WITH THE WIDEST BLAST RADIUS. The prune stage deletes points
-    whose Person node left the graph. Running it off a sweep that itself
-    did not fully land would compound one defect with another: an
-    unreliable delivery is not a reliable basis for deciding what is
-    stale. A partial landing must return before the prune stage runs at
-    all, not merely avoid deleting anything by chance.
+def test_a_partial_landing_still_prunes_what_left_the_graph(harness):
+    """REVERSED in v1.0.126 (Archie on CM051 #3367). This arm used to require
+    that a partial landing never prune, on the grounds that an unreliable
+    delivery is no basis for deciding what is stale. The prune does not read
+    the delivery: it deletes only points whose person is absent from the graph
+    (the snapshot AND a fresh read), so a person whose embed failed is never
+    stale. Holding the prune back kept deleted and merged-away people
+    searchable for as long as any backlog persisted. It still deletes only
+    this sweep's own points.
     """
     deletes: list = []
     harness["people"] = [_person(i) for i in range(20)]
@@ -142,16 +151,21 @@ def test_a_partial_landing_never_prunes(harness):
 
     import unittest.mock as mock
     with mock.patch.object(mod, "_qdrant_delete_points", _tracked_delete), \
+         mock.patch.object(mod, "_current_person_uris", lambda: None), \
          mock.patch.object(mod, "_qdrant_scroll_points",
-                            lambda *a, **k: [{"id": "x", "payload": {
-                                "person_uri": "https://schema.ostler.ai/person/gone",
-                                "source": "fda_people_index"}}]):
+                            lambda *a, **k: [
+                                {"id": "x", "payload": {
+                                    "person_uri": "https://schema.ostler.ai/person/gone",
+                                    "source": "fda_people_index"}},
+                                {"id": "y", "payload": {
+                                    "person_uri": "https://schema.ostler.ai/person/gone2",
+                                    "source": "icloud_contacts"}}]):
         res = mod.ingest_people_to_qdrant()
-    assert res.get("pruned") is None, (
-        "a partial landing must not attempt a prune -- 'pruned' should be "
-        "absent/None, not a number from a delete that should not have run"
-    )
-    assert deletes == [], "a partial landing ran the prune stage and deleted something"
+    assert res["status"] == "error" and res.get("reason") == "partial_landing", res
+    assert deletes == ["x"], (
+        "a partial landing must still prune this sweep's point for a person "
+        "who left the graph, and never another writer's: %r" % deletes)
+    assert res.get("pruned") == 1, res
 
 
 def test_a_partial_landing_is_distinguishable_from_a_zero_landing(harness):

@@ -32,6 +32,7 @@ from .clients.youtube import YouTubeClient
 from .clients.places import PlacesClient
 from .derive.sensitive import never_read_categories
 from .derive.thematic import HIERARCHY_GRAPH, WD_ENTITY, leaf_is_sensitive
+from .clients.osm_cuisine import OsmCuisineClient
 from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, EntityResult
 
 logger = logging.getLogger(__name__)
@@ -369,6 +370,7 @@ class EnrichmentService:
         self.__events = None
         self.__youtube = None
         self.__google_places = None
+        self.__osm_cuisine = None
 
         # Track already-enriched preferences (in memory for this run)
         self._enriched_ids: Set[str] = set()
@@ -390,6 +392,12 @@ class EnrichmentService:
         if self.__events is None:
             self.__events = EventClient()
         return self.__events
+
+    @property
+    def _osm_cuisine(self) -> OsmCuisineClient:
+        if self.__osm_cuisine is None:
+            self.__osm_cuisine = OsmCuisineClient(cache=self._cache)
+        return self.__osm_cuisine
 
     @property
     def _youtube(self) -> YouTubeClient:
@@ -679,6 +687,14 @@ INSERT DATA {{
             logger.debug(f"No client for category: {category}")
             return None
 
+        # Food routes to wikidata (the single "food" key above); only a
+        # restaurant point whose cuisine is not known goes to the keyless,
+        # consent-gated OSM lookup. Anything else falls through to wikidata.
+        if category == "food":
+            _extra = preference.get("extra", {}) or {}
+            if _extra.get("restaurant") and not _extra.get("cuisine"):
+                client_name = "osm_cuisine"
+
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
@@ -872,6 +888,11 @@ INSERT DATA {{
 
         elif client_name == "google_places":
             return await self._google_places.enrich_venue(pref_id, subject)
+
+        elif client_name == "osm_cuisine":
+            extra = preference.get("extra", {}) or {}
+            restaurant = extra.get("restaurant")
+            return await self._osm_cuisine.enrich_venue(pref_id, restaurant, extra.get("area") or "")
 
         elif client_name == "events":
             return await self._events.enrich_event(pref_id, subject)
