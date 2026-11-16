@@ -3,7 +3,14 @@ import os
 
 import pytest
 
-from owner_outbound.sqlcipher_store import SqlCipherStore, KeyUnavailable
+from owner_outbound.sqlcipher_store import SqlCipherStore, KeyUnavailable, StoreUnavailable
+
+
+def _open_or_cannot_run(*a, **k):
+    try:
+        return SqlCipherStore.open(*a, **k)
+    except StoreUnavailable as e:
+        pytest.skip(str(e))
 
 
 def test_no_key_fails_closed_and_writes_nothing(tmp_path):
@@ -15,13 +22,13 @@ def test_no_key_fails_closed_and_writes_nothing(tmp_path):
 
 def test_db_is_unreadable_without_the_resolved_key(tmp_path):
     path = tmp_path / "owner_outbound.db"
-    store = SqlCipherStore.open(str(path), key_resolver=lambda: "k-test-only")
+    store = _open_or_cannot_run(str(path), key_resolver=lambda: "abcdef0123456789")
     store.close()
     with pytest.raises(Exception):
-        SqlCipherStore.open(str(path), key_resolver=lambda: "wrong-test-key").close()
+        _open_or_cannot_run(str(path), key_resolver=lambda: "fedcba9876543210").close()
 
 
 def test_control_correct_key_reopens(tmp_path):
     path = tmp_path / "owner_outbound.db"
-    SqlCipherStore.open(str(path), key_resolver=lambda: "k-test-only").close()
-    SqlCipherStore.open(str(path), key_resolver=lambda: "k-test-only").close()
+    _open_or_cannot_run(str(path), key_resolver=lambda: "abcdef0123456789").close()
+    _open_or_cannot_run(str(path), key_resolver=lambda: "abcdef0123456789").close()

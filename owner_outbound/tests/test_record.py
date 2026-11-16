@@ -27,6 +27,12 @@ def test_note_to_self_creates_no_person_row():
     assert store.rows == {}
 
 
+def test_note_to_self_to_a_real_contact_creates_no_row():
+    rec, store, _ = make()
+    rec.ingest(outbound(channel="email", to=["a@x.test"], is_note_to_self=True))
+    assert store.rows == {}
+
+
 def test_owner_alias_recipient_creates_no_person_row():
     rec, store, _ = make({OWNER_ALIAS: "person:owner"})
     rec.ingest(outbound(channel="email", to=[OWNER_ALIAS]))
