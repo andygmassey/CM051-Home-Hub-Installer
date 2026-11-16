@@ -46,6 +46,10 @@ def main():
     mutant = src.replace("owner_seed_guard.py", "NO_GUARD", 1)
     if mutant.find("owner_seed_guard.py") != -1:
         bad.append("CONTROL: the mutant still names the guard")
+    # the guard is scoped to a walk that configures an employer seed org (no org = no seed to be live)
+    gate = src.find('if [ -n "${OSTLER_OWNER_SEED_ORG:-}" ]; then')
+    if gate == -1 or not gate < guard_at:
+        bad.append("the guard must be gated on a configured OSTLER_OWNER_SEED_ORG, before the guard call")
     if bad:
         print("FAIL: " + "; ".join(bad))
         return 1

@@ -11,6 +11,17 @@ on:
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/wow_moments.py'
       - 'tests/test_morning_brief_repeat_not_digits.py'
+      - 'tests/test_owner_seed_cleanup_failure_is_an_error.py'
+      - 'tests/test_pair_state_device_layer_uses_live_signals.py'
+      - 'tests/test_owner_knowledge_refuses_while_owner_seed_live.py'
+      - 'tests/test_owner_employer_seed_removed_by_its_seeding_probe.py'
+      - 'tests/test_owner_digest_store_measures_tastes_channel_routines.py'
+      - 'tests/test_owner_digest_routines_store_measured.py'
+      - 'tests/test_followup_seed_resolves_pwg_convo_like_install.py'
+      - 'tests/test_followup_1to1_key_builder.py'
+      - 'tests/test_conversation_seed_curl_config_quoted.py'
+      - 'scripts/box_walk_probes/lib/owner_seed_cleanup.sh'
+      - 'scripts/box_walk_probes/probes/owner_digest_knows_the_owner.sh'
       - 'scripts/box_walk_probes/lib/todo_reminders_box.py'
       - 'tests/test_todo_reminders_readback_reset_residue.py'
       - 'scripts/box_walk_probes/lib/db_key_probe.py'
@@ -39,3 +50,30 @@ jobs:
       - name: a same-title line at a different time, or a count with a different number, is not a morning-brief repeat
         if: always()
         run: python3 tests/test_morning_brief_repeat_not_digits.py
+      - name: an unconfirmed owner-employer seed removal is CLEANUP FAILED, never a note
+        if: always()
+        run: python3 tests/test_owner_seed_cleanup_failure_is_an_error.py
+      - name: test conversation seed curl config quoted
+        if: always()
+        run: python3 tests/test_conversation_seed_curl_config_quoted.py
+      - name: test followup 1to1 key builder
+        if: always()
+        run: python3 tests/test_followup_1to1_key_builder.py
+      - name: test followup seed resolves pwg convo like install
+        if: always()
+        run: python3 tests/test_followup_seed_resolves_pwg_convo_like_install.py
+      - name: test owner digest routines store measured
+        if: always()
+        run: python3 tests/test_owner_digest_routines_store_measured.py
+      - name: test owner digest store measures tastes channel routines
+        if: always()
+        run: python3 tests/test_owner_digest_store_measures_tastes_channel_routines.py
+      - name: test owner employer seed removed by its seeding probe
+        if: always()
+        run: python3 tests/test_owner_employer_seed_removed_by_its_seeding_probe.py
+      - name: test owner knowledge refuses while owner seed live
+        if: always()
+        run: python3 tests/test_owner_knowledge_refuses_while_owner_seed_live.py
+      - name: test pair state device layer uses live signals
+        if: always()
+        run: python3 tests/test_pair_state_device_layer_uses_live_signals.py

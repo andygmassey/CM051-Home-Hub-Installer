@@ -222,6 +222,11 @@ run_probe() {
         # Walk 132 (warm MBP): scored 0% while the owner-employer seed was still live in the
         # graph (removed later in the walk). A score taken while a seed is live measures the
         # seed, not the product, so refuse. UNKNOWN (no count) refuses too: never a pass.
+        # The guard checks the walk's own employer seed. Without a configured seed org (a run that
+        # never plants one, such as this probe's local CONTEXT.md tests) there is no such seed to
+        # be live, so the guard is not applicable. A configured org with the graph unreadable stays
+        # UNKNOWN and refuses.
+        if [ -n "${OSTLER_OWNER_SEED_ORG:-}" ]; then
         _og_py="$(cd "$(dirname "$0")/.." && pwd)/lib/owner_seed_guard.py"
         _og_q='PREFIX pwg: <https://schema.ostler.ai/ontology#> SELECT (COUNT(DISTINCT ?f) AS ?n) WHERE { ?f pwg:source "linkedin_positions" ; pwg:organization "'"${OSTLER_OWNER_SEED_ORG:-}"'" . }'
         _og_b64="$(printf '%s' "$_og_q" | base64 | tr -d '\n')"
@@ -230,6 +235,7 @@ run_probe() {
         if [ "$_og" != "CLEAR" ]; then
             _PERSONA_LOADED=0
             probe_cannot_run "refusing to score: the owner-employer seed is $_og (a linkedin_positions fact for the seeded organisation is in the graph, or the graph did not answer). The score would measure the seed. Let the walk forget it, then score."
+        fi
         fi
         # Walk 132: the swap refused because nothing declared the walk box synthetic. Declare it
         # ONLY for a walk account (lib/walk_box_identity.sh); the owner's account is never declared.
