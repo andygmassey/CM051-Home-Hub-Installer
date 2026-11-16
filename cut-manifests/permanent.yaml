@@ -1695,6 +1695,9 @@ entries:
       #729/#730's); (iv) BOX: prose secondary, no L0 or L3 marker in any reply.
       EXPIRY (launch directive item 5, a non-blocking row expires after ONE cut):
       blocking from v1.0.134 or on removal of the outbound CANNOT.
+      On the 133 walk, a FAIL on any product arm (API, reply_debt, brief, tool
+      responses) or on any teardown line is a STOP that Archie rules on, not an
+      advisory note.
     proof:
       kind: box_walk_probe
       probe: "no_l3_in_tool_results"
