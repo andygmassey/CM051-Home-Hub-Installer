@@ -136,8 +136,15 @@ esc_ingest="$(printf '%s' "$OSTLER_EMAIL_INGEST_BIN_VALUE"   | sed 's/[&/\]/\\&/
 # PWG_EMAIL_INGEST_PATH is rendered before OSTLER_PYTHON_PATH purely for
 # readability; the two placeholders share no common substring so the
 # order is byte-safe either way.
+# Receipts (flag-off). The plist carries OSTLER_RECEIPTS_ENABLED=0; the two dirs are rendered here.
+RECEIPTS_CLI_DIR_VALUE="${OSTLER_RECEIPTS_CLI_DIR:-$EMAIL_INGEST_HOME_RESOLVED/receipts_core}"
+RECEIPTS_EXTRACTOR_DIR_VALUE="${OSTLER_RECEIPTS_EXTRACTOR_DIR:-$EMAIL_INGEST_HOME_RESOLVED/receipts_extractor}"
+esc_rcli="$(printf '%s' "$RECEIPTS_CLI_DIR_VALUE"      | sed 's/[&/\]/\\&/g')"
+esc_rext="$(printf '%s' "$RECEIPTS_EXTRACTOR_DIR_VALUE" | sed 's/[&/\]/\\&/g')"
 sed \
     -e "s/OSTLER_ASSISTANT_BINARY/$esc_assistant/g" \
+    -e "s/RECEIPTS_CLI_DIR_PATH/$esc_rcli/g" \
+    -e "s/RECEIPTS_EXTRACTOR_DIR_PATH/$esc_rext/g" \
     -e "s/OSTLER_BIN/$esc_bin/g" \
     -e "s/OSTLER_HOME/$esc_home/g" \
     -e "s/OSTLER_LOGS/$esc_logs/g" \

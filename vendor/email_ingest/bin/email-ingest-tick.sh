@@ -286,6 +286,21 @@ fi
 }
 
 log "ingested $MBOX successfully"
+
+# RECEIPTS (flag-off by default, 134 release). OSTLER_RECEIPTS_ENABLED=1 runs the email receipt extractor
+# over the same mbox and hands each receipt to the receipts core as a Check row (never filed by the
+# extractor). A failure here never fails the mail tick.
+if [ "${OSTLER_RECEIPTS_ENABLED:-0}" = "1" ]; then
+    if [ -n "${OSTLER_RECEIPTS_CLI_DIR:-}" ] && [ -n "${OSTLER_RECEIPTS_EXTRACTOR_DIR:-}" ]; then
+        if (cd "$OSTLER_RECEIPTS_EXTRACTOR_DIR" && PYTHONPATH="$OSTLER_RECEIPTS_EXTRACTOR_DIR" "${OSTLER_PYTHON:-python3}" -m src.receipts --input "$MBOX" --store "$OSTLER_DIR/state/receipts_store.jsonl" --to-receipts-core "$OSTLER_RECEIPTS_CLI_DIR"); then
+            log "receipts handed to the receipts core"
+        else
+            log "WARNING: receipts handoff failed; the mail tick is unaffected"
+        fi
+    else
+        log "WARNING: OSTLER_RECEIPTS_ENABLED=1 but the receipts core or extractor dir is unset; receipts skipped"
+    fi
+fi
 _SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
 case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
 _report_email_settling "$_SETTLING_TICK_READ"

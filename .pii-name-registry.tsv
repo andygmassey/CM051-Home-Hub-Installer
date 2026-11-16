@@ -2492,3 +2492,25 @@ phrase	smart prefs	walk probe and feature name (scripts/box_walk_probes smart_pr
 phrase	smart preferences	feature name (derived preferences), not a person
 phrase	reply debt	Hub screen and feature name, not a person
 phrase	dark mode	macOS appearance setting, not a person
+phrase	Inland Revenue	UK tax authority name (JURISDICTION), receipts category preset
+phrase	Self Assessment	UK tax return term, receipts category preset
+phrase	Annual Investment	UK tax allowance term (AIA), receipts category preset
+phrase	Staff Christmas	expense category label, receipts category preset
+phrase	Each Part	expense category label, receipts preset
+phrase	Hong Kong	jurisdiction name (JURISDICTION), receipts tax preset
+phrase	Apple Vision	PRODUCT: Apple Vision OCR framework name
+phrase	Foo Ltd	synthetic placeholder supplier suffix in a test/guard example
+phrase	Foo Limited	synthetic placeholder supplier suffix in a test/guard example
+phrase	Foo Co	synthetic placeholder supplier suffix in a test/guard example
+phrase	Limited Edition	prose product phrase, not a person
+phrase	Payment Receipt	document-type phrase used by the receipts supplier guard
+phrase	Uber Eats	PRODUCT: merchant name, receipts extractor vocabulary
+phrase	Just Eat	PRODUCT: merchant name, receipts extractor vocabulary
+phrase	British Airways	PRODUCT: airline name, receipts extractor vocabulary
+phrase	Handles Order	prose phrase in a receipts extractor pattern
+phrase	Example Road	synthetic placeholder street in a receipts fixture (not a real address)
+phrase	Example Steel	synthetic placeholder supplier in a receipts fixture
+phrase	Order Confirmation	document-type phrase in an order email
+phrase	Order Total	document-type phrase in an order email
+phrase	Fri Jan	weekday and month, from a mbox From line
+phrase	Sole Trader	UK tax status term, receipts book preset name

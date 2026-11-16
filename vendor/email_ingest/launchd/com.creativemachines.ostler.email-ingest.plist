@@ -110,6 +110,12 @@
         <string>OSTLER_PYTHON_PATH</string>
         <key>PWG_EMAIL_INGEST</key>
         <string>PWG_EMAIL_INGEST_PATH</string>
+        <key>OSTLER_RECEIPTS_ENABLED</key>
+        <string>0</string>
+        <key>OSTLER_RECEIPTS_CLI_DIR</key>
+        <string>RECEIPTS_CLI_DIR_PATH</string>
+        <key>OSTLER_RECEIPTS_EXTRACTOR_DIR</key>
+        <string>RECEIPTS_EXTRACTOR_DIR_PATH</string>
     </dict>
 
     <!--

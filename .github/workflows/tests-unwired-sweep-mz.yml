@@ -199,6 +199,12 @@ jobs:
         if: always()
         run: bash tests/test_region_persist_does_not_leak_a_traceback.sh
 
+      # 134 receipts route probe (flag-off). Needs bs4, which the shipped email venv carries.
+      - name: Receipts route probe (synthetic email lands in the business Check)
+        run: |
+          python3 -m pip install --quiet beautifulsoup4
+          PROBE_PYTHON="$(command -v python3)" bash tests/test_receipts_route_probe.sh
+
       - name: The installer downloads from the repo we publish to (#1625)
         # Named rather than added to the loop above, for the reason this file
         # already records: the loop's verb only ever touches the loop variable,
