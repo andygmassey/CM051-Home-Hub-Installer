@@ -571,6 +571,95 @@ def _bundle_dirs(needle, root=None):
     return sorted(out)
 
 
+MIRROR_ROOT = os.path.expanduser("~/.ostler/state/conversations_mirror")
+VAULT_TIMELINE = os.path.expanduser("~/Ostler/Wiki/Conversations/timeline")
+WIKI_VOLUMES = (("wiki_docs", "ostler_wiki-docs", "/w"), ("wiki_built", "ostler_wiki-built", "/s"))
+
+
+def _page_files(needle, root):
+    """Compiled timeline PAGES under `root` whose content carries `needle`. The
+    shared timeline index (index.md) is excluded: it is rewritten whole from the
+    bundles that remain at the next compile and is counted separately, never deleted
+    here. Pure file reads."""
+    out, nb = [], needle.encode()
+    if not os.path.isdir(root):
+        return out
+    for dirpath, _d, files in os.walk(root):
+        for n in files:
+            full = os.path.join(dirpath, n)
+            if full == os.path.join(root, "index.md"):
+                continue
+            try:
+                with open(full, "rb") as fh:
+                    if nb in fh.read():
+                        out.append(full)
+            except OSError:
+                continue
+    return sorted(out)
+
+
+WIKI_VOLUME_SH = r"""
+ACTION="$1"; NEEDLE="$2"
+for v in /w /s; do
+  [ -d "$v/Conversations/timeline" ] || continue
+  grep -rl --binary-files=text -F -- "$NEEDLE" "$v/Conversations/timeline" 2>/dev/null | while IFS= read -r f; do
+    case "$f" in
+      /w/Conversations/timeline/index.md|/s/Conversations/timeline/index.html) echo "SHARED $v";;
+      *) echo "PAGE $v"; [ "$ACTION" = delete ] && rm -f -- "$f";;
+    esac
+  done
+done
+exit 0
+"""
+
+
+def _wiki_volume_pages(action, needle):
+    """Count (and for action=delete, remove by exact path) the compiled timeline
+    pages carrying `needle` inside the wiki-docs and wiki-built docker volumes, via a
+    one-shot --rm container of the wiki-compiler image already on the box. Raises
+    when docker or the image is unavailable: that is CANNOT, never 0."""
+    img = subprocess.run(["docker", "image", "ls", "--format", "{{.Repository}} {{.ID}}"],
+                         capture_output=True, text=True, timeout=60)
+    if img.returncode != 0:
+        raise RuntimeError("docker image ls rc=%s %s" % (img.returncode, img.stderr.strip()[:100]))
+    ids = [l.split()[1] for l in img.stdout.splitlines() if "ostler-wiki-compiler" in l and len(l.split()) > 1]
+    if not ids:
+        raise RuntimeError("no ostler-wiki-compiler image on the box")
+    cmd = ["docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "sh"]
+    for _k, vol, mnt in WIKI_VOLUMES:
+        cmd += ["-v", "%s:%s" % (vol, mnt)]
+    cmd += [ids[0], "-c", WIKI_VOLUME_SH, "sh", action, needle]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if p.returncode != 0:
+        raise RuntimeError("docker run rc=%s %s" % (p.returncode, p.stderr.strip()[:150]))
+    return parse_volume_output(p.stdout)
+
+
+def parse_volume_output(text):
+    """'PAGE /w' / 'PAGE /s' / 'SHARED /w' lines -> counts. Pure."""
+    c = {"wiki_docs": 0, "wiki_built": 0, "shared": 0}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        if parts[0] == "SHARED":
+            c["shared"] += 1
+        elif parts[0] == "PAGE":
+            c["wiki_docs" if parts[1] == "/w" else "wiki_built"] += 1
+    return c
+
+
+def _clear_host_copies(needle, mirror_root, vault_root):
+    """Remove the host-side derived copies of one seed by exact path and count them:
+    the mirror bundle dirs and the vault timeline pages (shared index excluded).
+    -> {"mirror": (before, after), "vault": (before, after)}. Raises on a read error."""
+    mir, pg = _bundle_dirs(needle, mirror_root), _page_files(needle, vault_root)
+    _remove_files(mir)
+    _remove_files(pg)
+    return {"mirror": (len(mir), len(_bundle_dirs(needle, mirror_root))),
+            "vault": (len(pg), len(_page_files(needle, vault_root)))}
+
+
 def _tally(stores, paths, field):
     """Add each path to its store's `field` count (before or after). Pure."""
     for f in paths:
@@ -684,6 +773,40 @@ def self_test():
         want("the other seed's bundle is untouched", len(_bundle_dirs("ZEPHYR9", d3)), 1)
     finally:
         shutil.rmtree(d3, ignore_errors=True)
+    # compiled pages are found by content, the shared index is never counted as a page
+    d4 = tempfile.mkdtemp(prefix="no-l3-selftest-wiki-")
+    try:
+        os.makedirs(os.path.join(d4, "2026-11-16"))
+        pg = os.path.join(d4, "2026-11-16", "user-1.md")
+        for f, t in ((pg, "has QUARTZ8"), (os.path.join(d4, "2026-11-16", "user-2.md"), "other"), (os.path.join(d4, "index.md"), "lists QUARTZ8")):
+            with open(f, "w") as fh:
+                fh.write(t)
+        want("wiki page found by content, index excluded", _page_files("QUARTZ8", d4), [pg])
+        _remove_files(_page_files("QUARTZ8", d4))
+        want("wiki page left behind is gone after removal", _page_files("QUARTZ8", d4), [])
+        want("the shared index is untouched", os.path.exists(os.path.join(d4, "index.md")), True)
+    finally:
+        shutil.rmtree(d4, ignore_errors=True)
+    # the host-side clear removes the mirror copy and the vault page, counts both
+    # before and after, and leaves the shared index and another seed's page alone
+    d5 = tempfile.mkdtemp(prefix="no-l3-selftest-clear-")
+    try:
+        mr, vr = os.path.join(d5, "mirror"), os.path.join(d5, "vault")
+        os.makedirs(os.path.join(mr, "2026-11-16", "user-m1")); os.makedirs(os.path.join(vr, "2026-11-16"))
+        with open(os.path.join(mr, "2026-11-16", "user-m1", "transcript.md"), "w") as fh:
+            fh.write("QUARTZ7")
+        for f, t in ((os.path.join(vr, "2026-11-16", "user-1.md"), "QUARTZ7"), (os.path.join(vr, "2026-11-16", "user-2.md"), "ZEPHYR7"),
+                     (os.path.join(vr, "index.md"), "QUARTZ7 listed")):
+            with open(f, "w") as fh:
+                fh.write(t)
+        r = _clear_host_copies("QUARTZ7", mr, vr)
+        want("host copies counted before and after", r, {"mirror": (1, 0), "vault": (1, 0)})
+        want("the other seed's page survives", os.path.exists(os.path.join(vr, "2026-11-16", "user-2.md")), True)
+        want("the shared index survives", os.path.exists(os.path.join(vr, "index.md")), True)
+    finally:
+        shutil.rmtree(d5, ignore_errors=True)
+    want("volume output parsed", parse_volume_output("PAGE /w\nPAGE /w\nPAGE /s\nSHARED /w\njunk"),
+         {"wiki_docs": 2, "wiki_built": 1, "shared": 1})
     # the per-store tally puts each leftover path in its own store, so a file left
     # in ANY store shows up as a non-zero "after"
     tl = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach")}
@@ -862,6 +985,46 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     for k, note in (("md", "not written on this box"),):
         if not stores[k]["before"] and "note" not in stores[k]:
             stores[k]["note"] = note
+    # 3b. DERIVED COPIES of the bundles, removed AFTER the source bundles are gone and
+    # with NO compile in between: the conversations mirror (rsync --delete would drop
+    # it at the next fda tick), the compiled wiki timeline pages in the host vault
+    # (the compiler never prunes a page whose bundle is gone), and the same pages in
+    # the wiki-docs and wiki-built docker volumes. Each is counted before and after;
+    # an unreadable store is after=None, which the report reads as CANNOT.
+    derived = {k: {"before": 0, "after": 0} for k in ("mirror_l2", "mirror_l3", "wiki_vault", "wiki_docs", "wiki_built")}
+    stores.update(derived)
+    needles = [("l2", cap["markers"].get("l2")), ("l3", cap["markers"].get("l3"))]
+    for lvl, needle in needles:
+        if not needle:
+            continue
+        try:
+            r = _clear_host_copies(needle, MIRROR_ROOT, VAULT_TIMELINE)
+            derived["mirror_l" + lvl[1]]["before"] += r["mirror"][0]
+            derived["mirror_l" + lvl[1]]["after"] += r["mirror"][1]
+            derived["wiki_vault"]["before"] += r["vault"][0]
+            if derived["wiki_vault"]["after"] is not None:
+                derived["wiki_vault"]["after"] += r["vault"][1]
+        except Exception as exc:  # noqa: BLE001
+            derived["mirror_l" + lvl[1]]["after"] = None
+            derived["mirror_l" + lvl[1]]["note"] = "unreadable: " + str(exc)[:80]
+            derived["wiki_vault"]["after"] = None
+            derived["wiki_vault"]["note"] = "unreadable: " + str(exc)[:80]
+        try:
+            b = _wiki_volume_pages("count", needle)
+            _wiki_volume_pages("delete", needle)
+            a = _wiki_volume_pages("count", needle)
+            for k in ("wiki_docs", "wiki_built"):
+                derived[k]["before"] += b[k]
+                if derived[k]["after"] is not None:
+                    derived[k]["after"] += a[k]
+            derived["wiki_docs"]["shared_index_hits"] = b["shared"] + a["shared"]
+        except Exception as exc:  # noqa: BLE001
+            for k in ("wiki_docs", "wiki_built"):
+                derived[k]["after"] = None
+                derived[k]["note"] = "unreadable: " + str(exc)[:80]
+    for k, v in derived.items():
+        if not v["before"] and "note" not in v:
+            v["note"] = "none present at teardown (not compiled or mirrored during the run)"
     # ONE source of truth per number: speaker_feedback is counted in stores[] only,
     # and MBP free is read here, after everything is removed.
     fx["free_gb_after"] = round(shutil.disk_usage("/").free / 1e9, 1)

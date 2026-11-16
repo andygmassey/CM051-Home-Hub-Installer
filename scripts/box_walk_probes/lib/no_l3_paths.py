@@ -57,7 +57,8 @@ def report(cap, out=sys.stdout):
     print("  MBP free: %s GB before, %s GB after; L3 seed counts before any capture: %s" % (
         fx.get("free_gb_before"), fx.get("free_gb_after"), json.dumps(fx.get("l3_seed_counts"))), file=out)
     st = fx.get("stores") or {}
-    for k in ("processing", "md", "speaker_feedback", "coach", "bundle_l2", "bundle_l3"):
+    for k in ("processing", "md", "speaker_feedback", "coach", "bundle_l2", "bundle_l3",
+              "mirror_l2", "mirror_l3", "wiki_vault", "wiki_docs", "wiki_built"):
         v = st.get(k) or {}
         print("  store %-17s before=%s after=%s%s" % (k, v.get("before"), v.get("after"), " (%s)" % v["note"] if v.get("note") else ""), file=out)
         if v.get("after") != 0:
@@ -94,6 +95,9 @@ def report(cap, out=sys.stdout):
     return rc
 
 
+DERIVED_OK = {k: {"before": 1, "after": 0} for k in ("mirror_l2", "wiki_vault", "wiki_docs", "wiki_built")}
+DERIVED_OK["mirror_l3"] = {"before": 0, "after": 0}
+
 J_CLEAN_API = json.dumps({"events": [
     {"conversation_id": "ostler-walk-QUARTZ1", "privacy_level": "L2"},
     {"conversation_id": "ostler-walk-ZETA1", "privacy_level": "L0"}]})
@@ -108,7 +112,7 @@ def _cap(paths=None, fx=None):
                         "free_gb_before": 100.0, "free_gb_after": 100.0, "disk_before": 4, "disk_after": 0,
                         "stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 0, "after": 0, "note": "not written"},
                                    "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0, "note": "db absent"},
-                                   "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}},
+                                   "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}, **DERIVED_OK},
                         "reply_debt": {"restored": True, "before_tree": "a", "after_tree": "a"}},
             "teardown": {}}
     for n, v in (paths or {}).items():
@@ -150,12 +154,18 @@ def self_test():
                       _cap({n: {"status": "l3_seed_absent", "control": False, "l3_seed_count": 0, "text": "QUARTZ1 only"}}),
                       "path %-13s CANNOT-RUN" % n, OK))
     good = {"processing": {"before": 2, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0},
-            "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}
+            "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}, **DERIVED_OK}
     for k in ("bundle_l2", "bundle_l3"):
         cases.append(("a %s bundle left behind -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 1, "after": 1}}}), "CANNOT store %s: after" % k, CANNOT))
         cases.append(("%s bundle never counted -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 0, "after": 0}}}), "CANNOT store %s: nothing counted" % k, CANNOT))
-    cases.append(("a store left non-empty (md) -> 78", _cap(fx={"stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 1, "after": 1}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store md", CANNOT))
-    cases.append(("processing never counted -> 78", _cap(fx={"stores": {"processing": {"before": 0, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store processing", CANNOT))
+    for k in ("mirror_l2", "mirror_l3", "wiki_vault", "wiki_docs", "wiki_built"):
+        cases.append(("%s left behind -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 1, "after": 1}}}), "CANNOT store %s: after" % k, CANNOT))
+        cases.append(("%s unreadable (after None) -> 78, never 0" % k, _cap(fx={"stores": {**good, k: {"before": 0, "after": None, "note": "unreadable"}}}), "CANNOT store %s: after" % k, CANNOT))
+        cases.append(("%s absent from the capture -> 78" % k, _cap(fx={"stores": {kk: vv for kk, vv in good.items() if kk != k}}), "CANNOT store %s: after" % k, CANNOT))
+    cases.append(("mirror/wiki not present during the run is allowed (before 0)", _cap(fx={"stores": {**good, "wiki_docs": {"before": 0, "after": 0, "note": "not compiled during run"}}}),
+                  "store wiki_docs         before=0 after=0", OK))
+    cases.append(("a store left non-empty (md) -> 78", _cap(fx={"stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 1, "after": 1}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}, **DERIVED_OK}}), "CANNOT store md", CANNOT))
+    cases.append(("processing never counted -> 78", _cap(fx={"stores": {"processing": {"before": 0, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}, **DERIVED_OK}}), "CANNOT store processing", CANNOT))
     cases.append(("a speaker_feedback file left behind -> 78", _cap(fx={"stores": {**good, "speaker_feedback": {"before": 1, "after": 1}}}), "CANNOT store speaker_feedback: after", CANNOT))
     cases.append(("no speaker_feedback file ever counted -> 78", _cap(fx={"stores": {**good, "speaker_feedback": {"before": 0, "after": 0}}}), "CANNOT store speaker_feedback: nothing counted", CANNOT))
     cases.append(("a store with no after key is CANNOT, never 0", _cap(fx={"stores": {**good, "md": {"before": 0}}}), "CANNOT store md: after-count is not 0", CANNOT))
