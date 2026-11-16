@@ -40,3 +40,21 @@ def test_service_sender_exclusion_is_declared(monkeypatch):
     assert result["total"] == 1
     assert result.get("excluded") == 1, result
     assert result.get("by_reason") == {"service mailbox": 1}, result
+
+
+def test_first_last_address_with_a_card_is_kept(monkeypatch):
+    # A personal first.last address that the sender rule flags, but the person
+    # has a contact card, must be KEPT (card-or-conversation keeps the person).
+    carded = _person("urn:synthetic:person:3", "Synthetic Carol",
+                     ["carol.synthetic@wish.example.com"])
+    carded["icloud_uid"] = "synthetic-card-uid-3"
+    result = _run(monkeypatch, [carded])
+    assert result["total"] == 1, result
+
+
+def test_first_last_address_with_no_card_and_no_conversation_is_excluded(monkeypatch):
+    # Control: same shape, no card and no last-contact evidence, stays excluded.
+    bare = _person("urn:synthetic:person:4", "Synthetic Dan",
+                   ["dan.synthetic@wish.example.com"])
+    result = _run(monkeypatch, [bare])
+    assert result["total"] == 0, result
