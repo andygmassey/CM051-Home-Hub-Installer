@@ -16,7 +16,7 @@ grafts. Blessing that in bulk is not this change's call.
 
 ## Why
 
-The Google Chat Takeout importer (CM051 #3022, `SOURCE = "google_chat"`)
+The Takeout chat importer (CM051 #3022, `SOURCE = "google_chat"`)
 hands its correspondents to this sink, which minted every one as
 `pwg:source "apple_mail_fda"` / `identifierLabel "APPLE_MAIL"`. Defaults are
 unchanged, so every mail caller writes byte-identical triples.

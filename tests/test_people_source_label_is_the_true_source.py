@@ -1,7 +1,7 @@
 """Every Person the shared email-correspondent sink creates records its TRUE
 source (People join fix 3).
 
-The Google Chat Takeout importer hands its correspondents to the same sink
+The Takeout chat importer hands its correspondents to the same sink
 Apple Mail uses (universal_import._persist_mail_contacts ->
 pwg_ingest.ingest_mail_contacts), which hardcoded pwg:source "apple_mail_fda"
 and identifierLabel "APPLE_MAIL". So a Chat correspondent was minted as an
