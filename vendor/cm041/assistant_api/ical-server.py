@@ -7783,6 +7783,31 @@ def _decision_facts_from_conversations(about=None, query=None):
     return rows, None
 
 
+def _new_withheld():
+    """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
+    items. ``legacy_untagged`` is NOT withheld: those items are served and
+    counted so the response shows how many have no readable level yet."""
+    return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
+
+
+def _count_withheld(withheld, verdict):
+    """Tally one item by its verdict. Returns True when the item is served."""
+    if verdict == "l3":
+        withheld["l3"] += 1
+        return False
+    if verdict == "unknown":
+        withheld["unknown"] += 1
+        return False
+    if verdict == "legacy_untagged":
+        withheld["legacy_untagged"] += 1
+    return True
+
+
+def _withheld_view(withheld):
+    """The withheld block of a response: the two withheld counts only."""
+    return {"l3": withheld["l3"], "unknown": withheld["unknown"]}
+
+
 def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
 
@@ -8106,12 +8131,10 @@ def commitments_list(owner=None, due_before=None, status="open",
         ``deadline`` strictly before it (undated commitments are dropped
         when this filter is set, kept otherwise).
 
-    Each row carries ``privacy_level`` read from the todo's own
-    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
-    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
-    present but unparseable -> "L3" (fail closed, never visible). Rows are
-    still served ungated: the consumer (ostler-assistant promise filter)
-    applies the level.
+    Privacy (fail closed): each todo is served only when its own
+    ``urn:ostler:privacyLevel`` parses to L0/L1/L2. L3, missing and
+    unparseable levels are withheld and counted in ``withheld`` ({l3,
+    unknown}). Served rows carry ``privacy_level``.
 
     Newest first by deadline then created-at. Returns
     ``({"commitments": [{action, owner, due, status, source,
@@ -8125,56 +8148,9 @@ def commitments_list(owner=None, due_before=None, status="open",
         )
 
     try:
-        # TODOS CARRY privacyLevel NOW, AND THIS READER DROPS L3 ROWS.
-        #
-        # History: when this was first written, a box measurement found 93
-        # OutstandingTodo nodes and ZERO with a privacyLevel, so a
-        # fail-closed filter would have hidden all of them. That is no longer
-        # true: CM048's ingest tags every todo it writes
-        # (vendor/cm048_pipeline/src/ingest.py, the privacyLevel line of the
-        # todo block, ~:929) and skips L3 conversations at the writer
-        # (ingest.py ~:602, processor.py ~:395 and ~:2730).
-        #
-        # The writer guards are the primary control. The loop below is the
-        # second line of defence (belt and braces): an L3-tagged row is
-        # dropped here even if a writer guard regresses, because the brief
-        # built from the same store is EMAILED. A row with NO privacyLevel
-        # (legacy, written before todos were tagged) is NOT dropped and is
-        # served at the default level, exactly as before.
-        #
-        # urn:ostler:visibility is NOT a usable substitute, and this was
-        # checked rather than assumed: it is the literal "private" on every
-        # CM048 node (471 of 471 signals, 93 of 93 todos, 1462 of 1462
-        # facts INCLUDING the 1369 tagged L0). Nothing in this repo reads it.
-        #
-        # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
-        # ARE TWO AND ONLY ONE IS ENFORCED.
-        #
-        # Every CM048 node carries urn:ostler:privacyLevel AND
-        # urn:ostler:visibility. privacyLevel is the ENFORCED axis: the readers
-        # above join it and the L3 filter acts on it. visibility is INERT. It
-        # is written by CM048's ingest and read by nothing in the shipped tree
-        # -- in this repo the only occurrence of the string is this comment,
-        # against 27 for ostler:privacyLevel as the control, so the search
-        # finds reads where reads exist and the zero is real.
-        #
-        # This is written down because the next person to open a node will see
-        # the literal "private" sitting on it and reasonably assume something
-        # enforces it. Nothing does, and the two assertions disagree in effect:
-        # a node reading privacyLevel L1 (which policy SERVES) also reads
-        # visibility "private" (which policy never consults).
-        #
-        # NOT CLAIMED: what visibility was intended to mean, whether it
-        # predates privacyLevel, or whether it is a CM048-internal marker that
-        # was never meant for the reader side. One constant value written in
-        # one upstream file is consistent with all three, and settling it
-        # belongs to whoever owns CM048, not to this PR. What IS settled is
-        # that a reader relying on it today would be relying on nothing.
-        #
-        # CM048 writes todos into the per-user NAMED graph. Measured 0 rows
-        # as shipped, 20 with the clause, against 76 todos on the box.
-        # DISTINCT is new and is load-bearing: without it a todo present in
-        # BOTH graphs would be listed twice by the UNION.
+        # Privacy: the todo's own urn:ostler:privacyLevel, read in the query
+        # below, is the only provenance a todo carries (no source-node link).
+        # Rows are gated per row in the loop, fail closed.
         rows = _sparql_select(
             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
             + (
@@ -8202,26 +8178,33 @@ def commitments_list(owner=None, due_before=None, status="open",
     due_norm = (due_before or "").strip()
 
     commitments = []
+    withheld = _new_withheld()
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
-            continue
-        # 133 outbound gate: this list is read by the assistant's promise
-        # filter for channel replies and briefs. L0, L3 and unparseable
-        # levels are withheld; untagged is served at the default level.
-        if not _outbound_level_ok(r.get("plevel")):
             continue
         deadline = r.get("deadline", "")
         if due_norm:
             # Undated commitments cannot satisfy a "due before" window.
             if not deadline or deadline >= due_norm:
                 continue
+        verdict = pwg_privacy.provenance_verdict(r.get("plevel"))
+        if not _count_withheld(withheld, verdict):
+            continue
+        # 133 outbound gate, applied to the rows the verdict serves. This
+        # list is read by the assistant's promise filter for channel replies
+        # and briefs, so only L1, L2 and untagged may leave. An L0 row is
+        # not outbound-safe. The withheld block has no L0 key, so it is
+        # counted under "unknown" (the outbound view cannot name it).
+        if not _outbound_level_ok(r.get("plevel")):
+            withheld["unknown"] += 1
+            continue
         commitments.append({
             "action": r.get("action", ""),
             "owner": r.get("owner", ""),
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
-            "privacy_level": _commitment_privacy_level(r.get("plevel")),
+            "privacy_level": pwg_privacy.parse_privacy_level(r.get("plevel")),
             "_created": r.get("createdAt", ""),
         })
 
@@ -8234,7 +8217,8 @@ def commitments_list(owner=None, due_before=None, status="open",
     # Same contract as /api/v1/suggestions above, and the same measurement:
     # untagged means L3 means dropped, so this payload declares its level.
     return {"commitments": commitments, "count": len(commitments),
-            "privacy_level": "L2"}, 200
+            "withheld": _withheld_view(withheld),
+            "legacy_untagged": withheld["legacy_untagged"]}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────

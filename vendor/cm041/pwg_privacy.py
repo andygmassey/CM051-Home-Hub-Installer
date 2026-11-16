@@ -107,3 +107,46 @@ def filter_l3_facts(facts, owner_level=None):
     if not isinstance(facts, list):
         return []
     return [f for f in facts if not is_l3(f, owner_level)]
+
+
+
+def _classify(raw):
+    """ABSENT (no value), a parsed level, or UNREADABLE (a value that is not
+    a level). ABSENT and UNREADABLE stay distinct: ABSENT keeps the item as
+    legacy, UNREADABLE withholds it."""
+    if raw is None or str(raw).strip() == "":
+        return "ABSENT"
+    return parse_privacy_level(raw) or "UNREADABLE"
+
+
+def provenance_verdict(own, sources=()):
+    """Visibility of one item, from its OWN level and its linked sources.
+
+    ``own``: the item's own privacyLevel (raw), or None if it has none.
+    ``sources``: the raw level of each linked source (source conversation,
+    source meeting, attendee), None where the link has no level.
+
+    Order (Archie, 133): the item's own level first, then the linked
+    sources; most-restrictive wins.
+
+      * "l3"             -- own or any source is L3: withhold, counted.
+      * "unknown"        -- own or any source is present but unreadable,
+                            or a link does not resolve: withhold, counted.
+      * "ok"             -- no L3, nothing unreadable, and at least one
+                            readable L0/L1/L2: serve.
+      * "legacy_untagged"-- no readable level anywhere: serve, and count it
+                            so it is visible. Not a withhold.
+    """
+    own_c = _classify(own)
+    if own_c == "L3":
+        return "l3"
+    if own_c == "UNREADABLE":
+        return "unknown"
+    classes = [_classify(s) for s in sources]
+    if "L3" in classes:
+        return "l3"
+    if "UNREADABLE" in classes:
+        return "unknown"
+    if own_c in ("L0", "L1", "L2") or any(c in ("L0", "L1", "L2") for c in classes):
+        return "ok"
+    return "legacy_untagged"
