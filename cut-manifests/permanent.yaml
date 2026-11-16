@@ -1682,6 +1682,19 @@ entries:
       and docker-volume removal paths read 0 -> 0 on the box in run 11 because no
       compile or fda tick fell inside the window; they are proven by self-tests
       only, not by a live removal.
+      COMPOSITION (O21, ORM register ~/walkdriver/ORM_BACKLOG_133.md; declared by
+      ORM, the oa citations were not re-run here): the outbound arm is
+      "CANNOT-RUN on box; PROVEN by composition", not PASS, via (i) BOX: the API
+      arm PASS in run 11 (L0, L2 and L3 labelled correctly); (ii) CODE:
+      event_may_leave on the call path at
+      crates/zeroclaw-tools/src/pwg_person_timeline.rs:348 in oa proof source
+      fbeb0126f; (iii) UNIT: the oa tests
+      summarise_timeline_withholds_l0_and_l3_on_every_event_type,
+      summarise_timeline_renders_a_meeting_only_with_an_explicit_non_l3_level and
+      execute_drops_l3_and_unlabelled_meetings_end_to_end (their mutant claim is
+      #729/#730's); (iv) BOX: prose secondary, no L0 or L3 marker in any reply.
+      EXPIRY (launch directive item 5, a non-blocking row expires after ONE cut):
+      blocking from v1.0.134 or on removal of the outbound CANNOT.
     proof:
       kind: box_walk_probe
       probe: "no_l3_in_tool_results"
