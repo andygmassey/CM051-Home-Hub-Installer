@@ -76,6 +76,7 @@ from documents_access_posture import render_documents_access_posture
 # graph. Vendor-only module (it reports on an installer LaunchAgent HR015 Doctor
 # has no equivalent of); see vendor/VENDOR_ONLY.tsv.
 from derived_preferences_status import render_derived_preferences_status
+from engine_watchdog_status import render_engine_watchdog_status
 from export_status import collect_import_state, render_export_section
 from loopback_guard_status import render_loopback_guard_status
 # Homebrew ownership row (same-shape sweep 2026-11-14). Vendor-only; see vendor/VENDOR_ONLY.tsv.
@@ -1666,6 +1667,7 @@ def render_dashboard(
     export_section = render_export_section(
         _exports if _exports is not None else collect_import_state())
     derived_preferences_section = render_derived_preferences_status()
+    engine_watchdog_section = render_engine_watchdog_status()
     loopback_guard_section = render_loopback_guard_status()
     shared_prefix_section = render_shared_prefix_status()
     people_index_section = render_people_index_status()
@@ -2236,6 +2238,7 @@ def render_dashboard(
         {source_status_section}
         {export_section}
         {derived_preferences_section}
+        {engine_watchdog_section}
         {loopback_guard_section}
         {shared_prefix_section}
         {people_index_section}
