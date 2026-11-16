@@ -291,11 +291,15 @@ def _http(url, data=None, headers=None, timeout=30):
 
 def _routines_count(commitments, owner_meetings):
     """Routines and priorities: open commitments PLUS the owner's diary meetings in the routine
-    window (generator _routines_lines, 90 days). The owner-meeting count uses the anchor node
-    only, which can undercount a fragmented owner, so zero is not proof the section is empty:
-    the store reads None unless something is measured above zero."""
-    total = (commitments() or 0) + (owner_meetings or 0)
-    return total if total > 0 else None
+    window (generator _routines_lines, 90 days). Each half returns a real count (zero included)
+    or None when that read FAILED. Any failed half makes the total None: a store that could not
+    be read is never a zero. The owner-meeting count uses the anchor node, so it can UNDERCOUNT a
+    fragmented owner; an undercount can only miss a lie, never invent one."""
+    c = commitments()
+    m = owner_meetings
+    if c is None or m is None:
+        return None
+    return c + m
 
 
 def measure_stores():
@@ -370,7 +374,7 @@ def measure_stores():
             d = _http("http://127.0.0.1:8000/api/v1/commitments?owner=user&status=open&limit=50",
                       headers={"Authorization": "Bearer " + tok})
             rows = d.get("commitments") if isinstance(d, dict) else None
-            return len(rows) if isinstance(rows, list) and rows else None
+            return len(rows) if isinstance(rows, list) else None
         except Exception:
             return None
     uid_ = ""

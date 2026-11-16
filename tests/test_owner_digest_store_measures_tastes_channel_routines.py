@@ -71,13 +71,24 @@ def main():
             bad.append("CONTROL: without the Tastes mapping the lie should not be caught")
     finally:
         od.SECTION_STORE["Tastes"] = saved
-    # 6. Routines counter: commitments plus meetings, zero reads None
-    if od._routines_count(lambda: 0, 0) is not None:
-        bad.append("Routines: 0 commitments and 0 meetings must read None")
+    # 6. Routines counter: commitments plus meetings. A real empty store is a real zero;
+    #    a FAILED read (None) makes the total None. A zero is never a failed read.
+    if od._routines_count(lambda: 0, 0) != 0:
+        bad.append("Routines: an empty store (0 commitments, 0 meetings) must read 0, not None")
+    if od._routines_count(lambda: None, 0) is not None:
+        bad.append("Routines: a failed commitments read must read None")
+    if od._routines_count(lambda: 0, None) is not None:
+        bad.append("Routines: a failed meetings read must read None")
     if od._routines_count(lambda: 2, 0) != 2:
         bad.append("Routines: 2 commitments must read 2")
     if od._routines_count(lambda: 0, 1) != 1:
         bad.append("Routines: a diary meeting alone must read 1")
+    # 7. control: an empty measured Routines store with 'nothing stored' is an honest PASS,
+    #    and the same store reading None (failed read) is CANNOT-RUN, never a pass.
+    if row("Routines and priorities", facts("Routines and priorities", "routines_priorities", 0)) != [True]:
+        bad.append("Routines: a measured empty store with 'nothing stored' must PASS")
+    if row("Routines and priorities", facts("Routines and priorities", "routines_priorities", None)) != [None]:
+        bad.append("CONTROL: a failed Routines read must be CANNOT-RUN, never a pass")
     if bad:
         print("FAIL: " + "; ".join(bad))
         return 1

@@ -48,6 +48,24 @@ run_probe() {
     n="$(printf '%s\n' "${out}" | grep -cE '^  (ok|FAIL|CANNOT|N/A) ')"
     probe_examined "${n}" "owner-digest assertions"
     [ "${n}" -gt 0 ] || probe_fail "the owner-digest judge printed no assertion; a silent probe is not a pass"
+    # The seeding side removes its own seed. owner_knowledge_score ran after this probe and was
+    # refused because the employer fact was still live (walk 132, MBP). The judgement above is
+    # already taken, so removing the seed here changes no verdict. The forget prints the count
+    # before and after: "before" above zero is the positive control (the seed was there and
+    # the delete acted on it); "after=0" is the removal. Anything else is reported, never silent.
+    if [ "${OSTLER_OWNER_SEED_STATE:-}" = "seeded" ] && [ "${OSTLER_OWNER_SEED_KEEP:-0}" != "1" ]; then
+        . "${_HERE}/lib/owner_employer_seed.sh"
+        _oes_out="$(owner_employer_seed_forget 2>&1)"
+        printf '%s\n' "${_oes_out}" | sed 's/^/  own-end: /'
+        _oes_before="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES before=\([0-9]*\).*/\1/p' | tail -1)"
+        _oes_after="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES after=\([0-9]*\).*/\1/p' | tail -1)"
+        if [ "${_oes_after:-x}" = "0" ]; then
+            probe_note "owner-employer seed removed at this probe's own end (before=${_oes_before:-?}, after=0)"
+        else
+            probe_note "owner-employer seed NOT confirmed removed at this probe's own end (before=${_oes_before:-?}, after=${_oes_after:-unreadable}); owner_knowledge_score will refuse while it is live"
+        fi
+    fi
+
     case "${rc}" in
         0)  probe_pass "the digest knows the owner and the chat names the seeded employer" ;;
         78) probe_cannot_run "an owner-digest assertion could not be measured (see the CANNOT lines above)" ;;
