@@ -314,6 +314,19 @@ def classify_path(text, l2_marker, error=None):
     return {"status": "captured", "text": text, "control": True}
 
 
+def with_l3_control(cls, l3_count):
+    """L3 POSITIVE CONTROL. `l3_count` is how many rows/files carrying the L3 token
+    were counted in the store after seeding and before any capture. Zero means the
+    L3 seed is not there, so "no L3 token in the output" would only mean "nothing
+    to withhold": the path is not captured, never a pass. Pure, self-tested."""
+    cls = dict(cls)
+    cls["l3_seed_count"] = l3_count
+    if not l3_count:
+        cls["status"] = "l3_seed_absent"
+        cls["control"] = False
+    return cls
+
+
 # --- timeline ---------------------------------------------------------------
 
 def _seed_graph(owner, stamp, markers, subjects_out):
@@ -504,6 +517,10 @@ def self_test():
         want(path + " empty capture", classify_path("  ", "QUARTZ1")["status"], "empty")
         want(path + " L2 control silent", classify_path('{"debts": []}', "QUARTZ1")["status"], "control_silent")
         want(path + " L2 control present", classify_path('{"snippet": "QUARTZ1 hi"}', "QUARTZ1")["status"], "captured")
+    for path in ("timeline", "reply_debt", "brief_catchup"):
+        ok = classify_path("QUARTZ1 hi", "QUARTZ1")
+        want(path + " L3 seed absent -> not captured", with_l3_control(ok, 0)["status"], "l3_seed_absent")
+        want(path + " L3 seed counted -> stays captured", with_l3_control(ok, 3)["status"], "captured")
     # a leak is not this function's business: an L0 token with a live control is still `captured`
     want("leak keeps the capture", classify_path("QUARTZ1 and ZETA1", "QUARTZ1")["status"], "captured")
     # the reply-debt snapshot has the shape CM048 reads, one thread per level, marker in the text
@@ -552,39 +569,53 @@ def main():
             raise RuntimeError("fixture name already present %d times; refusing to seed" % pre_name)
         cap["fixture"]["total_before"] = _count_total()
         cap["fixture"]["stamp_before"] = _count_stamp(stamp)
-        rd["before_tree"] = _tree_sha(RD_DIR)
-        shutil.copytree(RD_DIR, os.path.join(backup_dir, "bak"), copy_function=shutil.copy2)
-        rd["backup"] = os.path.join(backup_dir, "bak")
-        cap["fixture"]["reply_debt_tree_before"] = rd["before_tree"]
-        _note("reply_debt tree sha before: " + rd["before_tree"])
+        cap["fixture"]["free_gb_before"] = round(shutil.disk_usage("/").free / 1e9, 1)
 
         # --- timeline + brief graph rows (CM048's own serialisers) ------------
         _seed_graph(owner, stamp, markers, subjects)
         cap["fixture"]["subjects"] = len(subjects)
         cap["fixture"]["triples_before_delete"] = _count_subjects(subjects)
         _note("graph seeded: %d subjects, %d triples" % (len(subjects), cap["fixture"]["triples_before_delete"]))
-        cap["paths"]["timeline"] = _capture_timeline(token, markers)
-
         # --- the existing seven-tool seed (shipped pwg-convo writer) -----------
         cap["seeds"] = {"l3": _seed(legacy_ids["l3"], m3, "L3"), "l2": _seed(legacy_ids["l2"], m2, "L2")}
+        # --- L3 POSITIVE CONTROL, after seeding and BEFORE any capture ----------
+        ctl = {
+            "timeline": _count('?s <urn:ostler:text> ?o FILTER(CONTAINS(STR(?o), "%s"))' % m3),
+            "brief_todo": _count('?s <urn:ostler:todoText> ?o FILTER(CONTAINS(STR(?o), "%s"))' % m3),
+            "pwg_convo_bundle": 1 if cap["seeds"]["l3"].get("bundle") == "present" else 0,
+        }
+        cap["fixture"]["l3_seed_counts"] = ctl
+        _note("L3 seed counts before any capture: " + json.dumps(ctl))
+        tl = _capture_timeline(token, markers)
+        cap["paths"]["timeline"] = with_l3_control(tl, ctl["timeline"])
         cap["tools"] = _tools(m3, m2, token)
 
         # --- reply-debt + brief, inside one tick-free window --------------------
         _wait_for_tick_window(700)
+        # sha'd snapshot IMMEDIATELY before seeding (the producer is not stopped)
+        rd["before_tree"] = _tree_sha(RD_DIR)
+        shutil.copytree(RD_DIR, os.path.join(backup_dir, "bak"), copy_function=shutil.copy2)
+        rd["backup"] = os.path.join(backup_dir, "bak")
+        cap["fixture"]["reply_debt_tree_before"] = rd["before_tree"]
+        _note("reply_debt tree sha before seeding: " + rd["before_tree"])
         seeded = _email_snapshot(markers, stamp)
         body = json.dumps(seeded, indent=1).encode()
         with open(EMAIL_SNAPSHOT, "wb") as fh:
             fh.write(body)
         os.chmod(EMAIL_SNAPSHOT, 0o600)
         rd["seeded"], rd["seeded_sha"] = True, hashlib.sha256(body).hexdigest()
+        with open(EMAIL_SNAPSHOT, encoding="utf-8") as fh:
+            ctl["reply_debt"] = fh.read().count(m3)
+        _note("L3 seed count reply_debt (marker in the snapshot just written): %d" % ctl["reply_debt"])
         api = _api_reply_debt(token)
         rd_text = api.get("text") if api.get("status") == 200 else None
-        cap["paths"]["reply_debt"] = classify_path(
-            rd_text, m2, None if rd_text is not None else (api.get("error") or "status=%s" % api.get("status")))
+        cap["paths"]["reply_debt"] = with_l3_control(classify_path(
+            rd_text, m2, None if rd_text is not None else (api.get("error") or "status=%s" % api.get("status"))),
+            ctl["reply_debt"])
         text, why, cron = _brief_via_copy(markers)
         cap["fixture"]["brief_copy"] = cron
         intact = os.path.exists(EMAIL_SNAPSHOT) and _file_sha(EMAIL_SNAPSHOT) == rd["seeded_sha"]
-        cap["paths"]["brief_catchup"] = classify_path(text, m2, why)
+        cap["paths"]["brief_catchup"] = with_l3_control(classify_path(text, m2, why), ctl["brief_todo"])
         cap["paths"]["brief_catchup"]["snapshot_intact_after_brief"] = intact
     except Exception as exc:  # noqa: BLE001 -- the judge turns "error" into CANNOT-RUN
         _note("run failed: " + traceback.format_exc()[-600:])
@@ -632,6 +663,7 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
             td[key] = t
         except Exception as exc:  # noqa: BLE001
             td[key] = {"id": cid, "parsed": False, "raw": "%s: %s" % (type(exc).__name__, str(exc)[:150])}
+    fx["free_gb_after"] = round(shutil.disk_usage("/").free / 1e9, 1)
     # 4. LAST: the independent "stamp anywhere" count, after every writer's rows are
     # gone (the pwg-convo rows carry the stamp too; measured 2026-11-16 before this
     # move: 20 stamp rows were still there at the old position).

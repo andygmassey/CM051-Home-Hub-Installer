@@ -164,6 +164,8 @@ def self_test():
          _cap_with_paths(_paths({"brief_catchup": "ZETA0 leaked"})), FAIL),
         ("L0 marker in the reply-debt path -> FAIL",
          _cap_with_paths(_paths({"reply_debt": "ZETA0 leaked"})), FAIL),
+        ("L3 seed absent on a path -> CANNOT, never PASS (absent is not withheld)",
+         _cap_with_paths({**_paths(), "reply_debt": {"status": "l3_seed_absent", "text": "L2 only"}}), CANNOT),
         ("L3 marker in the timeline path -> FAIL",
          _cap_with_paths(_paths({"timeline": "ZEPHYR1 leaked"})), FAIL),
         ("L3 marker in the brief (catchup) path -> FAIL",

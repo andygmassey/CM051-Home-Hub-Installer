@@ -20,13 +20,13 @@ def path_line(name, cap):
     m = cap.get("markers", {})
     text = p.get("text", "")
     if p.get("status") != "captured":
-        return "  path %-13s CANNOT-RUN status=%s L2 control=%s (%s)" % (
+        return "  path %-13s CANNOT-RUN status=%s L2 control=%s L3 seed count=%s (%s)" % (
             name, p.get("status", "absent"), "silent" if not p.get("control") else "present",
-            str(p.get("error", ""))[:120])
+            p.get("l3_seed_count"), str(p.get("error", ""))[:120])
     l0, l3 = (m.get("l0") or "\0") in text, (m.get("l3") or "\0") in text
     verdict = "FAIL" if (l0 or l3) else "PASS"
-    return "  path %-13s %s L2 control=present L0=%s L3=%s" % (
-        name, verdict, "PRESENT" if l0 else "absent", "PRESENT" if l3 else "absent")
+    return "  path %-13s %s L2 control=present L3 seed count=%s L0=%s L3=%s" % (
+        name, verdict, p.get("l3_seed_count"), "PRESENT" if l0 else "absent", "PRESENT" if l3 else "absent")
 
 
 def report(cap, out=sys.stdout):
@@ -41,6 +41,8 @@ def report(cap, out=sys.stdout):
     if fx.get("graph_error") or not gb or ga != 0 or sa != 0 or not ctl:
         print("  CANNOT fixture graph teardown not proven (before>0, after=0, stamp-anywhere=0, live control>0 all required)", file=out)
         rc = CANNOT
+    print("  MBP free: %s GB before, %s GB after; L3 seed counts before any capture: %s" % (
+        fx.get("free_gb_before"), fx.get("free_gb_after"), json.dumps(fx.get("l3_seed_counts"))), file=out)
     rd = fx.get("reply_debt") or {}
     print("  reply_debt dir: tree before=%s after=%s restored=%s producer_overwrote=%s" % (
         rd.get("before_tree"), rd.get("after_tree"), rd.get("restored"), rd.get("producer_overwrote")), file=out)
@@ -86,6 +88,10 @@ def self_test():
                       _cap({n: {"status": "control_silent", "control": False, "text": "nothing"}}),
                       "path %-13s CANNOT-RUN" % n, OK))
         cases.append(("%s clean with control prints PASS" % n, _cap(), "path %-13s PASS" % n, OK))
+    for n in PATHS:
+        cases.append(("%s absent L3 seed prints CANNOT-RUN, not PASS" % n,
+                      _cap({n: {"status": "l3_seed_absent", "control": False, "l3_seed_count": 0, "text": "QUARTZ1 only"}}),
+                      "path %-13s CANNOT-RUN" % n, OK))
     cases.append(("graph residue after teardown -> 78", _cap(fx={"graph_after": 2}), "CANNOT fixture graph", CANNOT))
     cases.append(("no live control -> 78", _cap(fx={"control_known_live": 0}), "CANNOT fixture graph", CANNOT))
     cases.append(("reply_debt not restored -> 78", _cap(fx={"reply_debt": {"restored": False}}), "CANNOT reply_debt", CANNOT))
