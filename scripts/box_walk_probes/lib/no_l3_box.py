@@ -541,6 +541,36 @@ def _store_of(path):
     return "md"     # ~/Ostler/Conversations/<id>.md (ostler_paths.conversations_dir)
 
 
+CONV_ROOT = os.path.expanduser("~/Ostler/Conversations")
+
+
+def _bundle_dirs(needle, root=None):
+    """The 4-artefact bundle dirs (<date>/user-<8hex>/ with summary.md, todos.md,
+    transcript.md) whose CONTENT carries `needle`. The dir name carries no stamp,
+    so they are found by content, never by name. -> sorted list of dir paths."""
+    root = root or CONV_ROOT
+    out, nb = set(), needle.encode()
+    if not os.path.isdir(root):
+        return []
+    for date in os.listdir(root):
+        dpath = os.path.join(root, date)
+        if not os.path.isdir(dpath):
+            continue
+        for sub in os.listdir(dpath):
+            bpath = os.path.join(dpath, sub)
+            if not os.path.isdir(bpath):
+                continue
+            for dirpath, _d, files in os.walk(bpath):
+                for n in files:
+                    try:
+                        with open(os.path.join(dirpath, n), "rb") as fh:
+                            if nb in fh.read():
+                                out.add(bpath)
+                    except OSError:
+                        continue
+    return sorted(out)
+
+
 def _tally(stores, paths, field):
     """Add each path to its store's `field` count (before or after). Pure."""
     for f in paths:
@@ -639,6 +669,21 @@ def self_test():
         want("tree sha sees a changed byte", a1 != a3, True)
     finally:
         shutil.rmtree(d, ignore_errors=True)
+    # a 4-artefact bundle is found by CONTENT (its dir name carries no stamp), the
+    # other seed's bundle is not touched, and a bundle left behind is seen
+    d3 = tempfile.mkdtemp(prefix="no-l3-selftest-bundle-")
+    try:
+        for date, sub, text in (("2026-11-16", "user-aaaa1111", "carries QUARTZ9"), ("2026-11-16", "user-bbbb2222", "carries ZEPHYR9")):
+            os.makedirs(os.path.join(d3, date, sub))
+            for n in ("summary.md", "todos.md", "transcript.md"):
+                with open(os.path.join(d3, date, sub, n), "w") as fh:
+                    fh.write(text if n == "transcript.md" else "other")
+        want("bundle found by content", [os.path.basename(x) for x in _bundle_dirs("QUARTZ9", d3)], ["user-aaaa1111"])
+        _remove_files(_bundle_dirs("QUARTZ9", d3))
+        want("bundle left behind is gone after removal", _bundle_dirs("QUARTZ9", d3), [])
+        want("the other seed's bundle is untouched", len(_bundle_dirs("ZEPHYR9", d3)), 1)
+    finally:
+        shutil.rmtree(d3, ignore_errors=True)
     # the per-store tally puts each leftover path in its own store, so a file left
     # in ANY store shows up as a non-zero "after"
     tl = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach")}
@@ -782,12 +827,15 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     # 3. the legacy pwg-convo conversations: every store the seed's writer touches,
     # each counted before and after (write_all: md, Qdrant, Oxigraph, coach DB,
     # speaker_feedback; plus the step dir under processing)
-    stores = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach")}
+    stores = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach", "bundle_l2", "bundle_l3")}
     fx["stores"] = stores
     for key, cid in legacy_ids.items():
         try:
             files = _cleanup_files(cid, stamp)
             _tally(stores, files, "before")
+            bkey, needle = "bundle_" + key, cap["markers"].get(key)
+            bundles = _bundle_dirs(needle) if needle else []
+            stores[bkey]["before"] += len(bundles)
             try:
                 cb = _coach_rows("count", cid, owner)
                 if cb is None:
@@ -802,6 +850,8 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
                 stores["coach"]["note"] = "coach unreadable: " + str(exc)[:100]
             t = _teardown(cid, owner)
             _remove_files(files)
+            _remove_files(bundles)
+            stores[bkey]["after"] += len(_bundle_dirs(needle)) if needle else 0
             left = _cleanup_files(cid, stamp)
             _tally(stores, left, "after")
             t["files_before"], t["files_after"] = len(files), len(left)

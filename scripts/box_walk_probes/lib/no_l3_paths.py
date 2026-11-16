@@ -57,13 +57,13 @@ def report(cap, out=sys.stdout):
         print("  CANNOT speaker_feedback teardown not proven (before>0 and after=0 required)", file=out)
         rc = CANNOT
     st = fx.get("stores") or {}
-    for k in ("processing", "md", "speaker_feedback", "coach"):
+    for k in ("processing", "md", "speaker_feedback", "coach", "bundle_l2", "bundle_l3"):
         v = st.get(k) or {}
         print("  store %-17s before=%s after=%s%s" % (k, v.get("before"), v.get("after"), " (%s)" % v["note"] if v.get("note") else ""), file=out)
         if v.get("after") != 0:
             print("  CANNOT store %s: after-count is not 0" % k, file=out)
             rc = CANNOT
-    for k in ("processing", "speaker_feedback"):
+    for k in ("processing", "speaker_feedback", "bundle_l2", "bundle_l3"):
         if not (st.get(k) or {}).get("before"):
             print("  CANNOT store %s: nothing counted before the delete (positive control failed)" % k, file=out)
             rc = CANNOT
@@ -104,7 +104,8 @@ def _cap(paths=None, fx=None):
             "fixture": {"graph_before": 9, "graph_after": 0, "stamp_after": 0, "control_known_live": 50,
                         "sf_before": 1, "sf_after": 0, "disk_before": 4, "disk_after": 0,
                         "stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 0, "after": 0, "note": "not written"},
-                                   "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0, "note": "db absent"}},
+                                   "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0, "note": "db absent"},
+                                   "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}},
                         "reply_debt": {"restored": True, "before_tree": "a", "after_tree": "a"}},
             "teardown": {}}
     for n, v in (paths or {}).items():
@@ -145,8 +146,13 @@ def self_test():
         cases.append(("%s absent L3 seed prints CANNOT-RUN, not PASS" % n,
                       _cap({n: {"status": "l3_seed_absent", "control": False, "l3_seed_count": 0, "text": "QUARTZ1 only"}}),
                       "path %-13s CANNOT-RUN" % n, OK))
-    cases.append(("a store left non-empty (md) -> 78", _cap(fx={"stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 1, "after": 1}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}}}), "CANNOT store md", CANNOT))
-    cases.append(("processing never counted -> 78", _cap(fx={"stores": {"processing": {"before": 0, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}}}), "CANNOT store processing", CANNOT))
+    good = {"processing": {"before": 2, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0},
+            "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}
+    for k in ("bundle_l2", "bundle_l3"):
+        cases.append(("a %s bundle left behind -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 1, "after": 1}}}), "CANNOT store %s: after" % k, CANNOT))
+        cases.append(("%s bundle never counted -> 78" % k, _cap(fx={"stores": {**good, k: {"before": 0, "after": 0}}}), "CANNOT store %s: nothing counted" % k, CANNOT))
+    cases.append(("a store left non-empty (md) -> 78", _cap(fx={"stores": {"processing": {"before": 2, "after": 0}, "md": {"before": 1, "after": 1}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store md", CANNOT))
+    cases.append(("processing never counted -> 78", _cap(fx={"stores": {"processing": {"before": 0, "after": 0}, "md": {"before": 0, "after": 0}, "speaker_feedback": {"before": 1, "after": 0}, "coach": {"before": 0, "after": 0}, "bundle_l2": {"before": 1, "after": 0}, "bundle_l3": {"before": 1, "after": 0}}}), "CANNOT store processing", CANNOT))
     cases.append(("a speaker_feedback file left behind -> 78", _cap(fx={"sf_after": 1}), "CANNOT speaker_feedback", CANNOT))
     cases.append(("no speaker_feedback file ever counted -> 78", _cap(fx={"sf_before": 0}), "CANNOT speaker_feedback", CANNOT))
     cases.append(("stamp still on disk -> 78", _cap(fx={"disk_after": 2}), "CANNOT this run's stamp", CANNOT))
