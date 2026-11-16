@@ -55,6 +55,12 @@ jobs:
       - name: install.sh still wires the assistant's memory
         run: /bin/bash tests/test_memory_embeddings_wired.sh
 
+      - name: The shipped config never enables the response cache
+        # The cache replays answers past a forget or an L3 relabel until its
+        # key is bound to the store generation and proven on a walk.
+        if: always()
+        run: /bin/bash tests/test_response_cache_never_enabled.sh
+
       - name: The gate discriminates (1 positive + 5 negative controls)
         if: always()
         # A gate with only a positive control cannot be told apart from one
