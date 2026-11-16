@@ -113,8 +113,18 @@ def kind_arms(cap, out=sys.stdout):
     """Run every KIND_ARM. -> (fail_count, cannot_count, arm_count)."""
     markers, tools = cap.get("markers", {}), cap.get("tools", {})
     ctl = cap.get("kind_controls", {}) or {}
+    mt = cap.get("model_topics") or {}
+    print(f"  ok question (verbatim): {mt.get('question', '<not asked>')!r}", file=out)
     fails = cannots = 0
     for name, l3_tool, l2_tool, mk3_key, mk2_key, ctl_key in KIND_ARMS:
+        if name == "topic" and not mt.get("invoked"):
+            # THE MODEL NEVER CALLED pwg_topics for the topics question: the topics arm
+            # has not been exercised by the assistant at all. CANNOT-RUN, never PASS.
+            why = (f"the model did not invoke pwg_topics for the topics question "
+                   f"(status={mt.get('status', 'absent')}, tools={mt.get('tools', [])}, error={mt.get('error')})")
+            print(f"  CANNOT path topic {why}", file=out)
+            cannots += 1
+            continue
         v, why = kind_arm(name, tools, markers, l3_tool, l2_tool, mk3_key, mk2_key, ctl.get(ctl_key), out)
         tag = {PASS: "ok", FAIL: "FAIL", CANNOT: "CANNOT"}[v]
         print(f"  {tag} path {name} {why}", file=out)
@@ -463,6 +473,27 @@ def self_test():
     judge(kind_cap(leak=[("pwg_topic_mentions", "ZEPHYRT1")]), out=buf)
     if "the L3 marker l3_topic reached pwg_topic_mentions" not in buf.getvalue():
         bad.append("kind leak did not name its arm and tool")
+    # --- the topics question: the model must call pwg_topics, or the topic arm is
+    # CANNOT-RUN; the question is printed verbatim.
+    Q = "What topics have come up in my conversations recently?"
+    cap = kind_cap()
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_overview"], "invoked": False}
+    buf = io.StringIO()
+    got = judge(cap, out=buf)
+    if got != CANNOT or "the model did not invoke pwg_topics" not in buf.getvalue():
+        bad.append("model did not invoke pwg_topics: topic arm must be CANNOT with the reason")
+    if repr(Q) not in buf.getvalue():
+        bad.append("the question is not printed verbatim")
+    cap = kind_cap(leak=[("pwg_topics", "ZEPHYRT1")])
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_overview"], "invoked": False}
+    if judge(cap, out=io.StringIO()) != FAIL:
+        bad.append("a leak must still FAIL when the model did not invoke pwg_topics")
+    cap = kind_cap()
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_topics"], "invoked": True}
+    buf = io.StringIO()
+    judge(cap, out=buf)
+    if "did not invoke" in buf.getvalue():
+        bad.append("an invoked pwg_topics was still reported as not invoked")
     for b in bad:
         print("SELF-TEST CASE WRONG: " + b, file=sys.stderr)
     return 0 if not bad else 1

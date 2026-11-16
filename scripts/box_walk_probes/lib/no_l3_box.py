@@ -427,6 +427,50 @@ def _restore_preferences(seed):
 
 TIMELINE_PROMPT = "show me my recent conversations with %s" % FIXTURE_NAME
 
+# The topics question, asked over the chat socket so the MODEL decides whether it
+# calls pwg_topics. It names nothing seeded: the guard below refuses any question
+# containing a 4+ character fragment of a seed's label, slug or marker.
+TOPICS_QUESTION = "What topics have come up in my conversations recently?"
+
+
+def question_leak_fragments(question, seeds, min_len=4):
+    """-> the 4+ character fragments of any seed string (label, slug, marker) that
+    also occur in the question, case-insensitive, separators removed on both sides.
+    An empty list is a clean question. Pure, self-tested."""
+    import re
+    q = re.sub(r"[^a-z0-9]", "", question.lower())
+    hits = []
+    for s in seeds:
+        k = re.sub(r"[^a-z0-9]", "", s.lower())
+        for i in range(len(k) - min_len + 1):
+            frag = k[i:i + min_len]
+            if frag in q:
+                hits.append(frag)
+                break
+    return hits
+
+
+def _capture_topics(markers, slugs):
+    """Ask TOPICS_QUESTION over the chat socket. Records the question VERBATIM, the
+    tool_call names the model made, and whether pwg_topics is among them. The judge
+    reads `invoked`: False means the topics arm is CANNOT-RUN, never PASS."""
+    seeds = []
+    for lvl in ("l3_topic", "l2_topic"):
+        marker = markers[lvl]
+        seeds += [marker, "walk probe %s quarry" % marker, slugs[{"l3_topic": "L3", "l2_topic": "L2"}[lvl]]]
+    _note("topics question (verbatim): " + TOPICS_QUESTION)
+    leaks = question_leak_fragments(TOPICS_QUESTION, seeds)
+    if leaks:
+        return {"question": TOPICS_QUESTION, "status": "question_leaks_seed", "fragments": leaks,
+                "tools": [], "invoked": False}
+    import assistant_chat as ac
+    reply = ac.ws_chat(TOPICS_QUESTION)
+    tools = reply.get("tools", []) or []
+    out = {"question": TOPICS_QUESTION, "tools": tools, "invoked": "pwg_topics" in tools,
+           "reply_chars": len((reply.get("text") or "").strip()), "error": reply.get("error")}
+    _note("topics question: tools %s, pwg_topics invoked: %s" % (tools, out["invoked"]))
+    return out
+
 
 def _capture_timeline(token, markers):
     """TWO arms, judged separately by no_l3_probe.py (api_arm, outbound_arm):
@@ -1001,6 +1045,17 @@ def self_test():
         want("stamp-anywhere finds nothing for an unseen stamp", len(_disk_hits("0f0f0f0f0f0f", [d2])), 0)
     finally:
         shutil.rmtree(d2, ignore_errors=True)
+    # The topics question must name no seeded fragment. Clean question passes the
+    # guard; a question carrying a label word, a slug fragment or a marker fragment
+    # must be refused.
+    seeds = ["ZEPHYRTabc123def456", "walk probe ZEPHYRTabc123def456 quarry", "walk-probe-zephyrtabc123def456-quarry"]
+    want("topics question is clean", question_leak_fragments(TOPICS_QUESTION, seeds), [])
+    want("a question with a label word is refused", bool(question_leak_fragments(
+        "What is the quarry lease status?", seeds)), True)
+    want("a question with a marker fragment is refused", bool(question_leak_fragments(
+        "topics about zephyrt lately?", seeds)), True)
+    want("a question naming a slug fragment is refused", bool(question_leak_fragments(
+        "any walk-probe topics?", seeds)), True)
     for b in bad:
         print("SELF-TEST CASE WRONG: " + b, file=sys.stderr)
     return 0 if not bad else 1
@@ -1065,6 +1120,7 @@ def main():
             "pref": _file_count(rd["pref"]["path"], markers["l3_pref"]),
         }
         _note("kind L3 controls before capture: " + json.dumps(cap["kind_controls"]))
+        cap["model_topics"] = _capture_topics(markers, slugs)
         cap["tools"] = _tools(m3, m2, token,
                               kinds={"topic": {"l3": markers["l3_topic"], "l2": markers["l2_topic"]},
                                      "decision": {"l3": markers["l3_decision"], "l2": markers["l2_decision"]},
