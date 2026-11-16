@@ -43,7 +43,7 @@ OLD = 'K="-K $CONF"; curl $K -sS http://x/'
 
 
 def main():
-    bad = forget_cases()
+    bad = forget_cases() + marker_cases()
     with tempfile.TemporaryDirectory() as d:
         for shell in ("zsh", "sh"):
             if run(shell, NEW, d) != 0:
@@ -74,6 +74,11 @@ def main():
 FAKE_BOX = """#!/bin/sh
 # fake box_exec: saves the script body it was given, prints canned output for FAKE_MODE, exits FAKE_RC
 printf '%s' "$2" > "$FAKE_BODY_OUT"
+printf '%s\n<<CALL>>\n' "$2" >> "$FAKE_LOG"
+case "$2" in
+  *"test -f"*"conversation-seed-residue"*) echo "${FAKE_MARKER:-RESIDUE_MARKER_ABSENT}"; exit 0 ;;
+  *"conversation_id="*"conversation-seed-residue"*) echo RESIDUE_MARKER_WRITTEN; exit 0 ;;
+esac
 case "$FAKE_MODE" in
   ok)        printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW removed 1\n' ;;
   qdrant2)   printf 'RESIDUE_QDRANT 2\nRESIDUE_GRAPH 0\nCOACH_ROW removed 1\n' ;;
@@ -106,6 +111,7 @@ def forget(mode, rc=0, lib=None, sequence=None):
     d = tempfile.mkdtemp(prefix="cs-forget-")
     fake = os.path.join(d, "fakebox")
     body_out = os.path.join(d, "body.sh")
+    log = os.path.join(d, "calls.log")
     with open(fake, "w") as fh:
         fh.write(FAKE_BOX)
     os.chmod(fake, 0o755)
@@ -119,11 +125,58 @@ def forget(mode, rc=0, lib=None, sequence=None):
     with open(drv, "w") as fh:
         fh.write(script)
     env = {"PATH": "/usr/bin:/bin", "HOME": d, "LIB": lib or LIB, "FAKE_MODE": mode, "FAKE_RC": str(rc),
-           "FAKE_BODY_OUT": body_out, "OSTLER_CONVO_SEED_LOCAL_SH": fake}
+           "FAKE_BODY_OUT": body_out, "FAKE_LOG": log, "OSTLER_CONVO_SEED_LOCAL_SH": fake}
     out = subprocess.run(["bash", drv], env=env, capture_output=True, text=True)
     rcs = [int(x.split("=")[1]) for x in out.stdout.split() if x.startswith("RC=")]
     body = open(body_out, encoding="utf-8").read() if os.path.exists(body_out) else ""
+    FORGET_CALLS[0] = open(log, encoding="utf-8").read() if os.path.exists(log) else ""
     return (rcs or [-1]), out.stdout + out.stderr, body
+
+
+FORGET_CALLS = [""]
+
+
+def apply_refusal(marker):
+    """Run the real conversation_seed_apply with the fake box answering the marker check. Returns
+    (rc, state, number of box calls made)."""
+    d = tempfile.mkdtemp(prefix="cs-apply-")
+    fake = os.path.join(d, "fakebox")
+    with open(fake, "w") as fh:
+        fh.write(FAKE_BOX)
+    os.chmod(fake, 0o755)
+    log = os.path.join(d, "calls.log")
+    drv = os.path.join(d, "driver.sh")
+    with open(drv, "w") as fh:
+        fh.write('set -u\n. "$LIB"\nconversation_seed_apply\necho "RC=$?"\necho "STATE=$CONVERSATION_SEED_STATE"\n')
+    env = {"PATH": "/usr/bin:/bin", "HOME": d, "LIB": LIB, "FAKE_MODE": "empty", "FAKE_RC": "0",
+           "FAKE_MARKER": marker, "FAKE_BODY_OUT": os.path.join(d, "body.sh"), "FAKE_LOG": log,
+           "OSTLER_CONVO_SEED_LOCAL_SH": fake}
+    out = subprocess.run(["bash", drv], env=env, capture_output=True, text=True)
+    rc = [int(x.split("=")[1]) for x in out.stdout.split() if x.startswith("RC=")]
+    st = [x.split("=", 1)[1] for x in out.stdout.split() if x.startswith("STATE=")]
+    calls = open(log, encoding="utf-8").read().count("<<CALL>>") if os.path.exists(log) else 0
+    return (rc[0] if rc else -1), (st[0] if st else ""), calls
+
+
+def marker_cases():
+    """Option (b): a failed forget leaves a marker, the next seed is refused, a clean forget clears it."""
+    bad = []
+    _rcs, out, _b = forget("qdrant2")
+    if "conversation-seed-residue.json" not in FORGET_CALLS[0] or "RESIDUE_MARKER_WRITTEN" not in FORGET_CALLS[0]:
+        bad.append("a failed forget must write the residue marker on the box")
+    if "RESIDUE MARKER written" not in out:
+        bad.append("a failed forget must say the marker was written")
+    _rcs, out, _b = forget("ok")
+    if "RESIDUE_MARKER_CLEARED" not in FORGET_CALLS[0] or "rm -f" not in FORGET_CALLS[0]:
+        bad.append("a verified clean forget must clear the marker")
+    rc, state, calls = apply_refusal("RESIDUE_MARKER_PRESENT")
+    if rc != 1 or state != "refused" or calls != 1:
+        bad.append("with the marker present the seed must refuse at once (rc %s, state %s, box calls %s)"
+                   % (rc, state, calls))
+    rc, state, calls = apply_refusal("RESIDUE_MARKER_ABSENT")
+    if calls <= 1:
+        bad.append("CONTROL: with no marker the seed must go on past the marker check (box calls %s)" % calls)
+    return bad
 
 
 def forget_cases():

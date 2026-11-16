@@ -627,6 +627,20 @@ conversation_seed_apply() {
         return 1
     fi
 
+    # RESIDUE MARKER (Archie's option b). A forget that could not verify its removal leaves a marker on
+    # the box. While it exists, a new seed is refused: its rows would sit beside the stale ones and a
+    # walk would read them as product data. Only a verified clean forget removes the marker.
+    _cs_marker="$(_cs_box_exec 'test -f "$HOME/.ostler/walks/conversation-seed-residue.json" && echo RESIDUE_MARKER_PRESENT || echo RESIDUE_MARKER_ABSENT' 2>/dev/null)"
+    case "${_cs_marker}" in
+        *RESIDUE_MARKER_PRESENT*)
+            CONVERSATION_SEED_STATE="refused"
+            printf '  CANNOT-RUN: a residue marker from an earlier conversation seed is on the box\n'
+            printf '  (~/.ostler/walks/conversation-seed-residue.json). Its forget could not verify the\n'
+            printf '  removal, so its rows may still be there, and a new seed would sit beside them and be\n'
+            printf '  read as product data. Clear it with a verified forget (or by hand), then re-run.\n\n'
+            return 1 ;;
+    esac
+
     if [ -z "${OSTLER_BOX_HOST:-}" ]; then
         printf '  target: this machine (OSTLER_BOX_HOST unset)\n'
     else
@@ -1104,8 +1118,16 @@ fi
     # status line below is what the flag reports, so the per-forget reset is observable.
     if [ "${_cs_forget_failed:-0}" = 1 ]; then
         printf 'CLEANUP STATUS: FAILED (see the ERROR lines above; a tidy-up does not fail the walk)\n'
+        # option (b): leave a machine-read marker on the box, so the next seeded run refuses
+        _cs_mk="$(_cs_box_exec "mkdir -p \"\$HOME/.ostler/walks\" && printf 'conversation_id=%s\\n' $(_cs_q "${CONVERSATION_SEED_ID}") > \"\$HOME/.ostler/walks/conversation-seed-residue.json\" && echo RESIDUE_MARKER_WRITTEN" 2>&1)"
+        case "${_cs_mk}" in
+            *RESIDUE_MARKER_WRITTEN*) printf '  RESIDUE MARKER written: the next seeded run is refused until a verified forget clears it.\n' ;;
+            *) printf '  ERROR: CLEANUP FAILED. The residue marker could NOT be written; the next seed would not be refused.\n' ;;
+        esac
     else
         printf 'CLEANUP STATUS: verified\n'
+        # a verified clean forget clears any marker an earlier failed forget left
+        _cs_box_exec "rm -f \"\$HOME/.ostler/walks/conversation-seed-residue.json\" && echo RESIDUE_MARKER_CLEARED" >/dev/null 2>&1
     fi
     return 0
 }
