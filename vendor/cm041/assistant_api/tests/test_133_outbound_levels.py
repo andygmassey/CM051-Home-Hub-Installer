@@ -256,5 +256,53 @@ class TestDerivedPreferencesOutbound(unittest.TestCase):
         self.assertIn("Synthetic L2 pref", self._labels())
 
 
+class TestTimelineEmitsLevel(unittest.TestCase):
+    """The owner-local timeline EMITS the row's own privacy_level on every event
+    that has one (Archie ruling, L3 window). L0 events are kept, not withheld."""
+
+    def _events(self):
+        conv = [
+            {"conv": "urn:ostler:conversation/synthetic-1", "date": "2026-11-01",
+             "fpriv": "L0"},
+            {"conv": "urn:ostler:conversation/synthetic-2", "date": "2026-10-20",
+             "fpriv": "L2"},
+        ]
+        meet = [{"m": "urn:synthetic:meeting/1", "summary": "Synthetic meeting",
+                 "date": "2026-10-30", "location": "", "mpriv": "L1"}]
+        lc = [{"lcEmail": "2026-10-10", "lcWhatsApp": "", "lcIMessage": ""}]
+
+        def fake(query):
+            if "pwg:Meeting" in query:
+                return meet
+            if "urn:ostler:about" in query:
+                return conv
+            if "lastContactEmail" in query:
+                return lc
+            return []
+
+        with patch.object(server, "_sparql_select", fake):
+            body, status = server._person_timeline_body(
+                "urn:ostler:person/synthetic-p", "Jane Doe", "jane-doe")
+        self.assertEqual(200, status)
+        return body["events"]
+
+    def test_every_event_with_a_row_level_carries_privacy_level(self):
+        for e in self._events():
+            if e["type"] in ("conversation", "meeting"):
+                self.assertIn("privacy_level", e, e)
+
+    def test_the_seeded_l0_conversation_is_kept_and_labelled_l0(self):
+        convs = {e["conversation_id"]: e for e in self._events()
+                 if e["type"] == "conversation"}
+        self.assertIn("synthetic-1", convs)
+        self.assertEqual("L0", convs["synthetic-1"]["privacy_level"])
+        self.assertEqual("L2", convs["synthetic-2"]["privacy_level"])
+
+    def test_the_meeting_keeps_its_level(self):
+        meetings = [e for e in self._events() if e["type"] == "meeting"]
+        self.assertEqual(1, len(meetings))
+        self.assertEqual("L1", meetings[0]["privacy_level"])
+
+
 if __name__ == "__main__":
     unittest.main()

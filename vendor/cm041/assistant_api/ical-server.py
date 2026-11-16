@@ -7595,6 +7595,12 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
                 "conversation_id": conv_id,
                 "wiki_url": (f"{WIKI_BASE_URL}/Conversations/{conv_id}/"
                              if conv_id else ""),
+                # Owner-local timeline EMITS the row's own level (Archie ruling,
+                # L3 window). The iPhone keeps its L0 events. The outbound
+                # gates (commitments, people, reply-debt) withhold L0 at the
+                # Hub. This route does not.
+                "privacy_level": pwg_privacy.parse_privacy_level(
+                    r.get("privacy_level")),
             })
     except Exception as exc:
         degraded_sources.append(f"conversations: {exc}")
