@@ -138,7 +138,7 @@ import sys, os
 sys.path.insert(0, os.path.join('${REPO_ROOT}', 'vendor', 'cm041', 'assistant_api'))
 from subscription_gate import activate_first_month_free
 from datetime import datetime, timezone
-activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+activate_first_month_free(datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), licence_tier_state='known')
 "
 
 if [[ ! -f "${STATE_FILE}" ]]; then
@@ -167,17 +167,17 @@ expires_iso = state.get("expires_at")
 assert expires_iso, "expires_at missing"
 expires = datetime.fromisoformat(expires_iso.replace("Z", "+00:00"))
 delta_days = (expires - datetime.now(timezone.utc)).days
-# 30 days +/- 1 day tolerance for clock jitter at the boundary
-assert 28 <= delta_days <= 31, f"expires_at not ~30 days out: {delta_days} days"
-print(f"PASS: expires_at ~30 days out ({delta_days} days)")
+# Provisional standard window is 90 days (no plan). +/- 1 day for clock jitter.
+assert 88 <= delta_days <= 91, f"expires_at not ~90 days out: {delta_days} days"
+print(f"PASS: expires_at ~90 days out ({delta_days} days)")
 
 grace_iso = state.get("grace_period_end")
 assert grace_iso, "grace_period_end missing"
 grace = datetime.fromisoformat(grace_iso.replace("Z", "+00:00"))
 grace_delta = (grace - datetime.now(timezone.utc)).days
-# 30 + 14 grace = ~44 days; +/- 1 day tolerance
-assert 42 <= grace_delta <= 45, f"grace_period_end not ~44 days out: {grace_delta} days"
-print(f"PASS: grace_period_end ~44 days out ({grace_delta} days)")
+# 90 + 14 grace = ~104 days (provisional standard window); +/- 1 day tolerance
+assert 102 <= grace_delta <= 105, f"grace_period_end not ~104 days out: {grace_delta} days"
+print(f"PASS: grace_period_end ~104 days out ({grace_delta} days)")
 PYEOF
 
 echo ""
