@@ -126,7 +126,7 @@ self_test() {
     cat > "${capc}" <<'JSON'
 {"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST", "l0": "ZETA-SELFTEST"},
  "seeds": {"l3": {"cli_rc": 0, "bundle": "present"}, "l2": {"cli_rc": 0, "bundle": "present"}},
- "paths": {"timeline": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"},
+ "paths": {"timeline": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST", "reply_text": "QUARTZ-SELFTEST", "api_text": "{\"events\": [{\"conversation_id\": \"ostler-walk-QUARTZ-SELFTEST\", \"privacy_level\": \"L2\"}, {\"conversation_id\": \"ostler-walk-ZETA-SELFTEST\", \"privacy_level\": \"L0\"}]}"},
            "brief_catchup": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"},
            "reply_debt": {"status": "captured", "control": true, "text": "QUARTZ-SELFTEST"}},
  "fixture": {"graph_before": 9, "graph_after": 3, "stamp_after": 3, "control_known_live": 50,
@@ -148,7 +148,7 @@ JSON
     cat > "${cap}" <<'JSON'
 {"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST", "l0": "ZETA-SELFTEST"},
  "seeds": {"l3": {"cli_rc": 0, "bundle": "present"}, "l2": {"cli_rc": 0, "bundle": "present"}},
- "paths": {"timeline": {"status": "captured", "text": "L2 only"},
+ "paths": {"timeline": {"status": "captured", "text": "L2 only", "reply_text": "QUARTZ-SELFTEST", "api_text": "{\"events\": [{\"conversation_id\": \"ostler-walk-QUARTZ-SELFTEST\", \"privacy_level\": \"L2\"}, {\"conversation_id\": \"ostler-walk-ZETA-SELFTEST\", \"privacy_level\": \"L0\"}]}"},
            "brief_catchup": {"status": "captured", "text": "L2 only"},
            "reply_debt": {"status": "captured", "text": "L2 only"}},
  "teardown": {"l3": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},

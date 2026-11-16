@@ -9,7 +9,9 @@
 #                           78 = it was not (the caller must not say PASS).
 #   --self-test             known captures through the SAME report; exit 0 only
 #                           if every case lands where expected.
-import json, sys
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import no_l3_probe as J
 
 OK, CANNOT = 0, 78
 PATHS = ("timeline", "reply_debt", "brief_catchup")
@@ -23,6 +25,13 @@ def path_line(name, cap):
         return "  path %-13s CANNOT-RUN status=%s L2 control=%s L3 seed count=%s (%s)" % (
             name, p.get("status", "absent"), "silent" if not p.get("control") else "present",
             p.get("l3_seed_count"), str(p.get("error", ""))[:120])
+    if name == "timeline":
+        va, wa = J.api_arm(p.get("api_text"), m.get("l2"), m.get("l0"), m.get("l3"))
+        vb, wb = J.outbound_arm(p.get("reply_text"), m.get("l2"), m.get("l0"), m.get("l3"))
+        word = {J.PASS: "PASS", J.FAIL: "FAIL", J.CANNOT: "CANNOT-RUN"}
+        both = "FAIL" if J.FAIL in (va, vb) else "CANNOT-RUN" if J.CANNOT in (va, vb) else "PASS"
+        return "  path %-13s %s | API arm %s (%s) | OUTBOUND arm %s (%s) | L3 seed count=%s" % (
+            name, both, word[va], wa, word[vb], wb, p.get("l3_seed_count"))
     l0, l3 = (m.get("l0") or "\0") in text, (m.get("l3") or "\0") in text
     verdict = "FAIL" if (l0 or l3) else "PASS"
     return "  path %-13s %s L2 control=present L3 seed count=%s L0=%s L3=%s" % (
@@ -62,9 +71,16 @@ def report(cap, out=sys.stdout):
     return rc
 
 
+J_CLEAN_API = json.dumps({"events": [
+    {"conversation_id": "ostler-walk-QUARTZ1", "privacy_level": "L2"},
+    {"conversation_id": "ostler-walk-ZETA1", "privacy_level": "L0"}]})
+
+
 def _cap(paths=None, fx=None):
     base = {"markers": {"l0": "ZETA1", "l2": "QUARTZ1", "l3": "ZEPHYR1"},
-            "paths": {n: {"status": "captured", "control": True, "text": "QUARTZ1 only"} for n in PATHS},
+            "paths": {**{n: {"status": "captured", "control": True, "text": "QUARTZ1 only"} for n in PATHS},
+                      "timeline": {"status": "captured", "control": True, "text": "x", "reply_text": "QUARTZ1 only",
+                                   "api_text": J_CLEAN_API}},
             "fixture": {"graph_before": 9, "graph_after": 0, "stamp_after": 0, "control_known_live": 50,
                         "reply_debt": {"restored": True, "before_tree": "a", "after_tree": "a"}},
             "teardown": {}}
@@ -74,15 +90,25 @@ def _cap(paths=None, fx=None):
     return base
 
 
+def _ov(n, **kw):
+    """A path override: the timeline carries its two arms, the others carry text."""
+    d = {"status": "captured", "control": True, "text": kw.get("text", "QUARTZ1 only")}
+    if n == "timeline":
+        d["reply_text"] = kw.get("text", "QUARTZ1 only")
+        d["api_text"] = J_CLEAN_API
+    d.update({k: v for k, v in kw.items() if k != "text"})
+    return d
+
+
 def self_test():
     import io
     cases = []
     for n in PATHS:
         cases.append(("%s L0 leak prints FAIL for that path" % n,
-                      _cap({n: {"status": "captured", "control": True, "text": "QUARTZ1 ZETA1"}}),
+                      _cap({n: _ov(n, text="QUARTZ1 ZETA1")}),
                       "path %-13s FAIL" % n, OK))
         cases.append(("%s L3 leak prints FAIL for that path" % n,
-                      _cap({n: {"status": "captured", "control": True, "text": "QUARTZ1 ZEPHYR1"}}),
+                      _cap({n: _ov(n, text="QUARTZ1 ZEPHYR1")}),
                       "path %-13s FAIL" % n, OK))
         cases.append(("%s control silent prints CANNOT-RUN, not PASS" % n,
                       _cap({n: {"status": "control_silent", "control": False, "text": "nothing"}}),

@@ -19,6 +19,55 @@ PASS, FAIL, CANNOT = 0, 1, 78
 PATHS = ("timeline", "brief_catchup", "reply_debt")
 
 
+def _events(api_text):
+    try:
+        obj = json.loads(api_text)
+    except (TypeError, ValueError):
+        return None
+    ev = obj.get("events") if isinstance(obj, dict) else None
+    return ev if isinstance(ev, list) else None
+
+
+def api_arm(api_text, m2, m0, m3):
+    """Timeline ARM (a), the owner-local API. PASS = every seeded event carries its
+    own correct privacy_level (L2 event says L2, L0 event says L0) and L3 stays
+    withheld. NOT "the L0 marker is absent": the owner may see L0, but it must be
+    labelled so a downstream filter can act. -> (verdict, why)."""
+    events = _events(api_text)
+    if events is None:
+        return CANNOT, "api arm: response is not a timeline (no events list)"
+    def hit(m):
+        return [e for e in events if m in json.dumps(e)]
+    if not hit(m2):
+        return CANNOT, "api arm: the L2 control event is absent, so labels cannot be judged"
+    if hit(m3):
+        return FAIL, "api arm: an L3 event is present (must stay withheld)"
+    for lvl, m in (("L2", m2), ("L0", m0)):
+        evs = hit(m)
+        if not evs:
+            return FAIL, f"api arm: the seeded {lvl} event is missing from the timeline"
+        got = evs[0].get("privacy_level")
+        if got is None or got == "":
+            return FAIL, f"api arm: the {lvl} event carries no privacy_level"
+        if got != lvl:
+            return FAIL, f"api arm: the {lvl} event is labelled {got}"
+    return PASS, "api arm: L2 and L0 events carry their own level; L3 withheld"
+
+
+def outbound_arm(reply, m2, m0, m3):
+    """Timeline ARM (b), the channel reply through oa. The L2 control must be IN the
+    reply (else the arm never reached the tool: CANNOT-RUN); the L0 and L3 markers
+    must be absent, wherever they sit (a conversation_id or wiki_url counts)."""
+    if not (reply or "").strip():
+        return CANNOT, "outbound arm: no channel reply"
+    if m2 not in reply:
+        return CANNOT, "outbound arm: the L2 control marker is not in the reply (the tool was not reached)"
+    for lvl, m in (("L0", m0), ("L3", m3)):
+        if m in reply:
+            return FAIL, f"outbound arm: the {lvl} marker is in the reply"
+    return PASS, "outbound arm: L2 control present; L0 and L3 absent"
+
+
 def judge(cap, out=sys.stdout):
     if "error" in cap:
         print(f"  CANNOT {cap['error']}", file=out)
@@ -34,7 +83,15 @@ def judge(cap, out=sys.stdout):
     if m0 is None:
         print("  CANNOT no L0 marker in the capture; the L0 item was not seeded", file=out)
         return CANNOT
-    for name in PATHS:
+    tl = paths["timeline"]
+    arms = [api_arm(tl.get("api_text"), m2, m0, m3), outbound_arm(tl.get("reply_text"), m2, m0, m3)]
+    for v, why in arms:
+        print(f"  {'ok' if v == PASS else 'FAIL' if v == FAIL else 'CANNOT'} path timeline {why}", file=out)
+    if any(v == FAIL for v, _ in arms):
+        return FAIL
+    if any(v == CANNOT for v, _ in arms):
+        return CANNOT
+    for name in ("brief_catchup", "reply_debt"):
         text = paths[name].get("text", "")
         for lvl, mk in (("L0", m0), ("L3", m3)):
             if mk in text:
@@ -106,18 +163,38 @@ def _case(seeds, tools, m2_in_tool, m3_in_tool):
     ok_td = {"parsed": True, "before_qdrant": 2, "before_graph": 3,
              "after_qdrant": 0, "after_graph": 0}
     clean_path = {"status": "captured", "text": "L2 only"}
-    return {"markers": {"l3": m3, "l2": m2, "l0": "ZETA1"},
+    return {"markers": {"l3": m3, "l2": m2, "l0": "ZETA0"},
             "seeds": seeds if seeds is not None else {"l3": good, "l2": good},
             "teardown": {"l3": dict(ok_td), "l2": dict(ok_td)},
-            "paths": {k: dict(clean_path) for k in PATHS},
+            "paths": {**{k: dict(clean_path) for k in PATHS}, "timeline": _paths()["timeline"]},
             "tools": t}
 
 
-def _paths(text_by_path=None, status="captured"):
-    base = {"timeline": "", "brief_catchup": "", "reply_debt": ""}
+def _api(levels=None, extra=()):
+    """A timeline API body: one event per seeded conversation. `levels` overrides the
+    privacy_level each carries (None drops the key)."""
+    lv = {"QUARTZ1": "L2", "ZETA0": "L0"}
+    lv.update(levels or {})
+    evs = []
+    for m, level in lv.items():
+        e = {"type": "conversation", "conversation_id": "ostler-walk-" + m}
+        if level is not None:
+            e["privacy_level"] = level
+        evs.append(e)
+    evs.extend(extra)
+    return json.dumps({"found": True, "events": evs})
+
+
+def _paths(text_by_path=None, status="captured", api=None):
+    """The timeline path text given here is the CHANNEL REPLY; it always carries the
+    L2 control unless the case overrides it with something that lacks it."""
+    base = {"timeline": "QUARTZ1 you spoke about the quarry", "brief_catchup": "", "reply_debt": ""}
     if text_by_path:
         base.update(text_by_path)
-    return {k: {"status": status, "text": v} for k, v in base.items()}
+    out = {k: {"status": status, "text": v} for k, v in base.items()}
+    out["timeline"]["api_text"] = api if api is not None else _api()
+    out["timeline"]["reply_text"] = base["timeline"]
+    return out
 
 
 def _cap_with_paths(paths, l0="ZETA0"):
@@ -157,17 +234,40 @@ def self_test():
         ("L0/L3 window: one path not captured -> CANNOT",
          _cap_with_paths({**_paths(), "reply_debt": {"status": "not_yet"}}), CANNOT),
         ("L0/L3 window: clean on all three paths -> PASS",
-         _cap_with_paths(_paths({"timeline": "L2 only", "brief_catchup": "L2 only", "reply_debt": "L2 only"})), PASS),
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 only", "brief_catchup": "L2 only", "reply_debt": "L2 only"})), PASS),
         ("L0 marker in the timeline path -> FAIL",
-         _cap_with_paths(_paths({"timeline": "ZETA0 leaked"})), FAIL),
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 ZETA0 leaked"})), FAIL),
         ("L0 marker in the brief (catchup) path -> FAIL",
          _cap_with_paths(_paths({"brief_catchup": "ZETA0 leaked"})), FAIL),
         ("L0 marker in the reply-debt path -> FAIL",
          _cap_with_paths(_paths({"reply_debt": "ZETA0 leaked"})), FAIL),
+        # --- timeline ARM (a): the owner-local API labels every seeded event
+        ("API arm: all events labelled -> PASS", _cap_with_paths(_paths()), PASS),
+        ("API arm: L0 event carries no level -> FAIL",
+         _cap_with_paths(_paths(api=_api({"ZETA0": None}))), FAIL),
+        ("API arm: L2 event carries no level -> FAIL",
+         _cap_with_paths(_paths(api=_api({"QUARTZ1": None}))), FAIL),
+        ("API arm: L0 event mislabelled L2 -> FAIL",
+         _cap_with_paths(_paths(api=_api({"ZETA0": "L2"}))), FAIL),
+        ("API arm: L3 event present -> FAIL",
+         _cap_with_paths(_paths(api=_api(extra=[{"conversation_id": "ostler-walk-ZEPHYR1", "privacy_level": "L3"}]))), FAIL),
+        ("API arm: L2 control event absent -> CANNOT",
+         _cap_with_paths(_paths(api=json.dumps({"events": []}))), CANNOT),
+        ("API arm: body is not a timeline -> CANNOT",
+         _cap_with_paths(_paths(api="not json")), CANNOT),
+        # --- timeline ARM (b): the outbound channel reply
+        ("Outbound arm: L2 control absent from the reply -> CANNOT",
+         _cap_with_paths(_paths({"timeline": "nothing recent"})), CANNOT),
+        ("Outbound arm: L0 in a conversation_id in the reply -> FAIL",
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 and /Conversations/ostler-walk-ZETA0/"})), FAIL),
+        ("Outbound arm: L3 marker in the reply -> FAIL",
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 and ZEPHYR1"})), FAIL),
+        ("Outbound arm clean but API arm mislabels -> FAIL (both arms must pass)",
+         _cap_with_paths(_paths(api=_api({"ZETA0": "L1"}))), FAIL),
         ("L3 seed absent on a path -> CANNOT, never PASS (absent is not withheld)",
          _cap_with_paths({**_paths(), "reply_debt": {"status": "l3_seed_absent", "text": "L2 only"}}), CANNOT),
         ("L3 marker in the timeline path -> FAIL",
-         _cap_with_paths(_paths({"timeline": "ZEPHYR1 leaked"})), FAIL),
+         _cap_with_paths(_paths({"timeline": "QUARTZ1 ZEPHYR1 leaked"})), FAIL),
         ("L3 marker in the brief (catchup) path -> FAIL",
          _cap_with_paths(_paths({"brief_catchup": "ZEPHYR1 leaked"})), FAIL),
         ("L3 marker in the reply-debt path -> FAIL",
@@ -185,6 +285,15 @@ def self_test():
         got = judge(cap, out=io.StringIO())
         if got != want:
             bad.append(f"{name}: wanted {want}, got {got}")
+    # the verdict alone cannot tell "missing" from "mislabelled": check the reason too
+    for label, cap, needle in (
+        ("missing level named as missing", _cap_with_paths(_paths(api=_api({"ZETA0": None}))), "carries no privacy_level"),
+        ("mislabel named as mislabel", _cap_with_paths(_paths(api=_api({"ZETA0": "L1"}))), "is labelled L1"),
+    ):
+        buf = io.StringIO()
+        judge(cap, out=buf)
+        if needle not in buf.getvalue():
+            bad.append(f"{label}: reason {needle!r} not printed")
     for b in bad:
         print("SELF-TEST CASE WRONG: " + b, file=sys.stderr)
     return 0 if not bad else 1
