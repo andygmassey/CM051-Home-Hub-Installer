@@ -1039,13 +1039,14 @@ else
   if [ -z \"\$n\" ]; then
     printf 'COACH_ROW CANNOT-RUN: the database did not answer (it is encrypted when a key is set, and sqlite3 cannot read that); the row was NOT verified removed\n'
   else
-    # Item 3: the DELETE's errors are read, and the row is re-counted. "removed n" is printed
+    # Item 3: the DELETE's errors are read, and the row is re-counted. A removed line is printed
     # only when the re-count is 0. Any other outcome is a LEFT line the host treats as a failure.
     sqlite3 \"\$DB\" \"DELETE FROM observations WHERE conversation_id = '\$ID';\" >/dev/null 2>&1; drc=\$?
     after=\$(sqlite3 \"\$DB\" \"SELECT COUNT(*) FROM observations WHERE conversation_id = '\$ID';\" 2>/dev/null)
     if [ \"\$drc\" -ne 0 ]; then printf 'COACH_ROW left: the DELETE failed (rc=%s)\n' \"\$drc\"
     elif [ \"\${after:-x}\" = \"0\" ]; then printf 'COACH_ROW removed %s\n' \"\$n\"
     else printf 'COACH_ROW left: the delete did not remove the row (after=%s)\n' \"\${after:-x}\"; fi
+  fi
 fi
 " 2>&1)"
     _cs_frc=$?
@@ -1098,7 +1099,13 @@ fi
             ;;
     esac
     printf '\n'
-    # A failed cleanup is a non-zero return, whatever the deletes' exit codes said (items 1-3).
-    if [ "${_cs_forget_failed:-0}" = 1 ]; then return 1; fi
+    # A failed cleanup is an ERROR line (CLEANUP FAILED, above), never a silent success. It does not
+    # fail the walk: the walk-record gate contract is that a tidy-up must never fail a walk. The
+    # status line below is what the flag reports, so the per-forget reset is observable.
+    if [ "${_cs_forget_failed:-0}" = 1 ]; then
+        printf 'CLEANUP STATUS: FAILED (see the ERROR lines above; a tidy-up does not fail the walk)\n'
+    else
+        printf 'CLEANUP STATUS: verified\n'
+    fi
     return 0
 }

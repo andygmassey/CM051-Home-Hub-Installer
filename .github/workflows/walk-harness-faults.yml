@@ -12,6 +12,8 @@ on:
       - 'scripts/box_walk_probes/lib/wow_moments.py'
       - 'tests/test_morning_brief_repeat_not_digits.py'
       - 'tests/test_owner_seed_cleanup_failure_is_an_error.py'
+      - 'tests/test_owner_seed_removal_matches_the_guard.py'
+      - 'tests/test_walk_box_declares_only_walk_accounts.py'
       - 'tests/test_pair_state_device_layer_uses_live_signals.py'
       - 'tests/test_owner_knowledge_refuses_while_owner_seed_live.py'
       - 'tests/test_owner_employer_seed_removed_by_its_seeding_probe.py'
@@ -45,6 +47,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: install zsh (the estate login shell; the quoting test runs the remote text under it)
+        run: sudo apt-get update -y && sudo apt-get install -y zsh
       - name: harness faults are CANNOT-RUN, real faults stay FAIL
         run: /bin/bash tests/test_walk_harness_faults_are_cannot_run.sh
       - name: a same-title line at a different time, or a count with a different number, is not a morning-brief repeat
@@ -77,3 +81,9 @@ jobs:
       - name: test pair state device layer uses live signals
         if: always()
         run: python3 tests/test_pair_state_device_layer_uses_live_signals.py
+      - name: walk box declares only walk accounts
+        if: always()
+        run: python3 tests/test_walk_box_declares_only_walk_accounts.py
+      - name: owner seed removal deletes what the guard counts
+        if: always()
+        run: python3 tests/test_owner_seed_removal_matches_the_guard.py

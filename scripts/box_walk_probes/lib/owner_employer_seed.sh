@@ -182,7 +182,7 @@ owner_employer_seed_forget() {
     out="$(_oes_box "set -u
 $(_oes_count_sh)
 echo \"OES before=\$(n)\"
-\"\$OES_CURL\" -sS --noproxy '*' -m 30 -K \"\$K\" -H 'Content-Type: application/sparql-update' --data-binary \"\${P}DELETE { ?f ?p ?o } WHERE { \$M ?f ?p ?o }\" \"\${OXI%/query}/update\"; echo \"OES delete rc=\$?\"
+\"\$OES_CURL\" -sS --noproxy '*' -m 30 -K \"\$K\" -H 'Content-Type: application/sparql-update' --data-binary \"\${P}DELETE { ?f ?p ?o } WHERE { ?f pwg:source \\\"linkedin_positions\\\" ; pwg:organization \\\"${OSTLER_OWNER_SEED_ORG}\\\" . ?f ?p ?o }\" \"\${OXI%/query}/update\"; echo \"OES delete rc=\$?\"
 echo \"OES after=\$(n)\"
 $(_oes_update_sh "$(_oes_b64 "$(_oes_interaction_forget_sparql)")")
 rm -rf \$HOME/.ostler/walk-seed/owner-linkedin

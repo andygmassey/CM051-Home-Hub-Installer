@@ -64,20 +64,24 @@ def main():
 
 
 # ---------------------------------------------------------------------------
-# Forget cleanup: a FAKE box exec (OSTLER_CONVO_SEED_LOCAL_SH) returns canned output.
-# Host-side logic only: the box script text is not executed by these tests.
+# Forget cleanup: a FAKE box exec (OSTLER_CONVO_SEED_LOCAL_SH) returns canned output and saves the
+# script body it was given. Host-side logic is judged on the output; the box script body itself
+# is checked for shell syntax under sh and zsh (a syntax error here shipped once, unseen).
+# A FAILED cleanup prints "ERROR: CLEANUP FAILED" and the forget still exits 0 (the walk-record
+# contract: a tidy-up never fails a walk). The ERROR line is what the walk reports.
 # ---------------------------------------------------------------------------
 
 FAKE_BOX = """#!/bin/sh
-# fake box_exec: prints the canned forget output for FAKE_MODE and exits FAKE_RC
+# fake box_exec: saves the script body it was given, prints canned output for FAKE_MODE, exits FAKE_RC
+printf '%s' "$2" > "$FAKE_BODY_OUT"
 case "$FAKE_MODE" in
-  ok)        printf 'RESIDUE_QDRANT 0\\nRESIDUE_GRAPH 0\\nCOACH_ROW removed 1\\n' ;;
-  qdrant2)   printf 'RESIDUE_QDRANT 2\\nRESIDUE_GRAPH 0\\nCOACH_ROW removed 1\\n' ;;
-  graph3)    printf 'RESIDUE_QDRANT 0\\nRESIDUE_GRAPH 3\\nCOACH_ROW removed 1\\n' ;;
-  coachcan)  printf 'RESIDUE_QDRANT 0\\nRESIDUE_GRAPH 0\\nCOACH_ROW CANNOT-RUN: encrypted\\n' ;;
-  coachleft) printf 'RESIDUE_QDRANT 0\\nRESIDUE_GRAPH 0\\nCOACH_ROW left: the delete did not remove the row (after=1)\\n' ;;
+  ok)        printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW removed 1\n' ;;
+  qdrant2)   printf 'RESIDUE_QDRANT 2\nRESIDUE_GRAPH 0\nCOACH_ROW removed 1\n' ;;
+  graph3)    printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 3\nCOACH_ROW removed 1\n' ;;
+  coachcan)  printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW CANNOT-RUN: encrypted\n' ;;
+  coachleft) printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW left: the delete did not remove the row (after=1)\n' ;;
   empty)     : ;;
-  *)         printf 'RESIDUE_QDRANT 0\\nRESIDUE_GRAPH 0\\n' ;;
+  *)         printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\n' ;;
 esac
 exit "${FAKE_RC:-0}"
 """
@@ -97,62 +101,63 @@ OSTLER_CONVO_SEED_KEEP=0
 
 
 def forget(mode, rc=0, lib=None, sequence=None):
-    """Run the real conversation_seed_forget against a fake box exec. Returns the list of rcs."""
+    """Run the real conversation_seed_forget against the fake box exec.
+    Returns (list of exit codes, combined output, saved box script body)."""
     d = tempfile.mkdtemp(prefix="cs-forget-")
     fake = os.path.join(d, "fakebox")
+    body_out = os.path.join(d, "body.sh")
     with open(fake, "w") as fh:
         fh.write(FAKE_BOX)
     os.chmod(fake, 0o755)
     if sequence:
-        calls = "".join('FAKE_MODE=%s FAKE_RC=%s conversation_seed_forget >/dev/null 2>&1; echo "RC=$?"\n'
-                        % (m, r) for m, r in sequence)
+        calls = "".join('FAKE_MODE=%s FAKE_RC=%s conversation_seed_forget; echo "RC=$?"\n' % (m, r)
+                        for m, r in sequence)
         script = DRIVER_HEAD + calls
     else:
-        script = DRIVER_HEAD + 'conversation_seed_forget >/dev/null 2>&1\necho "RC=$?"\n'
+        script = DRIVER_HEAD + 'conversation_seed_forget\necho "RC=$?"\n'
     drv = os.path.join(d, "driver.sh")
     with open(drv, "w") as fh:
         fh.write(script)
     env = {"PATH": "/usr/bin:/bin", "HOME": d, "LIB": lib or LIB, "FAKE_MODE": mode, "FAKE_RC": str(rc),
-           "OSTLER_CONVO_SEED_LOCAL_SH": fake}
+           "FAKE_BODY_OUT": body_out, "OSTLER_CONVO_SEED_LOCAL_SH": fake}
     out = subprocess.run(["bash", drv], env=env, capture_output=True, text=True)
     rcs = [int(x.split("=")[1]) for x in out.stdout.split() if x.startswith("RC=")]
-    return rcs or [("no-rc:" + out.stderr[-200:])]
+    body = open(body_out, encoding="utf-8").read() if os.path.exists(body_out) else ""
+    return (rcs or [-1]), out.stdout + out.stderr, body
 
 
 def forget_cases():
     bad = []
-    if forget("ok") != [0]:
-        bad.append("a clean cleanup must return 0, got %s" % forget("ok"))
-    if forget("ok", rc=255) != [1]:
-        bad.append("item 1: a box exec that exits non-zero must FAIL the cleanup")
-    if forget("empty") != [1]:
-        bad.append("item 1: empty box output must FAIL the cleanup, never read as done")
-    if forget("qdrant2") != [1]:
-        bad.append("item 2: Qdrant residue 2 must FAIL even when every delete exited 0")
-    if forget("graph3") != [1]:
-        bad.append("item 2: graph residue 3 must FAIL even when every delete exited 0")
-    if forget("coachcan") != [1]:
-        bad.append("item 3: a COACH_ROW CANNOT-RUN must FAIL the cleanup, loud, never success")
-    if forget("coachleft") != [1]:
-        bad.append("item 3: a COACH_ROW left after the delete must FAIL the cleanup")
-    seq = forget("ok", sequence=[("qdrant2", 0), ("ok", 0)])
-    if seq != [1, 0]:
-        bad.append("item 4: the failure flag must reset per forget, got %s" % seq)
-    # RED control for item 2: remove the residue check from a copy of the library; qdrant2 must then read as success.
+    rcs, out, body = forget("ok")
+    if rcs != [0] or "ERROR: CLEANUP FAILED" in out:
+        bad.append("a clean cleanup must exit 0 with no ERROR, got %s" % rcs)
+    # the box script body must be valid shell under sh AND zsh (it runs under zsh over ssh)
+    for shell in ("sh", "zsh"):
+        r = subprocess.run([shell, "-n", "-c", body], capture_output=True, text=True)
+        if r.returncode != 0:
+            bad.append("the box script does not parse under %s: %s" % (shell, r.stderr.strip()[:160]))
+    cases = [
+        ("ok", 255, "item 1: a box exec that exits non-zero is CLEANUP FAILED"),
+        ("empty", 0, "item 1: empty box output is CLEANUP FAILED, never done"),
+        ("qdrant2", 0, "item 2: Qdrant residue 2 is CLEANUP FAILED even when every delete exited 0"),
+        ("graph3", 0, "item 2: graph residue 3 is CLEANUP FAILED even when every delete exited 0"),
+        ("coachcan", 0, "item 3: a COACH_ROW CANNOT-RUN is CLEANUP FAILED, loud"),
+        ("coachleft", 0, "item 3: a COACH_ROW left after the delete is CLEANUP FAILED"),
+    ]
+    for mode, rc, label in cases:
+        rcs, out, _b = forget(mode, rc=rc)
+        if "ERROR: CLEANUP FAILED" not in out:
+            bad.append(label + " (no ERROR line printed)")
+        if rcs != [0]:
+            bad.append("the walk must not fail on a tidy-up: %s exit %s" % (mode, rcs))
+    # item 4: the flag resets per forget. A failed forget, then a clean one in one shell: the clean one is clean.
+    rcs, out, _b = forget("ok", sequence=[("qdrant2", 0), ("ok", 0)])
+    if out.count("CLEANUP STATUS: FAILED") != 1 or out.count("CLEANUP STATUS: verified") != 1:
+        bad.append("item 4: the failure must not leak into the next forget (statuses: %d failed, %d verified)"
+                   % (out.count("CLEANUP STATUS: FAILED"), out.count("CLEANUP STATUS: verified")))
+    # RED control: remove the residue check from a copy; qdrant2 must then print no ERROR.
     with open(LIB, encoding="utf-8") as fh:
         src = fh.read()
-    mutant_src = src.replace('if [ "${_cs_qres}" != "0" ] || [ "${_cs_gres}" != "0" ]; then',
-                             'if false; then', 1)
-    if mutant_src == src:
-        bad.append("CONTROL: the residue check line was not found to mutate")
-    else:
-        mdir = tempfile.mkdtemp(prefix="cs-mut-")
-        mpath = os.path.join(mdir, "conversation_seed.sh")
-        with open(mpath, "w", encoding="utf-8") as fh:
-            fh.write(mutant_src)
-        if forget("qdrant2", lib=mpath) != [0]:
-            bad.append("CONTROL: with the residue check removed, qdrant2 should read as success")
-    # RED controls for items 1, 3 and 4: remove each check from a copy and the matching case must read success.
     def mutate(old_txt, new_txt):
         if src.count(old_txt) != 1:
             return None
@@ -161,20 +166,28 @@ def forget_cases():
         with open(mpath, "w", encoding="utf-8") as fh:
             fh.write(src.replace(old_txt, new_txt, 1))
         return mpath
+    m2 = mutate('if [ "${_cs_qres}" != "0" ] || [ "${_cs_gres}" != "0" ]; then', 'if false; then')
+    if m2 is None or "ERROR: CLEANUP FAILED" in forget("qdrant2", lib=m2)[1]:
+        bad.append("CONTROL item 2: without the residue check, qdrant2 must print no ERROR")
     m1 = mutate('if [ "${_cs_frc}" -ne 0 ] || [ -z "$(printf', 'if false || [ -z "$(printf')
-    if m1 is None or forget("ok", rc=255, lib=m1) != [0]:
-        bad.append("CONTROL item 1: without the exit-status check a failed box exec should read as success")
+    if m1 is None or "ERROR: CLEANUP FAILED" in forget("ok", rc=255, lib=m1)[1]:
+        bad.append("CONTROL item 1: without the exit-status check a failed box exec must print no ERROR")
     m3 = mutate('if printf \'%s\\n\' "${_cs_fout}" | grep -q', 'if false && printf \'%s\\n\' "${_cs_fout}" | grep -q')
-    if m3 is None or forget("coachcan", lib=m3) != [0]:
-        bad.append("CONTROL item 3: without the COACH_ROW check a CANNOT-RUN should read as success")
+    if m3 is None or "ERROR: CLEANUP FAILED" in forget("coachcan", lib=m3)[1]:
+        bad.append("CONTROL item 3: without the COACH_ROW check a CANNOT-RUN must print no ERROR")
     m4 = mutate('    _cs_forget_failed=0\n', '')
-    if m4 is None or forget("ok", lib=m4, sequence=None) is None:
+    if m4 is None:
         bad.append("CONTROL item 4: the reset line was not found to mutate")
     else:
-        seq_m4 = forget("ok", sequence=[("qdrant2", 0), ("ok", 0)], lib=m4)
-        if seq_m4 != [1, 1]:
-            bad.append("CONTROL item 4: without the reset the clean forget should inherit the failure, got %s" % seq_m4)
-
+        _r, out4, _b = forget("ok", sequence=[("qdrant2", 0), ("ok", 0)], lib=m4)
+        if out4.count("CLEANUP STATUS: FAILED") != 2:
+            bad.append("CONTROL item 4: without the reset the clean forget should inherit the failure")
+    # syntax RED control: a body with one fi removed must NOT parse (the shipped regression)
+    broken = body.replace("\n  fi\nfi\n", "\nfi\n", 1)
+    if broken != body:
+        r = subprocess.run(["sh", "-n", "-c", broken], capture_output=True, text=True)
+        if r.returncode == 0:
+            bad.append("CONTROL syntax: a body with a missing fi must fail sh -n")
     return bad
 
 

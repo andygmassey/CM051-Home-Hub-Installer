@@ -720,6 +720,7 @@ test_owner_name_id_never_empty.sh	WIRED	.github/workflows/tests-unwired-sweep-mz
 test_owner_node_is_minted_and_read.py	WIRED	.github/workflows/owner-node-is-minted.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
 test_owner_seed_cleanup_failure_is_an_error.py	WIRED	.github/workflows/walk-harness-faults.yml
+test_owner_seed_removal_matches_the_guard.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_pair_state_device_layer_uses_live_signals.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
@@ -1148,7 +1149,7 @@ test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-no
 test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
-test_walk_box_declares_only_walk_accounts.py	WIRED	(via test_every_probe_on_disk_is_collected.py)
+test_walk_box_declares_only_walk_accounts.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_driver_cancel_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk-record-gate.yml
