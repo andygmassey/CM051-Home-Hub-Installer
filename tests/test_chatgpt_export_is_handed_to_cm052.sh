@@ -114,7 +114,7 @@ with zipfile.ZipFile(work / "not-chatgpt.zip", "w") as z:
     z.writestr("readme.txt", b"synthetic, no conversations")
 # A Claude.ai export also carries conversations.json, but its entries have
 # chat_messages, not mapping. It must not be staged as ChatGPT.
-claude = [{"uuid": "synthetic-claude-a", "name": "Synthetic Claude A",
+claude = [{"uuid": "synthetic-claude-a", "name": "synthetic thread alpha",
            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:01:00Z",
            "chat_messages": [{"uuid": "cm1", "sender": "human", "text": "synthetic question"},
                              {"uuid": "cm2", "sender": "assistant", "text": "synthetic reply"}]}]
