@@ -627,18 +627,8 @@ MEMORY_UNREADABLE_FIX_COMMAND = "vm_stat | head -10"
 
 
 # ── check_gdpr_export_age ────────────────────────────────────────────
-
-
-STALE_IMPORT_TITLE_FMT = "Last import was {days} days ago"
-STALE_IMPORT_DETAIL = (
-    "Your knowledge graph has not been updated with new GDPR exports "
-    "in over 3 months. Your contacts and connections may be stale. "
-    "Consider requesting fresh exports from LinkedIn, Facebook, etc."
-)
-STALE_IMPORT_FIX = "Re-run the import with updated exports"
-STALE_IMPORT_FIX_COMMAND = (
-    "ostler-import --exports-dir ~/gdpr-exports/ --verbose"
-)
+# The copy and the per-platform findings live in export_status.py
+# ("Your data exports"), which names each request link.
 
 
 # ── check_docker_resources ───────────────────────────────────────────
@@ -741,9 +731,11 @@ OLLAMA_NOT_PINNED_TITLE = "Ollama is not on Ostler's pinned version"
 OLLAMA_NOT_PINNED_DETAIL_FMT = (
     "The last installer run could not install Ostler's tested copy of "
     "Ollama ({version}) because {reason}, so the copy that was already "
-    "running was kept. Your assistant keeps working. Until this is fixed "
-    "Ostler downloads no new AI models, because a different Ollama could "
-    "fetch the wrong build."
+    "running was kept. Your assistant keeps working."
+)
+OLLAMA_MODELS_UNVERIFIED_FMT = (
+    " AI models downloaded in this state were not checked against Ostler's "
+    "recorded fingerprints: {models}."
 )
 OLLAMA_NOT_PINNED_FIX = (
     "Run the Ostler installer again while you are online. It tries the "

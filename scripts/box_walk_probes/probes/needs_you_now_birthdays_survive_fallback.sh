@@ -6,7 +6,7 @@
 #
 # Box side: re-runs the wiki-compiler exactly as wiki-recompile-tick.sh phase 1
 # does (OSTLER_WIKI_SKIP_LLM=1) with OSTLER_FRONT_PAGE_JSON=/nonexistent so the
-# feed cannot be read, then reads the band from ~/Documents/Ostler/Wiki/index.md.
+# feed cannot be read, then reads the band from ~/Ostler/Wiki/index.md.
 # SLOW (about 7 min on a 16 GB Mini). It republishes the same baseline a normal
 # tick publishes; nothing else on the box changes. Refuses (CANNOT-RUN) while
 # another compile is running. Judge: lib/needs_you_now_fallback.py. --self-test
@@ -33,7 +33,7 @@ self_test() {
 # compile (read before, a birthday that became due in between is missed). Prints one JSON object {"expected": [...], "index_md": "..."} on the box.
 BOX_SIDE='
 export PATH=/usr/local/bin:/opt/homebrew/bin:$PATH
-W="$HOME/Documents/Ostler/Wiki"
+W="$HOME/Ostler/Wiki"
 if pgrep -u "$(id -u)" -f "[w]iki-compiler" >/dev/null 2>&1; then echo "BUSY"; exit 0; fi
 cd "$HOME/.ostler" || exit 1
 OSTLER_PUBLIC_LOOKUPS=0 docker compose --profile compile run --rm -T -e OSTLER_WIKI_SKIP_LLM=1 -e OSTLER_FRONT_PAGE_JSON=/nonexistent/front_page.json wiki-compiler </dev/null >/tmp/ostler-probe-nyn-compile.log 2>&1 || { echo "COMPILE_FAILED"; exit 0; }

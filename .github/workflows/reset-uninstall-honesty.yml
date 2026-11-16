@@ -34,6 +34,9 @@ on:
       - 'tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh'
       - 'tests/test_ttywalk_reset_cold_no_foreign_ollama.sh'
       - 'scripts/walk_cold_no_foreign_ollama.sh'
+      - 'tests/test_ttywalk_reset_is_cold_or_refuses.sh'
+      - 'scripts/walk_cold_wipe_state.sh'
+      - 'scripts/walk_cold_allowlist.tsv'
       - 'tests/test_early_pass_timeout_kills_the_remote_probe.sh'
       - 'tests/test_early_pass_timeout_kills_the_local_runner.sh'
       - 'scripts/early_repeat_fail_pass.sh'
@@ -77,6 +80,14 @@ jobs:
       # deleting the announcement (rc=1).
       - name: A reset that skipped the uninstall announces it
         run: bash tests/test_reset_says_when_it_did_not_uninstall.sh
+
+      # v1.0.129 was walked on 123,775 carried-over files under
+      # ~/.ostler/state. The reset now counts and wipes every Ostler root and
+      # refuses to stage unless 0 remain outside the allowlist. Negative
+      # control (a planted unremovable file) and a mutant of the refusal.
+      - name: A reset proves the box cold or refuses
+        if: always()
+        run: bash tests/test_ttywalk_reset_is_cold_or_refuses.sh
 
       # MEASURED on the walk box 2026-09-07: the uninstaller reached
       # `docker compose down -v` and died with "docker: command not found",

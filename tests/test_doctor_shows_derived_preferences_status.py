@@ -27,6 +27,7 @@ import plistlib
 import re
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -153,6 +154,44 @@ def main() -> int:
     check("{derived_preferences_section}" in ui, "placeholder in the dashboard HTML")
     vo = (REPO / "vendor" / "VENDOR_ONLY.tsv").read_text()
     check("doctor/agent/derived_preferences_status.py\t" in vo, "declared vendor-only, so a sync restores it")
+
+    print("6: an in-progress record that stopped is stale, not still learning")
+    def _ago(hours):
+        return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _inprog(stamp_key, hours, *, progress=True):
+        prog = {"readers_done": 3, "readers_total": 8, "items_so_far": 40}
+        if progress:
+            prog[stamp_key] = _ago(hours)
+        rec = {"outcome": "in_progress", "progress": prog}
+        if not progress:
+            rec["last_run_at"] = _ago(hours)
+        return rec
+
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record=_inprog("updated_at", 0.01))
+        h = dps.render_derived_preferences_status(st)
+        check(st["status"] == "in_progress" and "still learning" in h,
+              f"fresh in_progress (updated 36s ago) -> still learning, read as {st['status']}")
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record=_inprog("updated_at", 2))
+        check(st["status"] == "in_progress", f"2h-old in_progress is inside the 3h window, read as {st['status']}")
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record=_inprog("updated_at", 4))
+        h = dps.render_derived_preferences_status(st)
+        check(st["status"] == "stale", f"4h-old in_progress (updated_at) -> stale, read as {st['status']}")
+        check("last preferences pass did not finish" in h and "#5C4611" in h,
+              "the Doctor row is amber and says the last preferences pass did not finish")
+        check("still learning" not in h, "a stale pass is never still learning")
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record=_inprog("started_at", 4))
+        check(st["status"] == "stale", f"4h-old started_at alone -> stale, read as {st['status']}")
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record=_inprog(None, 4, progress=False))
+        check(st["status"] == "stale", f"4h-old last_run_at, no progress stamps -> stale, read as {st['status']}")
+    with tempfile.TemporaryDirectory() as t:
+        st = state(Path(t), record={"outcome": "in_progress", "progress": {"readers_done": 1, "readers_total": 8}})
+        check(st["status"] == "stale", f"in_progress with no timestamp at all cannot prove it is moving -> stale, read as {st['status']}")
 
     print(f"\n{'FAILED: ' + str(len(FAILS)) if FAILS else 'all passed'}")
     return 1 if FAILS else 0

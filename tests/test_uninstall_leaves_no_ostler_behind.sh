@@ -16,7 +16,7 @@
 #     not typed here; each one "loaded" in a stub launchd, and three of them
 #     plus the Ostler.app bundle running a REAL TCP listener
 #   * ~/.ostler (bin, services, data/knowledge-staging, power.conf, license/)
-#   * ~/Documents/Ostler/Conversations (the customer's generated content)
+#   * ~/Ostler/Conversations (the customer's generated content)
 #   * the "Ostler Recovery Key" keychain item (the only one install.sh adds)
 #   * the colima `default` VM and its data disk, plus the five store volumes
 #   * /Applications/Ostler.app and the /Applications/Ostler/ folder bundles
@@ -281,8 +281,9 @@ build_fixture() {
     echo x > "${H}/.ostler/data/knowledge-staging/notes/n.md"
     echo policy > "${H}/.ostler/power.conf"; echo lic > "${H}/.ostler/license/ostler-licence.json"
     # Customer-facing content.
-    mkdir -p "${H}/Documents/Ostler/Conversations/2026-10-01/chat-abc" "${H}/Documents/Ostler/Wiki"
-    echo s > "${H}/Documents/Ostler/Conversations/2026-10-01/chat-abc/summary.md"
+    mkdir -p "${H}/Ostler/Conversations/2026-10-01/chat-abc" "${H}/Ostler/Wiki"
+    echo s > "${H}/Ostler/Conversations/2026-10-01/chat-abc/summary.md"
+    mkdir -p "${H}/Documents"
     echo "mine" > "${H}/Documents/customer-notes.txt"
     # Ollama models: the uninstaller says it does NOT remove these.
     mkdir -p "${H}/.ollama/models/blobs"; echo m > "${H}/.ollama/models/blobs/sha256-x"
@@ -342,7 +343,7 @@ assert_full_removal() {
     done < "${sb}/state/ports"
     left="$( cd "${H}/.ostler" 2>/dev/null && ls -A | sort | tr '\n' ' ' )"
     [[ "$left" == "license power.conf " ]] || { echo "    ~/.ostler holds more than license + power.conf: '${left}'"; n=$((n+1)); }
-    [[ ! -e "${H}/Documents/Ostler" ]] || { echo "    ~/Documents/Ostler survived --remove-content"; n=$((n+1)); }
+    [[ ! -e "${H}/Ostler" ]] || { echo "    ~/Ostler survived --remove-content"; n=$((n+1)); }
     grep -q '^Ostler Recovery Key	' "${sb}/state/keychain" && { echo "    keychain item survived"; n=$((n+1)); }
     grep -qx default "${sb}/state/colima" && { echo "    colima default VM survived --remove-colima"; n=$((n+1)); }
     [[ ! -e "${H}/.colima/_lima/_disks/colima/datadisk" ]] || { echo "    colima data disk survived"; n=$((n+1)); }
@@ -393,9 +394,9 @@ echo "Scenario B: --yes only (the defaults a customer gets without opting in)"
 SB_B="$(new_sandbox)"
 run_uninstall "${WORK}/body.sh" "$SB_B" --yes
 H="${SB_B}/home"
-[[ -f "${H}/Documents/Ostler/Conversations/2026-10-01/chat-abc/summary.md" ]] \
-    && ok "~/Documents/Ostler/Conversations KEPT without --remove-content" \
-    || bad "~/Documents/Ostler/Conversations deleted without an explicit --remove-content"
+[[ -f "${H}/Ostler/Conversations/2026-10-01/chat-abc/summary.md" ]] \
+    && ok "~/Ostler/Conversations KEPT without --remove-content" \
+    || bad "~/Ostler/Conversations deleted without an explicit --remove-content"
 grep -qx default "${SB_B}/state/colima" && ok "colima default VM KEPT without --remove-colima" \
     || bad "colima default VM deleted without consent"
 [[ -f "${H}/.ostler/data/knowledge-staging/notes/n.md" ]] && ok "knowledge staging KEPT without --purge-data" \

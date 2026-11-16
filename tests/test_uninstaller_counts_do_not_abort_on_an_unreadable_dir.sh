@@ -6,7 +6,7 @@
 #
 # ~/.ostler/bin/ostler-uninstall is written by install.sh from a quoted
 # heredoc. Near the top, before ANY removal happens, it counts the files under
-# ~/Documents/Ostler/ so the customer can see what is at stake before deciding
+# ~/Ostler/ so the customer can see what is at stake before deciding
 # whether to keep it. That count is decoration. It killed the script.
 #
 #   count_dir() { ... find "$d" -type f 2>/dev/null | wc -l | tr -d ' ' ... }

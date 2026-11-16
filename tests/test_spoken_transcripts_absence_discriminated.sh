@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # B2 (cuts/v1.0.60/SCOPE.md): the spoken/voice feed is presence-gated on
-# ~/Documents/Ostler/Transcripts, and that directory is created ONCE under a
+# ~/Ostler/Transcripts, and that directory is created ONCE under a
 # sentinel that deliberately never recreates it. So there are two ways to reach
 # the skip branch and they are NOT the same fact:
 #
@@ -83,7 +83,7 @@ run_case() {
         set +u
         # shellcheck disable=SC1090
         . "$STRINGS"
-        USER_FACING_ROOT="${tmp}/Documents/Ostler"
+        USER_FACING_ROOT="${tmp}/Ostler"
         mkdir -p "$USER_FACING_ROOT"
         # Transcripts deliberately NOT created: this is the skip branch.
         USER_TREE_SENTINEL="${tmp}/.installer-tree-created"

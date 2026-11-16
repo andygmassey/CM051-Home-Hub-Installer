@@ -43,6 +43,12 @@ jobs:
       - name: No function is called before it is defined in install.sh
         run: bash tests/test_install_sh_no_call_before_definition.sh
 
+      # Tailnet advertise default (2026-11-11): once Tailscale connects, install.sh
+      # sets [gateway] companion_advertise_tailnet = true. RED on main (no helper).
+      - name: Tailnet advertise default is set once Tailscale connects
+        if: always()
+        run: bash tests/test_tailnet_advertise_default.sh
+
       # The egress probe's OWN control suite. It existed on main and NOTHING
       # invoked it -- the same dark-test shape the estate keeps paying for, one
       # level up from the instrument it guards. Wired here because this is the
