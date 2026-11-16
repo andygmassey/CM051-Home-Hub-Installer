@@ -205,6 +205,9 @@ ostler_vm_record_size() {
 # Rewrites in place (cat into the existing file keeps its mode and inode).
 ostler_vm_persist_colima_yaml() {
     local _y="$1" _tmp _rc
+    # OWNERSHIP GUARD: a customer's own VM is never rewritten. Refused unless
+    # the owner marker says Ostler created this VM (ostler_vm_is_owned).
+    ostler_vm_is_owned || return 1
     [ -f "$_y" ] || return 1
     _tmp="${_y}.ostler-vm-tmp.$$"
     awk -v c="$2" -v m="$3" '
