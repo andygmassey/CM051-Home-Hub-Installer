@@ -549,6 +549,9 @@ def pre_meeting_brief(days=1, events_provider=None, report=None):
             "start": event.get("start_formatted", ""),
             "start_iso": event.get("start", ""),
             "uid": event.get("uid", ""),
+            # The calendar the event came from. The composer and the sender
+            # leave out a calendar the owner asked to ignore; "" = unknown.
+            "calendar": event.get("calendar", "") or "",
             "location": location,
             "maps_url": _build_google_maps_url(location),
             "attendees": [],

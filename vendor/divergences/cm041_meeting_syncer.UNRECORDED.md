@@ -57,3 +57,11 @@ and self-verified: source at the pin plus the patch rebuilds the vendored tree
 byte for byte. The tool could not do this before because it refused on any
 source commit past the pin, hold_ack or not. This file stays as history; the
 patch is the record.
+
+## T2 (2026-11-15): calendar key on each pre-meeting brief
+
+`vendor/cm041/meeting_syncer/brief.py`, `pre_meeting_brief`: one key,
+`"calendar": event.get("calendar", "") or ""`, on each meeting dict, next to
+`"uid"`. The sender in `install.sh` reads it and passes `--calendar` to the
+composer; `""` means unknown and no rule can match it. Test:
+`tests/test_meeting_brief_calendar_field.py` (mutant: key removed, red).

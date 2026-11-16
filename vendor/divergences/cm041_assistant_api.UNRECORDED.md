@@ -1794,3 +1794,13 @@ and tags `photos_error`; the entries serializer carries `photos` through, skips
 (`source`, `title_verbatim`) stay on every entry in this tree, so the contract
 test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 (11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.
+
+## T2 (2026-11-15): CALENDAR line read by parse_ical_output
+
+`vendor/cm041/assistant_api/ical-server.py`, the function `parse_ical_output`:
+one `elif` branch for a `CALENDAR:` line that sets `current["calendar"]`. A
+feed without the line adds no key, as before. The producer that writes the line
+is `install.sh` (the `ical-query.sh` heredoc). Without this branch the owner's
+"ignore calendar X" cannot match an iCloud event. Test:
+`tests/test_ical_producer_calendar_line.py` (mutant: branch removed, red).
+Upstream CM041 carries the same branch on the #250 stack (df6e964).
