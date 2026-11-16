@@ -10,7 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -28,6 +28,9 @@ class BriefLocalStores(unittest.TestCase):
         p = mock.patch.object(ical_server, "FDA_IMPORT_DIR", self.dir)
         p.start()
         self.addCleanup(p.stop)
+        # Default state: the calendar synced successfully just now. Tests that
+        # need another state write their own marker.
+        self._mark_calendar_sync()
         # No optional extras configured, as on a customer install.
         for target in ("ICAL_SCRIPT",):
             q = mock.patch.object(ical_server, target, "/nonexistent/ical-query.sh")
@@ -40,6 +43,15 @@ class BriefLocalStores(unittest.TestCase):
 
     def _write(self, name, rows):
         Path(self.dir, name).write_text(json.dumps(rows, default=str))
+
+    def _mark_calendar_sync(self, status="ok", at=None):
+        """Write the product's sync marker (vendor/ostler_fda/extract_all.py):
+        extracted_at plus sources.calendar.status in extraction_summary.json."""
+        at = at or datetime.now(timezone.utc)
+        Path(self.dir, "extraction_summary.json").write_text(json.dumps({
+            "extracted_at": at.isoformat(),
+            "sources": {"calendar": {"status": status, "events": 0}},
+        }))
 
     def test_todays_events_are_returned(self):
         n = _now().replace(hour=12, minute=0, second=0)
@@ -57,10 +69,53 @@ class BriefLocalStores(unittest.TestCase):
         self.assertEqual([e["title"] for e in body["events"]], ["Standup", "Lunch"])
         self.assertEqual(body["count"], 2)
 
-    def test_genuinely_empty_day_is_a_200_zero(self):
-        self._write("calendar_events.json", [])
+    def test_a_free_day_in_a_populated_store_is_a_200_zero(self):
+        # Events on other days, none today: a genuinely free day.
+        n = _now().replace(hour=12, minute=0, second=0)
+        self._write("calendar_events.json", [
+            {"title": "Tomorrow thing", "start_date": n + timedelta(days=1),
+             "end_date": n + timedelta(days=1, hours=1), "attendees": [], "is_all_day": False}])
         status, body = ical_server.build_calendar_response(1)
         self.assertEqual((status, body["count"]), (200, 0))
+        self.assertNotIn("degraded", body)
+
+    def test_a_successful_sync_with_no_events_is_a_genuine_free_day(self):
+        # Case 2: connected, last sync ok inside its window, [] events.
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual((status, body["count"]), (200, 0), body)
+        self.assertNotIn("degraded", body)
+
+    def test_never_synced_with_an_empty_store_is_no_data_not_a_free_day(self):
+        # Case 3: the store is [] but no sync marker exists. The contents do not
+        # decide this: it is "could not look", so the brief must not say "free".
+        Path(self.dir, "extraction_summary.json").unlink()
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(body["degraded"])
+        self.assertTrue(any("never synced" in d for d in body["detail"]), body)
+
+    def test_failed_last_sync_with_an_empty_store_is_no_data(self):
+        self._mark_calendar_sync(status="error")
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("did not succeed" in d for d in body["detail"]), body)
+
+    def test_stale_sync_with_an_empty_store_is_no_data(self):
+        self._mark_calendar_sync(at=datetime.now(timezone.utc) - timedelta(hours=24))
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("hours old" in d for d in body["detail"]), body)
+
+    def test_unreadable_sync_marker_is_no_data(self):
+        Path(self.dir, "extraction_summary.json").write_text("{not json")
+        self._write("calendar_events.json", [])
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 503, body)
+        self.assertTrue(any("unreadable" in d for d in body["detail"]), body)
 
     def test_calendar_store_missing_is_not_an_empty_200(self):
         status, body = ical_server.build_calendar_response(1)
@@ -81,8 +136,16 @@ class BriefLocalStores(unittest.TestCase):
         q.start()
         self.addCleanup(q.stop)
 
+    def _populated_other_day(self):
+        # A store with events, none today: the local read succeeds and
+        # contributes nothing, so the iCloud arm is what the test sees.
+        n = _now().replace(hour=12, minute=0, second=0)
+        self._write("calendar_events.json", [
+            {"title": "Tomorrow thing", "start_date": n + timedelta(days=1),
+             "end_date": n + timedelta(days=1, hours=1), "attendees": [], "is_all_day": False}])
+
     def test_unpaired_icloud_is_not_connected_not_empty(self):
-        self._write("calendar_events.json", [])
+        self._populated_other_day()
         self._script(3)
         status, body = ical_server.build_calendar_response(1)
         self.assertEqual(status, 200)
@@ -95,7 +158,7 @@ class BriefLocalStores(unittest.TestCase):
         self.assertEqual(status, 503)
 
     def test_icloud_script_failure_degrades(self):
-        self._write("calendar_events.json", [])
+        self._populated_other_day()
         self._script(1)
         status, body = ical_server.build_calendar_response(1)
         self.assertEqual(status, 200)
@@ -247,6 +310,24 @@ class BriefLocalStores(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(sorted(e["title"] for e in body["events"]),
                          ["Plan 2026 offsite", "Review 2026 budget", "XY123 to the coast"])
+
+    def test_a_one_word_subset_title_is_not_the_same_event(self):
+        # Red team, #3021: the containment rule must not merge distinct
+        # events. One shared word is not a match; two are ("Budget review"
+        # inside "Budget review with finance" is the same meeting).
+        n = _now().replace(hour=11, minute=0, second=0)
+        slot = {"start_date": n, "end_date": n + timedelta(hours=1), "attendees": [],
+                "is_all_day": False, "calendar_name": "Work"}
+        rows = [dict(slot, title=t) for t in (
+            "Lunch", "Lunch with Sam",            # kept apart
+            "Call", "Call the supplier",          # kept apart
+            "Budget review", "Budget review with finance",  # folded
+        )]
+        self._write("calendar_events.json", rows)
+        status, body = ical_server.build_calendar_response(1)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(e["title"] for e in body["events"]),
+                         ["Budget review with finance", "Call", "Call the supplier", "Lunch", "Lunch with Sam"])
 
 
 class CalendarHandlerWritesTheBuilderReply(unittest.TestCase):

@@ -9460,6 +9460,43 @@ def local_store_stale_after_s():
     return 3 * _writer_interval_s()
 
 
+# The calendar sync-freshness marker the product writes. vendor/ostler_fda/
+# extract_all.py stamps summary["extracted_at"] (line ~171) and the calendar
+# entry summary["sources"]["calendar"]["status"] (line ~663-668), then writes
+# extraction_summary.json (line ~1020) once per fda-rerun. A brief may call an
+# empty calendar a free day only when that marker says the last sync succeeded
+# inside the freshness window. The store's CONTENTS never decide this.
+EXTRACTION_SUMMARY_NAME = "extraction_summary.json"
+
+
+def _calendar_sync_refusal():
+    """None when the last calendar sync succeeded inside the freshness window,
+    else the one-line reason the brief must show instead of a free day."""
+    path = os.path.join(FDA_IMPORT_DIR, EXTRACTION_SUMMARY_NAME)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            summary = json.load(fh)
+    except FileNotFoundError:
+        return "calendar has never synced (no %s)" % EXTRACTION_SUMMARY_NAME
+    except (OSError, ValueError) as exc:
+        return "calendar sync marker unreadable: %s" % exc
+    try:
+        cal = summary["sources"]["calendar"]
+        at = datetime.fromisoformat(summary["extracted_at"])
+    except (KeyError, TypeError, ValueError):
+        return "calendar sync marker has no calendar entry or timestamp"
+    if not isinstance(cal, dict) or cal.get("status") != "ok":
+        status = cal.get("status") if isinstance(cal, dict) else cal
+        return "last calendar sync did not succeed (status %r)" % (status,)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    age = max(0, int(time.time() - at.timestamp()))
+    if age >= local_store_stale_after_s():
+        return ("last calendar sync is %d hours old (the writer runs every %d minutes)"
+                % (age // 3600, _writer_interval_s() // 60))
+    return None
+
+
 def _stale_detail(name, age):
     """None when fresh, else the one-line reason a reader can show."""
     if age is None or age < local_store_stale_after_s():
@@ -9494,7 +9531,10 @@ def _same_calendar_event(a, b):
         return True
     short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
     sig = [w for w in short if len(w) >= 3]
-    return bool(sig) and all(w in long_ for w in sig)
+    # Two or more significant words of the shorter title, all in the longer:
+    # "Budget review" inside "Budget review with finance". One word is not
+    # enough: "Lunch" and "Lunch with Sam" in one slot may be two events.
+    return len(sig) >= 2 and all(w in long_ for w in sig)
 
 
 def collapse_duplicate_events(events):
@@ -9518,7 +9558,13 @@ def collapse_duplicate_events(events):
 
 def read_local_calendar_events(days=1, now=None):
     """Events from the ingested Apple Calendar store (calendar_events.json)
-    overlapping [local midnight today, +days). Raises LocalStoreError."""
+    overlapping [local midnight today, +days). Raises LocalStoreError unless
+    the product's sync marker says the last calendar sync succeeded inside its
+    freshness window. An empty store is then a genuine free day; a store
+    contents never decide it (Archie ruling, CM051 #3030)."""
+    reason = _calendar_sync_refusal()
+    if reason:
+        raise LocalStoreError(reason)
     rows, age = _read_fda_json("calendar_events.json")
     now = now or datetime.now().astimezone()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)

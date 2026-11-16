@@ -144,6 +144,15 @@ class _Box:
         self.fda = root / "fda"
         self.fda.mkdir()
         (self.fda / "calendar_events.json").write_text("[]")
+        # Local calendar store: a successful sync just now (the product's
+        # extraction_summary.json, vendor/ostler_fda/extract_all.py). This
+        # fixture is about GOOGLE not being connected, so the local side must be
+        # healthy and the not_connected answer must come from consent alone.
+        from datetime import datetime, timezone
+        (self.fda / "extraction_summary.json").write_text(json.dumps({
+            "extracted_at": datetime.now(timezone.utc).isoformat(),
+            "sources": {"calendar": {"status": "ok", "events": 0}},
+        }))
         self.marker = root / "gws_spawned.log"
         self.fake = root / "gws"
         self.fake.write_text(

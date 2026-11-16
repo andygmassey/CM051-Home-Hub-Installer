@@ -1494,6 +1494,13 @@ that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
 57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
 next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
 this assertion, and the re-vendor makes the file byte-identical.
+## An empty-but-present calendar store is no data, and one shared word is not one event (CM051, 2026-10-19, edge-case matrix)
+
+Tree `cm041/assistant_api`. Extends the section above. `read_local_calendar_events` raises `LocalStoreError` when `calendar_events.json` is present but holds no rows at all: an extractor that wrote nothing (no Full Disk Access, an empty Calendar database) read as a free day, which is a claim on no data; the brief now hears "could not be checked" (503 degraded with the reason) and a populated store with nothing today is still a 200 free day. `_same_calendar_event`'s containment rule needs two or more significant words of the shorter title inside the longer ("Budget review" in "Budget review with finance"); one shared word ("Lunch" and "Lunch with Sam") keeps both rows.
+
+### What a future sync must preserve
+
+The empty-store `LocalStoreError` in `read_local_calendar_events` and the `len(sig) >= 2` rule in `_same_calendar_event`. Guarded by `test_an_empty_but_present_store_is_no_data_not_a_free_day`, `test_a_free_day_in_a_populated_store_is_a_200_zero` and `test_a_one_word_subset_title_is_not_the_same_event` in `tests/test_brief_reads_local_stores.py`.
 
 ## 2026-10-24: strip tracking params at the extension POST and Save to Knowledge (CM051 #3043; upstream CM041 #227, OPEN)
 
@@ -1794,3 +1801,24 @@ and tags `photos_error`; the entries serializer carries `photos` through, skips
 (`source`, `title_verbatim`) stay on every entry in this tree, so the contract
 test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 (11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.
+
+## 2026-11-16 (CM051 #3030, Archie ruling): the calendar brief reads the sync marker, never the store's contents
+
+Tree `cm041/assistant_api`. Location and shape only.
+
+- `ical-server.py`: `read_local_calendar_events` no longer refuses a present-but-empty store.
+  It first calls the NEW `_calendar_sync_refusal()`, which reads `extraction_summary.json`
+  from `FDA_IMPORT_DIR` and refuses (LocalStoreError, so /calendar answers 503 unless an extra
+  source answered) when the marker is missing, unreadable, has no calendar entry, has a
+  calendar status other than `ok`, or is older than `local_store_stale_after_s()`.
+- The writer of that marker: `vendor/ostler_fda/extract_all.py` (`summary["extracted_at"]`
+  at ~line 171; `summary["sources"]["calendar"]` at ~663-668; `extraction_summary.json`
+  written at ~line 1020), once per fda-rerun.
+- Three cases, one test each (`tests/test_brief_reads_local_stores.py`):
+  1. not connected / no consent: `tests/test_vendored_gws_never_spawned_without_consent.py`
+     keeps a healthy local marker so the answer is 200 not_connected from consent alone.
+  2. successful sync inside the window and `[]`: 200, count 0, a genuine free day.
+  3. never synced, failed sync, stale sync, unreadable marker: 503. The never-synced case is
+     RED on origin/main (main returns 200 count 0 for the same fixture).
+- Upstream owed to CM041: the same refusal belongs in CM041 `assistant_api/ical-server.py`.
+  Retire this section when a re-pin brings it in.
