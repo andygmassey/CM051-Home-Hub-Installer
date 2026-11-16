@@ -63,3 +63,14 @@ def test_control_plaintext_sqlite_does_contain_the_token(tmp_path):
     c.commit()
     c.close()
     assert PLANTED.encode() in path.read_bytes()
+
+
+def test_wrong_key_open_fails_and_writes_nothing(tmp_path):
+    """A DB created under the right key; a wrong-key open must raise and must not
+    change a single byte of the file (no re-key, no DDL, no write)."""
+    path = tmp_path / "owner_outbound.db"
+    _open_or_cannot_run(str(path), key_resolver=lambda: "abcdef0123456789").close()
+    before = path.read_bytes()
+    with pytest.raises(Exception):
+        SqlCipherStore.open(str(path), key_resolver=lambda: "fedcba9876543210")
+    assert path.read_bytes() == before
