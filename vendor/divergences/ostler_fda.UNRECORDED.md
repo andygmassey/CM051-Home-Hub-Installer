@@ -458,3 +458,14 @@ group entries by that hash: exactly one takes that chat id's `group:<id>` labels
 `OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
 one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
 `is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).
+
+## ostler_fda people index: a card or conversation keeps a sender-shaped person; the exclusion is declared
+
+Tree `ostler_fda`, file `pwg_ingest.py`. Location and shape only, never content.
+
+- `service_sender_reason` takes `has_card` and `has_conversation`, and keeps the person when either is true, after the phone rule.
+- `ingest_people_to_qdrant` returns `excluded` and `by_reason` on its ok path, so the rows the sender rule leaves out are declared.
+
+Why: on the v1.0.132 box all 394 graph persons the vector store lacked were rows the sender rule flagged, so the two people probes counted them as unvectored named people. Measured: 22 of the 394 had a personal-looking first.last address; 2 of those had a last-contact channel.
+
+Proof: `tests/test_people_declared_exclusion.py` (three synthetic tests). The probe re-check (the #438 pattern) is not in this change.
