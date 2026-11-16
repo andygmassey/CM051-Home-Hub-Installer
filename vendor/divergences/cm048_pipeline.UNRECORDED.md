@@ -80,3 +80,124 @@ All of the above. Guarded by `tests/test_reply_debt_names_people_p13.py`, run by
 vendored ical-server. A re-pin to a CM048 commit that includes the branch makes
 the first three files redundant here; the service hunks stay a graft until the
 snapshot service itself is upstreamed.
+
+## Graft: reminder title quality gate, human notes, staleness (T1x, 2026-10-25)
+
+Tree `cm048_pipeline`. A graft of CM048 branch `todo-title-gate` (CM048 PR
+opened from it; replace this line with the squash sha when it merges). Files:
+`src/reminders_push.py`, `prompts/09_bundle_extract.md`.
+
+- `title_quality_reason()` in `decide_push`: empty, over 80 chars, @handle,
+  email, file path / URL, ISO date, and "Follow up ..." with no object or
+  person are ineligible (`skip_reason=no_specific_action`). The generic
+  fallbacks ("Follow up on a conversation", "Follow up on commitment",
+  "Follow up with <Name>") are deleted, so an unresolved partner, a group and
+  a solo note are skipped, not pushed generic. The L2 resolved 1:1
+  "<Name>: <text>" title (founder decision, 2026-10-11) is unchanged and passes the gate.
+- Staleness: a source older than 30 days is `skip_reason=stale_source`
+  (`OSTLER_TODO_MAX_AGE_DAYS`, 0 disables). Unknown age is not blocked.
+- Notes: "From your conversation with <Name>, 12 Aug 2021"; group and
+  unresolved partners are unnamed; no ISO date, no `file://` link.
+- Prompt: todo text is verb + object + person, <=60 chars, standalone, no
+  handles; return `[]` rather than a vague todo.
+
+Pinned by `tests/test_cm048_reminder_title_quality_gate.py` (wired in
+`cm048-participants-as-strings.yml`). Upstream differs only in the L2 branch:
+CM048 main has no name resolver, so its L2 always returns "" (skipped).
+
+Prompt 09_bundle_extract.md is CM048 #106 (branch todo-title-gate, ecd03ff3)
+with its original verbs, plus the multilingual OUTPUT LANGUAGE hunk (CM051 #2677).
+Role substitution, 2 lines (27, 55): role noun replaces fictional cast name in 2
+worked examples so pii-name-guard has no PAIR; teaching verb unchanged. Recorded
+in `vendor/divergences/cm048_pipeline.patch` (the 09_bundle_extract.md hunks, pin
+f6b75bea): pin + patch sha256 == the vendored file.
+
+## Stack: reminder title gate (CM048 #106) and its length fix (CM048 #108), v1.0.121
+
+Tree `cm048_pipeline`. The title quality gate, human notes and staleness cutoff
+(`src/reminders_push.py`) are NOT on CM048 main: they live on CM048 PR #106
+(branch `todo-title-gate`), grafted here by CM051 #3169. The length fix (a valid
+todo over 80 chars is cut at a word boundary, full text in the L0/L1 notes, a
+length refusal is `title_too_long`) is CM048 PR #108, stacked on #106, and is
+carried here by CM051 #3232. Both ride in `vendor/divergences/cm048_pipeline.patch`.
+RETIRE this entry when #106 (with #108) merges canonically and the pin is moved
+past it; until then do not let a re-pin overwrite `src/reminders_push.py`.
+
+## Topic writes only for a known non-L3 level (CM048 #109), v1.0.122
+
+Tree `cm048_pipeline`. Files `src/processor.py` and `src/topic_writer.py`, carried
+by CM051 #3291 and riding in `vendor/divergences/cm048_pipeline.patch`.
+
+UPSTREAM: CM048 #109 MERGED as ba26e09e (upstream landing). Retire this section
+when a re-pin brings it in; pin stays aed03798 until then.
+
+## 2026-11-04 (v1.0.123): the follow-up thread key counts every chat member
+
+Regeneration REFUSED, measured 2026-11-04: `VENDOR_PATCH_REGEN_CONFIRM=cm048_pipeline
+bash scripts/regenerate_divergence_patch.sh cm048_pipeline --write` printed "could not
+verify cm048_pipeline: source repo not found ()".
+
+`vendor/cm048_pipeline/src/channel_adapter.py`: new `_thread_basis_handles(metadata)`
+above `_counterpart_handles`; `make_bundle` sets `participant_handles` from it. It
+returns the source's `chat_handles` (every chat member, chat.db chat_handle_join)
+when present, else the speakers' handles as before. `participant_handles` is read
+only by `reminders_push._thread_handles` (the thread key).
+
+Why: walk v1.0.122 diag, followup_keys_match_chat_threads 0 of 7. The daemon keys a
+chat by all its members (ostler-assistant followup.rs); CM048 keyed a group on the
+members who spoke, so a group with a silent member never matched and its follow-ups
+never closed. Proof: tests/test_group_followup_key_counts_silent_members.py (Rust
+reference vector for three members).
+
+Owed upstream: yes, CM048 `src/channel_adapter.py`.
+
+## 2026-11-05: CM048 #113 and #114 grafts RETIRED (v1.0.124 re-pin)
+
+The reply-debt WhatsApp and email graft (CM048 #113, ada91103) and the marketing SMS
+graft (CM048 #114, ec837ea4) are native at the new pin: the cm048_pipeline re-pin past
+ec837ea4 found src/reply_debt.py, src/reply_debt_adapters.py, src/reply_debt_service.py
+and src/reply_debt_sources.py byte-identical to source@ec837ea4, so neither graft is
+carried here or in the patch any more.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), cm048_pipeline
+
+Regeneration REFUSED: the source has advanced past the pin (005ebd7, reply debt). A patch regenerated here would record upstream commits as local edits. The two hunks the PR added to `cm048_pipeline.patch` are hand edits to the patch file, not regenerated output. Every other path edit below is NOT in the patch and is recorded here.
+
+- `settings.yaml.example` (1 line): default root.
+- `src/capture_truth.py` (1 line): docstring path. No upstream counterpart at head, so the edit has no upstream PR.
+- `src/conversation_writer.py` (3 lines): default root and docstring paths.
+- `src/ostler_paths.py` (5 lines): `user_facing_root()` returns `Path.home() / "Ostler"`, plus comments.
+- `src/processor.py` (4 lines): docstring and comment paths.
+- `src/settings.py` (1 line): default path.
+
+Upstream: andygmassey/CM048-PWG-Conversation-Processing PR #117, not merged. Tests: full suite 1158 passed, 1 skipped, exit 0; the CM048 agent measured the old source against the new assertions as 4 failures.
+
+## 2026-11-14: undated bundles fail closed in the writer gate, cm048_pipeline
+
+`src/reminders_push.py`, `_is_stale` and `_has_future_deadline` (called from `decide_push`). The same-shape sweep of 2026-11-14 (item 3, evidence `~/walkdriver/evidence/same_shape_sweep_2026-11-14.md`) found that `_is_stale` returned "not stale" for a bundle with neither `started_at` nor `date`, so catch-up pushed years-old todos into Apple Reminders.
+
+Upstream is already correct: CM048 #120 (merged 68897402) gates on `_in_push_window`, which returns False for an undated bundle unless the todo's deadline is today or later. The defect was only in this vendored copy, which carries a CM051-side age gate that upstream never had. Re-vendoring is NOT a clean option: the vendored file carries about 690 lines of CM051-only logic (organisation filter, duplicate-thread skip, title-length skip, `FLAG_ORG_FILTER_UNAVAILABLE`) that no CM048 branch contains. So the rule is ported by hand, as #120 states it.
+
+- Undated bundle: not pushed, regardless of `OSTLER_TODO_MAX_AGE_DAYS`. The env value <= 0 now switches off only the age cutoff for dated bundles.
+- Open todo with a deadline today or later: pushed whatever the source date (#120). This changes the dated path: an old bundle with a future deadline is now pushed, as upstream does.
+- Not ported: upstream's `ended_at` as the first activity stamp (the vendored `_source_datetime` reads `started_at` then `date`).
+
+Tests: `tests/test_cm048_undated_bundle_not_pushed.py` (6). RED on the pre-change vendored file: 3 fail (undated, undated with past deadline, age cutoff disabled). Mutant (`return True` restored to `return False`): 3 fail. Existing reminders suites: green on the new code.
+## 2026-11-14: the WhatsApp resolver guard (CM051 #3423)
+
+Edited in `vendor/cm048_pipeline/src/channel_adapter.py`, `_whatsapp_resolve_privacy`:
+after the explicit `privacy_level` override, a missing classification, or one with no
+sensitivity level, returns L3. Before, a classification with no level fell through to
+L2. This is the unavailable-verdict rule: fail toward the higher level.
+
+The patch cannot be regenerated here (`source_repo = "$CM048"`, CM048 source not checked
+out), so the edit is recorded here. Upstream CM048 needs the same guard. Re-vendor must
+keep it, or a missing verdict falls back to L2 again.
+Proof: `tests/test_whatsapp_privacy_parity.py` (arm 6). RED on b2553556: the same arm.
+
+## PORT OWED: upstream as CM048 PR #121 (2026-11-14)
+
+The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` PR #121,
+DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
+When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
+`vendor/cm048_pipeline/src/channel_adapter.py`.

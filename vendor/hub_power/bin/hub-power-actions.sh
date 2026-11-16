@@ -175,17 +175,38 @@ hpa_pwg_unpause() {
 # missing (older versions), we fall back to SIGTERM on the daemon process.
 # ---------------------------------------------------------------------------
 
+# NEW-119 (CM051): the Hub's Ollama is the PINNED engine under
+# ~/.ostler/runtime/ollama-<pin>/ollama, which is never on PATH. `command -v
+# ollama` is false on a clean Mac, so these functions silently skipped the
+# model unload and never restarted the engine. Resolve the binary the
+# com.ostler.ollama LaunchAgent itself runs (ProgramArguments[0]); never PATH.
+# $HPA_OLLAMA_BIN overrides for tests.
+HPA_OLLAMA_LABEL="${HPA_OLLAMA_LABEL:-com.ostler.ollama}"
+HPA_OLLAMA_PLIST="${HPA_OLLAMA_PLIST:-$HOME/Library/LaunchAgents/com.ostler.ollama.plist}"
+
+hpa_ollama_bin() {
+    local b="${HPA_OLLAMA_BIN:-}"
+    if [ -z "$b" ] && [ -f "$HPA_OLLAMA_PLIST" ]; then
+        b="$(awk '/<key>ProgramArguments<\/key>/{f=1; next} f && /<string>/ {sub(/.*<string>/, ""); sub(/<\/string>.*/, ""); print; exit}' "$HPA_OLLAMA_PLIST")"
+    fi
+    [ -n "$b" ] && [ -x "$b" ] || return 1
+    printf '%s\n' "$b"
+}
+
 hpa_ollama_stop() {
-    if command -v ollama >/dev/null 2>&1; then
-        # Try `ollama stop <model>` for every loaded model, then as a last
+    local ob
+    if ob="$(hpa_ollama_bin)"; then
+        # Try `<pinned> stop <model>` for every loaded model, then as a last
         # resort `ollama serve` termination.
         local loaded
-        loaded="$(ollama ps 2>/dev/null | awk 'NR>1 {print $1}' || true)"
+        loaded="$("$ob" ps 2>/dev/null | awk 'NR>1 {print $1}' || true)"
         local m
         while IFS= read -r m; do
             [ -z "$m" ] && continue
-            hpa_run "ollama stop $m" ollama stop "$m" || true
+            hpa_run "ollama stop $m" "$ob" stop "$m" || true
         done <<< "$loaded"
+    else
+        hps_log "ollama-stop: pinned engine not found (no com.ostler.ollama agent), skipping model unload"
     fi
     # Kill the serve process too – frees the port and GPU memory.
     local pid
@@ -198,8 +219,9 @@ hpa_ollama_stop() {
 }
 
 hpa_ollama_start() {
-    if ! command -v ollama >/dev/null 2>&1; then
-        hps_log "ollama-start: binary not found, skipping"
+    local ob
+    if ! ob="$(hpa_ollama_bin)"; then
+        hps_log "ollama-start: pinned engine not found (no com.ostler.ollama agent), skipping"
         return 0
     fi
     # If already running, no-op.
@@ -207,12 +229,15 @@ hpa_ollama_start() {
         hps_log "ollama-start: already running"
         return 0
     fi
-    # Prefer launchd if the Mac-Mini plist is installed (Ollama-as-launchd
-    # pattern). Otherwise spawn in background.
-    if [ "$(launchctl list 2>/dev/null | grep -c 'com.ostler.ollama\|ai.ollama')" -gt 0 ]; then
-        hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/ai.ollama" || true
+    # Prefer launchd if the Hub's agent is loaded. Otherwise spawn in background.
+    # NEW-119 (CM051): the Hub's agent is com.ostler.ollama. This used to match
+    # EITHER label and then always kickstart ai.ollama, which the Hub never
+    # installs, so on every Hub the restart was a silent no-op (`|| true`).
+    # ai.ollama is a customer's own Ollama.app and is never ours to restart.
+    if launchctl list 2>/dev/null | awk -v l="$HPA_OLLAMA_LABEL" '$3 == l {f=1} END {exit !f}'; then
+        hpa_run "kickstart ollama via launchd" launchctl kickstart -k "gui/$(id -u)/$HPA_OLLAMA_LABEL" || true
     else
-        hpa_run "spawn ollama serve" nohup ollama serve >/dev/null 2>&1 &
+        hpa_run "spawn ollama serve" nohup "$ob" serve >/dev/null 2>&1 &
         # Detach.
         disown 2>/dev/null || true
     fi

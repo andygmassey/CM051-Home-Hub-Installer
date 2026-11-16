@@ -103,6 +103,21 @@ owner_employer_seed_apply() {
     else
         interaction="echo 'OES interaction skipped: no synthetic seed person (OSTLER_SEED_PERSON_IS_SYNTHETIC / OSTLER_GATE_KNOWN_PERSON unset)'"
     fi
+    # THE PROFILE WAIT IS A BUDGET, NOT A FIXED SLEEP (v1.0.125: 120 s hardcoded, and the
+    # editor-frontpage tick, which projects every Qdrant preference into the graph before it
+    # compiles, did not finish in 120 s on a first-run 41k-page box). The poll ends on the
+    # first of: interest_profile.json rewritten (recompiled), the tick's own lock
+    # (~/.ostler/.editor-frontpage.lock, editor-frontpage-tick.sh) seen and then absent on two
+    # polls with no rewrite (a compile fault: stop waiting, it will not come; two polls, so the
+    # gap between kickstart -k killing an old tick and the new one taking the lock is not read
+    # as finished), or the budget.
+    # Budget expiry leaves the state "failed", so owner_digest_knows_the_owner reports
+    # NOT MEASURED and the walk CANNOT-RUN, never PASS.
+    local pw dw iv
+    pw="${OSTLER_OWNER_SEED_PROFILE_WAIT_S:-900}"; dw="${OSTLER_OWNER_SEED_DIGEST_WAIT_S:-600}"; iv="${OSTLER_OWNER_SEED_POLL_S:-5}"
+    case "$pw$dw$iv" in *[!0-9]*) printf '  owner employer seed: bad wait knob (profile=%s digest=%s poll=%s), not run\n' "$pw" "$dw" "$iv"
+        OSTLER_OWNER_SEED_STATE="failed"; export OSTLER_OWNER_SEED_STATE; return 1 ;; esac
+    [ "$iv" -gt 0 ] 2>/dev/null || iv=5
     out="$(_oes_box "set -u
 D=\$HOME/.ostler/walk-seed/owner-linkedin/Basic_LinkedInDataExport
 mkdir -p \"\$D\" || { echo 'OES no-dir'; exit 2; }
@@ -120,20 +135,28 @@ case \"\$c\" in ''|*[!0-9]*|0) echo 'OES no career fact in the graph; not waitin
 P=\$HOME/.ostler/preferences/interest_profile.json
 pb=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.editor-frontpage >/dev/null 2>&1; echo \"OES profile compile rc=\$?\"
-j=0; while [ \$j -lt 24 ]; do pn=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0); [ \"\$pn\" -gt \"\$pb\" ] && { echo 'OES profile recompiled'; break; }; sleep 5; j=\$((j+1)); done
-[ \$j -ge 24 ] && echo 'OES profile NOT recompiled in 120s (no new mtime on interest_profile.json; a missing file counts as not recompiled)'
+LK=\$HOME/.ostler/.editor-frontpage.lock
+w=0; seen=0; gone=0; done=
+while [ \$w -lt ${pw} ]; do
+  pn=\$(stat -f %m \"\$P\" 2>/dev/null || echo 0)
+  [ \"\$pn\" -gt \"\$pb\" ] && { echo \"OES profile recompiled after \${w}s\"; done=1; break; }
+  if [ -d \"\$LK\" ]; then seen=1; gone=0; elif [ \$seen = 1 ]; then gone=\$((gone+1)); fi
+  if [ \$gone -ge 2 ]; then echo \"OES profile tick FINISHED after \${w}s without rewriting interest_profile.json (released and absent on two polls: a compile fault, not a wait; read \$HOME/.ostler/logs/editor-frontpage.log)\"; done=0; break; fi
+  sleep ${iv}; w=\$((w+${iv}))
+done
+[ -z \"\$done\" ] && echo \"OES profile NOT recompiled within the \${w}s budget (OSTLER_OWNER_SEED_PROFILE_WAIT_S=${pw}; tick lock seen=\$seen; no new mtime on interest_profile.json; a missing file counts as not recompiled)\"
 C=\$HOME/.ostler/assistant-config/workspace/CONTEXT.md
 before=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0)
 launchctl kickstart -k gui/\$(id -u)/com.creativemachines.ostler.context-refresh >/dev/null 2>&1; echo \"OES refresh rc=\$?\"
-i=0; while [ \$i -lt 120 ]; do now=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0); [ \"\$now\" -gt \"\$before\" ] && { echo 'OES digest rewritten'; exit 0; }; sleep 5; i=\$((i+1)); done
-echo 'OES digest not rewritten in 600s'; exit 3" 2>&1)"
+i=0; while [ \$i -lt ${dw} ]; do now=\$(stat -f %m \"\$C\" 2>/dev/null || echo 0); [ \"\$now\" -gt \"\$before\" ] && { echo 'OES digest rewritten'; exit 0; }; sleep ${iv}; i=\$((i+${iv})); done
+echo \"OES digest not rewritten in \${i}s (OSTLER_OWNER_SEED_DIGEST_WAIT_S=${dw})\"; exit 3" 2>&1)"
     printf '%s\n' "$out" | sed 's/^/    /'
     # SEEDED IS A COUNT, NOT AN EXIT CODE. ostler-import's code was the last
     # step's (the universal importer's 3 "unknown format" on walk #13), and it
     # says nothing about whether the fact landed. The graph does.
     local cnt
     cnt="$(printf '%s\n' "$out" | sed -n 's/^OES count=\([0-9][0-9]*\)$/\1/p' | tail -1)"
-    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && printf '%s' "$out" | grep -q '^OES profile recompiled' && printf '%s' "$out" | grep -q '^OES digest rewritten'; then
+    if [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && /usr/bin/grep -q '^OES profile recompiled' <<< "$out" && /usr/bin/grep -q '^OES digest rewritten' <<< "$out"; then
         OSTLER_OWNER_SEED_STATE="seeded"
     else
         OSTLER_OWNER_SEED_STATE="failed"

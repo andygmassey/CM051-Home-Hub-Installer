@@ -65,3 +65,43 @@ pin_last() {
     done
     printf '%s\n' "${rest# }${last:+ $last}" | sed 's/  */ /g; s/^ //; s/ $//'
 }
+
+# WALK_PIN_AFTER: "<probe>:<anchor>" pairs. The walk runs <probe> AFTER <anchor>.
+# gateway_never_serves_a_stored_secret pairs (and revokes) a synthetic companion,
+# so it declares WALK_WRITES and counts as a pairing mutator; it sorts ahead of
+# pair_state_agreement ("g" < "p"), which reads pairing state, so it is pinned
+# behind that reader. Shared by run_box_walk.sh and the order test so both
+# measure the same order.
+WALK_PIN_AFTER="gateway_never_serves_a_stored_secret:pair_state_agreement"
+
+# pin_after "<name>" "<anchor>" -> reads $PROBES (space-separated probe paths) and
+# prints the same paths with <name> moved to sit directly after <anchor>. Nothing
+# is added or dropped. If either is absent (a filtered --only run) the order is
+# left alone.
+pin_after() {
+    local want="$1" anchor="$2" p b rest="" moved="" have_anchor=0 out=""
+    for p in $PROBES; do
+        b="$(basename "$p" .sh)"
+        [ "$b" = "$want" ] && moved="$p"
+        [ "$b" = "$anchor" ] && have_anchor=1
+    done
+    if [ -z "$moved" ] || [ "$have_anchor" -eq 0 ]; then
+        printf '%s\n' "$PROBES" | sed 's/  */ /g; s/^ //; s/ $//'; return
+    fi
+    for p in $PROBES; do
+        b="$(basename "$p" .sh)"
+        [ "$b" = "$want" ] && continue
+        out="$out $p"
+        [ "$b" = "$anchor" ] && out="$out $moved"
+    done
+    printf '%s\n' "$out" | sed 's/  */ /g; s/^ //; s/ $//'
+}
+
+# apply_pins -> $PROBES with every WALK_PIN_AFTER pair applied.
+apply_pins() {
+    local pair P="$PROBES"
+    for pair in $WALK_PIN_AFTER; do
+        P="$(PROBES="$P" pin_after "${pair%%:*}" "${pair#*:}")"
+    done
+    printf '%s\n' "$P"
+}

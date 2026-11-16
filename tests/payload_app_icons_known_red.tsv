@@ -1,0 +1,4 @@
+# Apps allowed to fail scripts/verify_payload_app_icons.py, by bundle name AND version.
+# name<TAB>CFBundleShortVersionString<TAB>reason. An equality, not an allow-list:
+# a row whose app now passes is itself a failure, and a re-pin to a new version
+# is not covered by an old row. Delete the row in the PR that fixes it.

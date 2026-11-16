@@ -71,13 +71,21 @@
 #   scripts/verify_walk_record.sh reads. Until 2026-09-23 nothing did, and two
 #   walks on real hardware left no evidence any gate could read.
 #
+#   --tier smoke|full    default full. full = everything; REQUIRED before any
+#                        console walk and any public tag. smoke = cold reset +
+#                        install + the 4 BLOCKING probes + install-path probes +
+#                        probes of components changed since the last full record
+#                        (scripts/box_walk_probes/smoke_scope.tsv). Writes
+#                        walks/<v>.smoke.tsv, `tier smoke`, verdict SMOKE-PASS at
+#                        best, NEVER CLEAN: it cannot satisfy the launch directive.
 #   --no-record          skip it. ANNOUNCED, never silent. The probe suite
 #                        writes to the live store, so a box mid-demo is a real
 #                        reason to decline.
-#   --no-early-pass      skip the EARLY PASS (read-only re-check of the previous
-#                        walk's FAILED probes, run right after the install; see
-#                        scripts/early_repeat_fail_pass.sh). ANNOUNCED. It never
-#                        enters WALK_VERDICT or walks/.
+#   --early-pass         run the EARLY PASS (read-only re-check of the previous
+#                        walk's FAILED probes, right after the install; see
+#                        scripts/early_repeat_fail_pass.sh). OFF by default since
+#                        the full pass makes every assertion it makes. Never
+#                        enters WALK_VERDICT or walks/. --no-early-pass: no-op.
 #   --console "<who was at the console, when, what they granted>"
 #                        record this as a CONSOLE walk. Without it the record
 #                        says walk_kind=thin and does NOT authorise repointing
@@ -99,6 +107,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib_identity_lookalike.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib_identity_lookalike.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_cm019_bundle.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_lang.sh"
 REMOTE_DIR="ostler-ttywalk"
 
 PASS=0; FAIL=1; CANNOT_RUN=2
@@ -126,10 +135,15 @@ STAGE_ONLY=0
 # person into the LIVE store, #829), so a box mid-demo is a real reason to
 # decline. Declining is ANNOUNCED, never silent.
 NO_RECORD=0
-# The early repeat-failure pass (scripts/early_repeat_fail_pass.sh) runs by
-# default, right after the install finishes. It is read-only, labelled, and
-# never reaches WALK_VERDICT or walks/. --no-early-pass declines it, announced.
-NO_EARLY_PASS=0
+WALK_TIER="${OSTLER_WALK_TIER:-full}"
+# The early repeat-failure pass (scripts/early_repeat_fail_pass.sh) is OFF by
+# default: it re-asks probes the full pass asks again (see tests/test_the_early_
+# pass_adds_no_assertion_the_full_pass_lacks.sh). --early-pass runs it. Read-only,
+# labelled, never reaches WALK_VERDICT or walks/. The default is ANNOUNCED.
+NO_EARLY_PASS=1
+# --lang <code>: a non-English leg. Unset = today's walk, byte for byte.
+WALK_LANG=""
+LANG_STAGED=0
 CONSOLE_WALK="${OSTLER_CONSOLE_WALK:-}"
 
 die() { printf 'CANNOT-RUN: %s\n' "$*" >&2; exit "$CANNOT_RUN"; }
@@ -147,15 +161,26 @@ while [[ $# -gt 0 ]]; do
         --report-only)  REPORT_ONLY=1; shift ;;
         --stage-only)   STAGE_ONLY=1; shift ;;
         --no-record)    NO_RECORD=1; shift ;;
-        --no-early-pass) NO_EARLY_PASS=1; shift ;;
+        --tier)         WALK_TIER="${2:-}"; shift 2 ;;
+        --no-early-pass) NO_EARLY_PASS=1; shift ;; --early-pass) NO_EARLY_PASS=0; shift ;;
+        --lang)         WALK_LANG="${2:-}"; shift 2 ;;
         --console)      CONSOLE_WALK="${2:-}"; shift 2 ;;
         --from-dmg)     FROM_DMG="${2:-}"; shift 2 ;;
-        -h|--help)      sed -n '2,90p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)      sed -n '2,100p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
 done
 
 [[ -n "$HOST" ]] || die "--host is required (user@host)"
+
+# ARGUMENT-TIME, before any ssh: an unknown language is a usage error.
+if [[ "$WALK_TIER" != "full" && "$WALK_TIER" != "smoke" ]]; then
+    die "--tier must be smoke or full, not '${WALK_TIER}'"
+fi
+export OSTLER_WALK_TIER="$WALK_TIER"
+if [[ -n "$WALK_LANG" ]] && ! walk_lang_valid "$WALK_LANG"; then
+    die "--lang '${WALK_LANG}' is not an installer locale (one of: ${WALK_LANGS})."
+fi
 
 # ARGUMENT-TIME, NOT SSH-TIME. Placed here deliberately: the first draft sat
 # beside the wipe block, so `--wipe-stores` without `--reset` died on the ssh
@@ -168,6 +193,48 @@ if [[ "$WIPE_STORES" -eq 1 ]]; then
 fi
 
 SSH=(ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST")
+
+# ONE exit trap, armed once. It used to be set inside the --from-dmg block, so
+# a second thing needing cleanup would have replaced it. Exit status is the
+# status of the exit that triggered it; this function never changes it.
+_ttywalk_on_exit() {
+    # Every step below is LOGGED, success or failure: a cleanup that prints
+    # nothing cannot be told from one that never ran, and stderr is never
+    # discarded. The temp dir is removed with rmdir only (it must be empty after
+    # a detach); never rm -rf a mount point.
+    if [[ -z "${DMG_MNT:-}" ]]; then
+        printf '%s\n' "ttywalk cleanup: no DMG mounted"
+    else
+        local _dm_err _dm_rc
+        if [[ "${DMG_ATTACHED:-0}" -eq 1 ]]; then
+            _dm_err="$(hdiutil detach "$DMG_MNT" -quiet 2>&1 >/dev/null)"; _dm_rc=$?
+            if [[ "$_dm_rc" -eq 0 ]]; then
+                printf '%s\n' "ttywalk cleanup: DMG detached ${DMG_MNT}"
+            else
+                printf '%s\n' "ttywalk cleanup: FAILED to detach ${DMG_MNT} rc=${_dm_rc}: ${_dm_err}"
+                _dm_err="$(hdiutil detach "$DMG_MNT" -force -quiet 2>&1 >/dev/null)"; _dm_rc=$?
+                if [[ "$_dm_rc" -eq 0 ]]; then
+                    printf '%s\n' "ttywalk cleanup: DMG detached ${DMG_MNT} (with -force retry)"
+                else
+                    printf '%s\n' "ttywalk cleanup: FAILED to detach ${DMG_MNT} with -force rc=${_dm_rc}: ${_dm_err}"
+                fi
+            fi
+        else
+            printf '%s\n' "ttywalk cleanup: DMG was never attached at ${DMG_MNT}"
+        fi
+        if _dm_err="$(rmdir "$DMG_MNT" 2>&1)"; then
+            printf '%s\n' "ttywalk cleanup: removed temp dir ${DMG_MNT}"
+        else
+            printf '%s\n' "ttywalk cleanup: FAILED to remove temp dir ${DMG_MNT}: ${_dm_err}"
+        fi
+    fi
+    if [[ "$LANG_STAGED" -eq 1 ]]; then
+        walk_lang_cleanup "$REMOTE_DIR"
+    fi
+}
+trap _ttywalk_on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ── Identity, by NAME, before anything else ──────────────────────────
 #
@@ -411,15 +478,19 @@ identity_check "before staging"
 STAGE_SRC="$REPO_ROOT"
 STAGE_KIND="repo"
 DMG_MNT=""
+DMG_ATTACHED=0
 if [[ -n "${FROM_DMG:-}" ]]; then
     [[ -f "$FROM_DMG" ]] || die "--from-dmg: no file at ${FROM_DMG}"
     DMG_MNT="$(mktemp -d "${TMPDIR:-/tmp}/ostler-dmg.XXXXXX")" \
         || die "--from-dmg: could not make a mountpoint"
-    hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" >/dev/null 2>&1 \
-        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}"
+    # hdiutil's stderr is KEPT and printed: "Resource busy" and "image not
+    # recognised" were both discarded, so a failed attach said nothing about why.
+    _att_err="$(hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MNT" "$FROM_DMG" 2>&1 >/dev/null)" \
+        || die "--from-dmg: hdiutil attach failed for ${FROM_DMG}: ${_att_err}"
+    DMG_ATTACHED=1
     # Detach on the way out however we leave, so a later run does not meet
     # "Resource busy" -- the v1.0.51 failure, one artefact over.
-    trap 'hdiutil detach "$DMG_MNT" -quiet 2>/dev/null || hdiutil detach "$DMG_MNT" -force -quiet 2>/dev/null || true' EXIT
+    # (detached by _ttywalk_on_exit, armed once near the top)
     _res="$(/usr/bin/find "$DMG_MNT" -maxdepth 3 -type d -name Resources -path '*.app/Contents/*' 2>/dev/null | head -1)"
     [[ -n "$_res" ]] || die "--from-dmg: no <app>/Contents/Resources inside ${FROM_DMG}"
     [[ -f "${_res}/install.sh" ]] \
@@ -624,6 +695,19 @@ case "$lic_state" in
         ;;
 esac
 
+# ── DECLARED STATE: Ostler TCC rows that exist BEFORE this walk ──────
+# The system TCC.db keeps Ostler grants across a cold reset (NEW-119, diag118
+# Mini16, macOS 27.2), so a walk's TCC results may come from an inherited
+# grant. Recorded here, read-only, before the reset and the install; never a
+# verdict, and CANNOT-READ never fails the walk. See scripts/lib_walk_tcc_declared.sh.
+# shellcheck source=scripts/lib_walk_tcc_declared.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_tcc_declared.sh"
+rule "DECLARED STATE (pre-existing Ostler TCC rows, read-only)"
+_tcc_declared="$({ declare -f walk_tcc_declared_state; printf 'walk_tcc_declared_state\n'; } | "${SSH[@]}" 'bash -s' 2>&1)" \
+    || _tcc_declared="tcc declared: CANNOT-READ (ssh to ${HOST} failed); pre-existing grants are UNKNOWN for this walk"
+[[ -n "$_tcc_declared" ]] || _tcc_declared="tcc declared: CANNOT-READ (the box returned nothing); pre-existing grants are UNKNOWN for this walk"
+printf '%s\n' "$_tcc_declared" | while IFS= read -r _l; do say "$_l"; done
+
 # ── Reset ────────────────────────────────────────────────────────────
 #
 # A TTY reset is NOT a wipe. It runs the SHIPPED uninstaller, which is itself
@@ -637,6 +721,24 @@ esac
 # did, so a separate opt-in wipe only duplicated it. On the cold box the launch
 # directive walks there is no graph to dump. The flag remains an alias.
 
+
+# ── COLD PROOF, step 1 of 2 (v1.0.129 walk): count BEFORE any teardown ──
+# The v1.0.129 reset was not cold: 123,775 files under
+# ~/.ostler/state/conversations_mirror predated it, because the #1828
+# config-only teardown never touched state. scripts/walk_cold_wipe_state.sh
+# counts the files under ~/.ostler, ~/Documents/Ostler and
+# ~/Library/Application Support/Ostler* here, and wipes + re-counts below.
+if (( DO_RESET == 1 )); then
+    rule "COLD PROOF 1/2: file counts per root BEFORE the teardown"
+    _cold_script="$(dirname "${BASH_SOURCE[0]}")/walk_cold_wipe_state.sh"
+    _cold_allow="$(dirname "${BASH_SOURCE[0]}")/walk_cold_allowlist.tsv"
+    [[ -f "$_cold_script" ]] || die "cold proof: ${_cold_script} is missing; the reset cannot prove the box cold"
+    [[ -f "$_cold_allow" ]] || die "cold proof: ${_cold_allow} is missing; an unlisted wipe is refused"
+    _cold_b64="$(base64 < "$_cold_allow" | tr -d '\n')"
+    if ! "${SSH[@]}" "COLD_MODE=before COLD_ALLOWLIST_B64=${_cold_b64} /bin/bash -s" < "$_cold_script" 2>&1; then
+        die "cold proof: the before-count failed (see above); refusing to reset"
+    fi
+fi
 
 if [[ "$DO_RESET" -eq 1 ]]; then
     rule "RESET (uninstall + bootout + VM and data disk delete + port check)"
@@ -909,8 +1011,14 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         # patterns are written so they cannot match their own text (a bracket
         # or a class in each), and the shell running this block, and its own
         # forked subshells, are dropped by comparing command lines.
-        _self_cmd="$(ps -o command= -p $$ 2>/dev/null)"
-        _left_procs="$(ps -axo pid=,command= 2>/dev/null | awk -v self="$_self_cmd" "{pid=\$1; c=\$0; sub(/^ *[0-9]+ /, \"\", c); if (c == self) next; if (c ~ /Ostler[.]app\/Contents\/MacOS\/|\/[.]ostler\/|ostler[-]assistant|ostler[-]engine/) print pid \" \" c}")"
+        # BY PID, NOT BY TEXT (v1.0.118 walk, 2026-10-26). The command-line
+        # comparison never matched: this block runs as a multi-line `zsh -c`,
+        # and `ps -o command=` and `ps -axo command=` render its newlines
+        # differently, so the shell running this check was reported as a
+        # leftover Ostler process (its own text says /.ostler/) and every
+        # --reset ended CANNOT-RUN. Drop this shell and anything it forked
+        # (a command-substitution subshell carries the parent command line) by pid and ppid.
+        _left_procs="$(ps -axo pid=,ppid=,command= 2>/dev/null | awk -v me="$$" "{pid=\$1; pp=\$2; if (pid == me || pp == me) next; c=\$0; sub(/^ *[0-9]+ +[0-9]+ /, \"\", c); if (c ~ /Ostler[.]app\/Contents\/MacOS\/|\/[.]ostler\/|ostler[-]assistant|ostler[-]engine/) print pid \" \" c}")"
         if [[ -n "$_left_procs" ]]; then
             echo "LEFTOVER Ostler processes after the reset:"
             echo "$_left_procs" | head -10 | sed "s/^/  /"
@@ -971,6 +1079,39 @@ if [[ "$DO_RESET" -eq 1 ]]; then
         exit 5
     ' 2>&1; then
         die "--reset did not leave the box clean (see RESET FAILED above, or the ssh session failed); refusing to stage or walk"
+    fi
+fi
+
+# ── NEW-119: a cold box has no foreign ollama, on ANY account (BLOCKING) ──
+# 2026-10-29: a diagnostic install on a clean macOS 27.2 Mac failed because
+# install.sh called a bare `ollama`. Every earlier walk passed only because a
+# leftover system ollama (and ~/.ollama/models) survived --reset, so the cold
+# box was never cold. scripts/walk_cold_no_foreign_ollama.sh runs ON the box,
+# for every login account (dscl), before anything is staged: it prints each
+# foreign ollama with size and sha256, removes it, looks again, and exits 2
+# (CANNOT-RUN) when anything survives or any account could not be examined.
+# Its own block, NOT inside the reset block above: the reset test extracts
+# that block and runs it with a fake ssh, and must never reach this script.
+if [[ "$DO_RESET" -eq 1 ]]; then
+    rule "COLD PRECONDITION (NEW-119): no foreign ollama on any account"
+    _cold_ollama_script="$(dirname "${BASH_SOURCE[0]}")/walk_cold_no_foreign_ollama.sh"
+    [[ -f "$_cold_ollama_script" ]] || die "NEW-119: ${_cold_ollama_script} is missing; the cold precondition cannot run"
+    if ! "${SSH[@]}" '/bin/bash -s' < "$_cold_ollama_script" 2>&1; then
+        die "NEW-119: a foreign ollama survived the reset, or an account could not be examined (see above); the box is not cold, refusing to stage or walk"
+    fi
+fi
+
+# ── COLD PROOF, step 2 of 2: wipe every Ostler root, REFUSE unless 0 remain ──
+# After the VM, the launchd jobs and the foreign-ollama check, so nothing is
+# writing into the roots. Wipes everything under ~/.ostler, ~/Documents/Ostler
+# and ~/Library/Application Support/Ostler* except scripts/walk_cold_allowlist.tsv
+# (one reason per row), prints before and after per root, and exits 2 unless the
+# after-count outside the allowlist is 0, listing up to 20 offending paths.
+# HARNESS ONLY: the installer never deletes conversations_mirror on a reinstall.
+if (( DO_RESET == 1 )); then
+    rule "COLD PROOF 2/2: wipe the Ostler roots and count AFTER"
+    if ! "${SSH[@]}" "COLD_MODE=wipe COLD_ALLOWLIST_B64=${_cold_b64} /bin/bash -s" < "$_cold_script" 2>&1; then
+        die "cold proof: NOT COLD, files survived the wipe outside the allowlist (see above); refusing to stage or walk"
     fi
 fi
 
@@ -1193,10 +1334,52 @@ fi
        staging rather than the product. CANNOT-RUN."
 say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)"
 
+# ── THE INSTALLER APP AT THE CUSTOMER PATH (artefact walks only) ─────
+# app_signature_survives_first_run reads /Applications/OstlerInstaller.app,
+# which an ssh walk never put there, so it was CANNOT-RUN on every thin walk.
+# The DMG goes to ~/Downloads on the box (where a customer's lands), is hashed
+# THERE against the one this walk mounted, and the app is copied out of it.
+# A failure leaves NO app and is announced, never fatal: the probe then reads
+# CANNOT-RUN about the right thing. See scripts/lib_walk_place_installer_app.sh.
+# THE DMG THIS WALK STAGED, recorded on the box for post_walk_qa.sh. Before
+# this, the record hashed whatever file in ~/Downloads was NAMED for the
+# version, and on the v1.0.124 walk that was a stale build of the same
+# version while the walk had staged OstlerInstaller.dmg: the wrong build was
+# bound to the record as measured. Empty unless the scp below succeeds; the
+# config block writes ~/.walk-dmg from these, or removes it, on EVERY walk,
+# so a repo walk never inherits the previous walk's marker.
+_wdm_name=""
+_wdm_sha=""
+if [[ "$STAGE_KIND" == "artefact" ]]; then
+    rule "INSTALLER APP: placed at /Applications from the DMG on the box"
+    # shellcheck source=scripts/lib_walk_place_installer_app.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/lib_walk_place_installer_app.sh"
+    _wpa_sha="$(shasum -a 256 "$FROM_DMG" | awk '{print $1}')"
+    _wpa_name="$(basename "$FROM_DMG")"
+    if [[ -n "$_wpa_sha" ]] && scp -q -o ConnectTimeout=10 -o BatchMode=yes "$FROM_DMG" "${HOST}:Downloads/${_wpa_name}"; then
+        _wdm_name="$_wpa_name"
+        _wdm_sha="$_wpa_sha"
+        if walk_place_installer_app_script | "${SSH[@]}" "WPA_DMG=\"\$HOME/Downloads/${_wpa_name}\" WPA_SHA='${_wpa_sha}' /bin/sh -s"; then
+            say "installer app: PLACED (app_signature_survives_first_run will measure it)"
+        else
+            say "installer app: NOT PLACED (see the place: line above); app_signature_survives_first_run will read CANNOT-RUN, never a pass"
+        fi
+    else
+        say "installer app: NOT PLACED (could not hash or copy ${_wpa_name} to the box); app_signature_survives_first_run will read CANNOT-RUN"
+    fi
+fi
+
 "${SSH[@]}" "set -u
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/ttywalk.log\" > ~/.walk-log
     printf '%s\n' \"\$HOME/${REMOTE_DIR}/install.sh\"  > ~/.walk-installsh
     printf '%s\n' \"${ARTEFACT_VERSION:-}\" > ~/.walk-artefact-version
+    # WHICH DMG this walk staged: version, path on the box, sha256, one
+    # tab-separated line. post_walk_qa.sh re-hashes that path and binds the
+    # record to it only on equality. Removed when nothing was staged.
+    rm -f ~/.walk-dmg
+    if [ -n '${_wdm_sha}' ]; then
+        printf '%s\t%s\t%s\n' '${ARTEFACT_VERSION:-}' \"\$HOME/Downloads/${_wdm_name}\" '${_wdm_sha}' > ~/.walk-dmg
+    fi
     # STORE PROVENANCE. The reset step writes the run file; consuming it here
     # (rather than reading it in place) means a walk with no --reset cannot
     # inherit the previous walk answer and present it as this one.
@@ -1204,6 +1387,12 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
         mv ~/.walk-stores-provenance-run ~/.walk-stores-provenance
     else
         printf 'unknown-no-reset-step\n' > ~/.walk-stores-provenance
+    fi
+    # COLD PROOF, consumed the same way: a walk with no --reset has no proof.
+    if [ -f ~/.walk-cold-run ]; then
+        mv ~/.walk-cold-run ~/.walk-cold
+    else
+        printf 'NOT_COLD(no reset step ran, so nothing wiped or counted the Ostler roots)\n' > ~/.walk-cold
     fi
     # THE HUB PASSPHRASE PROMPT HAS NO WAY PAST, so the walk must be able
     # to answer it or the install re-prompts for ever (install.sh:8032-8051
@@ -1224,6 +1413,7 @@ say "control: ostler_fda resolves beside install.sh (the run-2 killer is closed)
     echo 'walk config written:'
     echo \"  log:        \$(cat ~/.walk-log)\"
     echo \"  install.sh: \$(cat ~/.walk-installsh)\"
+    echo \"  dmg:        \$(if [ -s ~/.walk-dmg ]; then cut -f2,3 ~/.walk-dmg; else echo '(none staged)'; fi)\"
     echo \"  artefact:   \$(cat ~/.walk-artefact-version 2>/dev/null | sed 's/^\$/(repo walk -- none)/')\"
     echo \"  stores:     \$(cat ~/.walk-stores-provenance 2>/dev/null)\"
 " || die "could not write the walk config on the host."
@@ -1296,9 +1486,52 @@ else
     rm -f "$_SAFARI_FX_LOCAL"
 fi
 
+# ── LOOPBACK GUARD, ROOT HALF: the harness replica of the .app's admin shell ─
+#
+# MEASURED v1.0.128 thin walk: step 5/44 died with ERR-08-LOOPBACK-GUARD-NOT-
+# ACTIVE daemon_not_installed. ostler_lg_install_step only runs `sudo -n ...
+# install-root` when OSTLER_GUI != 1; under OSTLER_GUI=1 (this harness) the
+# root half is the .app's admin shell (gui/OstlerInstaller/Auth/
+# AuthorizationHelper.swift buildAdminInnerShell), and there is no .app here.
+# So the harness runs the SAME invocation, as root via sudo -n, BEFORE install.sh.
+# The two templates below are diffed against the Swift source by
+# tests/test_ttywalk_guard_install_root_mirrors_the_app.sh: change either side
+# and that test goes RED. @LIB@ is the quoted lib path, @OWNER@ the account.
+# TWO arguments after install-root (owner uid, lib) and NO third assistant arg,
+# exactly as the Swift string. rc is NOT masked and the output goes to the walk log.
+LG_LIB_TMPL="'@RES@/lib/ostler-loopback-guard.sh'"
+LG_INSTALL_ROOT_TMPL='/bin/bash @LIB@ install-root $(/usr/bin/id -u @OWNER@) @LIB@'
+rule "LOOPBACK GUARD ROOT HALF (harness replica of AuthorizationHelper, NOT the dialog)"
+# The path must be LITERAL inside the single quotes (as in the Swift string), so
+# resolve the box's $HOME first rather than leaving it for the remote shell.
+_lg_home="$("${SSH[@]}" 'printf %s "$HOME"')" || die "could not read \$HOME on the host for the guard step."
+[[ -n "$_lg_home" ]] || die "the host reported an empty \$HOME for the guard step."
+_lg_res="${_lg_home}/${REMOTE_DIR}"
+_lg_lib="${LG_LIB_TMPL//@RES@/${_lg_res}}"
+_lg_cmd="${LG_INSTALL_ROOT_TMPL//@LIB@/${_lg_lib}}"
+_lg_cmd="${_lg_cmd//@OWNER@/${HOST%%@*}}"
+say "sudo -n ${_lg_cmd}"
+_lg_rc=0
+_lg_out="$("${SSH[@]}" "sudo -n ${_lg_cmd}" 2>&1)" || _lg_rc=$?
+printf '%s\n' "$_lg_out" | while IFS= read -r _l; do say "  $_l"; done
+say "guard install-root rc=${_lg_rc}"
+# Into the box's walk log as well, so the log a reader opens holds the line.
+"${SSH[@]}" "printf '%s\n' 'guard root half driven by harness replica of AuthorizationHelper, NOT the dialog: install-root rc=${_lg_rc}' >> \"\$HOME/${REMOTE_DIR}/ttywalk.log\"" >/dev/null 2>&1 || true
+export OSTLER_WALK_NOTES="guard root half driven by harness replica of AuthorizationHelper, NOT the dialog (install-root rc=${_lg_rc})"
+if [[ "$_lg_rc" -ne 0 ]]; then
+    say "⚠️  install-root did not succeed (rc=${_lg_rc}); install.sh would now fail closed on the guard."
+    say "    Not starting the install: the root half is what this step exists to establish."
+    exit "$CANNOT_RUN"
+fi
+
 # ── Run ──────────────────────────────────────────────────────────────
 rule "RUN (unattended; OSTLER_GUI=1 with OSTLER_GUI_FD UNSET)"
 say "started $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if [[ "$WALK_TIER" == "smoke" ]]; then
+    say "tier smoke: NOT a full walk. It can never record verdict CLEAN; a FULL walk is required before any console walk and any public tag."
+else
+    say "tier full: everything. Required before any console walk and any public tag."
+fi
 
 # ARCHIVE THE PREVIOUS RUN'S EVIDENCE BEFORE THIS ONE STARTS, so the report at
 # the end can only be describing this run. Archived, not deleted: the previous
@@ -1363,12 +1596,27 @@ say "   Only a console walk by a human can. Never shim it to granted-and-working
 "${SSH[@]}" 'mkdir -p ~/.ostler && printf "ttywalk %s\n" "$(date +%s)" > ~/.ostler/.install-harness' >/dev/null 2>&1 \
     || say "WARNING: could not write ~/.ostler/.install-harness; db_key_reaches_every_service will treat this install as a console install"
 
-"${SSH[@]}" "cd '${REMOTE_DIR}' && \
+if [[ -n "$WALK_LANG" ]]; then
+    rule "LANGUAGE LEG (--lang ${WALK_LANG})"
+    # walk_lang_stage sets LANG_STAGED=1 before its first change on the host.
+    walk_lang_stage "$REMOTE_DIR" "$WALK_LANG" "${REPO_ROOT}/scripts/box_walk_probes/lib/gen_walk_answers_lang.py" \
+        || die "language leg could not be staged; nothing was run."
+    say "OSTLER_LANG=${WALK_LANG} on the install launch line (the variable the GUI passes); answers staged on the host, removed on exit."
+fi
+
+# >>> launch (tests/test_ttywalk_lang_leg.sh sources this block: keep it self-contained)
+# The ONE launcher of walk_drive.py. Both legs use this line; --lang adds only
+# OSTLER_LANG. Every other variable is passed on every leg.
+LANG_ENV=""
+[[ -n "$WALK_LANG" ]] && LANG_ENV="OSTLER_LANG='${WALK_LANG}' "
+WALK_LAUNCH_CMD="cd '${REMOTE_DIR}' && \
     unset OSTLER_GUI_FD OSTLER_MARKER_FD && \
     PWG_IMESSAGE_PROBE_OUTCOME='${IMESSAGE_SHIM}' \
     OSTLER_WALK_OWNER_FILE=\"\$HOME/.walk-owner.env\" \
-    OSTLER_GUI=1 nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
-    echo started" >/dev/null 2>&1
+    OSTLER_GUI=1 ${LANG_ENV}nohup python3 scripts/walk_drive.py > ttywalk.driver.out 2>&1 &
+    echo started"
+# <<< launch
+"${SSH[@]}" "$WALK_LAUNCH_CMD" >/dev/null 2>&1
 
 # Poll. A poll loop with no delay is not a wait.
 # IS THE BOX DOING WORK? Echoes "<free-kb> <live-worker-count>", or nothing
@@ -1508,7 +1756,7 @@ say "finished $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 # record_walk.sh below is unchanged and alone decides the verdict.
 if [[ "$NO_EARLY_PASS" -eq 1 ]]; then
     say ""
-    say "early-pass: DECLINED -- --no-early-pass was passed."
+    say "early-pass: DROPPED by default (change vs before: it used to run here; the full pass makes every assertion it makes, and promotes the previous walk's failures to run first). --early-pass runs it."
 elif [[ ! -f "${REPO_ROOT}/scripts/early_repeat_fail_pass.sh" ]]; then
     say ""
     say "early-pass: CANNOT-RUN -- ${REPO_ROOT}/scripts/early_repeat_fail_pass.sh is absent."

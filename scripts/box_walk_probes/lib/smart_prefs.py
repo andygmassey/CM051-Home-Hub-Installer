@@ -92,6 +92,7 @@ BROAD = [
 # shipped music_style vocabulary.
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
 RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 TAG_NS = "urn:ostler-walk-fixture:smartprefs/tag/"
 OVERLAY = {"movie": ("hasGenre", "science fiction"), "book": ("hasGenre", "history"),
            "interest": ("hasTopic", "photography"), "tv_show": ("hasGenre", "drama"),
@@ -181,6 +182,31 @@ def _lit(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+# The graph-side identity of every fixture preference. data_conservation counts
+# STORED-to-GRAPH by reading TYPED preference nodes (`?s a ?t` with ?t one of
+# the Like/Dislike/Neutral classes, plus a subject, a dataSource and a
+# category). The overlay triples above carry none of that, so the walk's own
+# fixture was invisible to the graph count and read as 0 of 4 or 8 LOST. The
+# seed writes the typed shape. It is never filtered out in the judge.
+PREF_NS = "https://schema.ostler.ai/ontology#"
+PREF_TYPE = PREF_NS + "LikePreference"
+
+
+def typed_preference_triples():
+    """N-Triples: one typed preference node per fixture point, with the three
+    properties the graph counter reads. Same subject IRI as overlay_triples(),
+    default graph, so forget removes both with one subject filter."""
+    lines = []
+    for p in qdrant_points([0.0]):
+        subj = "urn:ostler:preference:%s" % p["id"]
+        pl = p["payload"]
+        lines.append("<%s> <%s> <%s> ." % (subj, RDF_TYPE, PREF_TYPE))
+        lines.append("<%s> <%ssubject> %s ." % (subj, PREF_NS, _lit(pl["subject"])))
+        lines.append("<%s> <%sdataSource> %s ." % (subj, PREF_NS, _lit(pl["source"])))
+        lines.append("<%s> <%scategory> %s ." % (subj, PREF_NS, _lit(pl["category"])))
+    return lines
+
+
 def fact_triples():
     """CM048-shaped urn:ostler:Fact triples (the shape the stated reader's SPARQL
     reads), as SPARQL/Turtle-compatible lines. Three conversations each."""
@@ -214,6 +240,11 @@ MARKER = os.path.join(OSTLER, "state", "smartprefs-walk-seed.json")
 LOG = os.path.join(OSTLER, "logs", "derive-preferences.log")
 PLIST = os.path.join(HOME, "Library", "LaunchAgents", AGENT_LABEL + ".plist")
 LAUNCHCTL = os.environ.get("OSTLER_SMARTPREFS_LAUNCHCTL", "/bin/launchctl")
+# The derive tick's own one-shot cadence bypass (install.sh _install_derive_preferences_agent, CM051 #3350):
+# a tick that finds this file removes it and runs a pass even inside the 30 min retry / 6 h settled cadence.
+# v1.0.125: the walk kicked with kickstart alone, every kick logged "cadence: next pass due in ~17000s" and
+# exited without a pass or a status write, so four probes read "no pass finished after the kick".
+KICK_MARK = os.path.join(OSTLER, "state", "derive-preferences.kick")
 
 
 def _read(path):
@@ -307,8 +338,16 @@ def fixture_presence():
     return out
 
 
-def _kick():
+def _kick(force=False):
+    """kickstart -k the derive agent. force=True first writes the tick's own cadence-bypass mark, the same
+    one the installer writes, so the kick runs a pass instead of logging "next pass due"."""
     uid = os.getuid()
+    if force:
+        try:
+            os.makedirs(os.path.dirname(KICK_MARK), exist_ok=True)
+            open(KICK_MARK, "w").close()
+        except OSError as e:
+            return 126, "cadence-bypass mark not written: %s" % e
     try:
         p = subprocess.run([LAUNCHCTL, "kickstart", "-k", "gui/%d/%s" % (uid, AGENT_LABEL)],
                            capture_output=True, text=True, timeout=30)
@@ -341,6 +380,43 @@ def _derive_wait(prev, budget):
         time.sleep(poll)
 
 
+def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.time, nap=time.sleep, since=None,
+                       now_iso=None):
+    """Kick the derive agent and wait for a pass, RE-KICKING while its tick only deferred or
+    yielded. v1.0.121: one kick and one 240s wait; the tick yielded to the busy hourly ingest slot
+    (com.ostler.fda-rerun, 900s+), nothing re-asked, and four probes read CANNOT-RUN. A tick that
+    wrote deferred/yielded has EXITED, so kickstart -k cannot kill a pass in flight; any other
+    outcome, or the total budget, ends the loop and the probe reads what is there.
+
+    since (the kick's UTC ISO time) adds one rule, for a product whose tick stamps its status "ts":
+    a status NOT written since the kick means no tick has reported yet (a pass in flight: the first
+    pass on the v1.0.125 box took 36 min), so the loop keeps WAITING, without a kick that would kill
+    it, until the total budget; and a deferred/yielded status older than the kick is not re-kicked.
+    The total budget still ends it, and the probe then reads CANNOT-RUN, never PASS."""
+    kick = kick or _kick
+    wait = wait or _derive_wait
+    now_iso = now_iso or (lambda: _iso(0))
+    end = clock() + total
+
+    def fresh(st):
+        return bool(since) and bool(st.get("ts")) and str(st.get("ts")) >= since
+
+    ran, st = wait(prev, budget)
+    while not ran and clock() < end:
+        if st.get("outcome") in ("deferred", "yielded") and (not since or not st.get("ts") or fresh(st)):
+            nap(float(os.environ.get("OSTLER_SMARTPREFS_REKICK_PAUSE_S", "30")))
+            if kick()[0] != 0:
+                break
+            if since:
+                since = now_iso()
+        elif since and st.get("ts") and not fresh(st):
+            pass      # no tick has reported since the kick: keep waiting, do not kill a pass in flight
+        else:
+            break
+        ran, st = wait(prev, min(budget, max(1.0, end - clock())))
+    return ran, st
+
+
 def seed_main():
     out = {"state": "failed", "why": "", "points_written": 0, "facts_written": 0}
     code, info, err = _qdrant("GET", "/collections/%s" % COLLECTION)
@@ -371,23 +447,34 @@ def seed_main():
         out["why"] = "oxigraph insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
     out["facts_written"] = EXPECTED_FACTS
-    code, _b, err = _oxi_update("INSERT DATA {\n%s\n}" % "\n".join(overlay_triples()))
+    code, _b, err = _oxi_update("INSERT DATA {\n%s\n}" % "\n".join(overlay_triples() + typed_preference_triples()))
     if code not in (200, 204):
         out["why"] = "oxigraph overlay insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
     out["presence"] = fixture_presence()
     prev = _status().get("last_run_at")
-    rc, kout = _kick()
+    kicked_at = _iso(0)
+    rc, kout = _kick(force=True)
     out["kick"] = {"rc": rc, "out": kout}
     ran, st = (False, _status())
+    # TOTAL 1800 = the product's own first-run retry period (OSTLER_DERIVE_RETRY_S, CM051 #3350): a pass the
+    # product would itself retry inside 30 min is waited for; nothing longer. Measured passes on the v1.0.125
+    # box: 3 s (empty), 36 min (first real pass, first-run load), 3 min 48 s (steady).
+    total = float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_TOTAL_S", "1800"))
+    t0 = time.time()
     if rc == 0:
-        ran, st = _derive_wait(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")))
-    out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200]}
+        ran, st = _derive_until_pass(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")),
+                                     total, kick=lambda: _kick(force=True), since=kicked_at)
+    mark_left = os.path.exists(KICK_MARK)
+    out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200],
+                     "waited_s": int(time.time() - t0), "total_s": int(total), "kick_mark_consumed": not mark_left}
     out["state"] = "seeded"
     try:
         os.makedirs(os.path.dirname(MARKER), exist_ok=True)
         with open(MARKER, "w") as fh:
-            json.dump({"seeded_at": _iso(0), "ran_after_seed": ran, "outcome": st.get("outcome"), "kick_rc": rc}, fh)
+            json.dump({"seeded_at": _iso(0), "ran_after_seed": ran, "outcome": st.get("outcome"), "kick_rc": rc,
+                       "waited_s": out["derive"]["waited_s"], "total_s": out["derive"]["total_s"],
+                       "kick_mark_left": mark_left}, fh)
     except OSError as e:
         out["why"] = "marker not written: %s" % e
     print(json.dumps(out))
@@ -412,8 +499,27 @@ def _forget_brief_job():
     return code
 
 
+FIXTURE_NS = "urn:ostler-walk-fixture:"
+_FIXTURE_FILTER = ('FILTER((isIRI(?s) && STRSTARTS(STR(?s), "%s")) || (isIRI(?o) && STRSTARTS(STR(?o), "%s")))'
+                   % (FIXTURE_NS, FIXTURE_NS))
+_ALL_GRAPHS = "{ { ?s ?p ?o } UNION { GRAPH ?g { ?s ?p ?o } } }"
+
+
+def fixture_all_graph_count():
+    """Triples naming a fixture URI (subject or object) in the default AND every named graph; None = could not look.
+
+    A derive tick writes derivedFrom edges to urn:ostler-walk-fixture:smartprefs/factN into the
+    named graph derived/graph/preferences, which a default-graph delete never reaches."""
+    _c, body, _e = _oxi_select("SELECT (COUNT(*) AS ?n) WHERE { %s %s }" % (_ALL_GRAPHS, _FIXTURE_FILTER))
+    try:
+        return int(body["results"]["bindings"][0]["n"]["value"])
+    except Exception:
+        return None
+
+
 def forget_main():
     res = {}
+    res["fixture_all_graph_before"] = fixture_all_graph_count()
     code, _b, err = _qdrant("POST", "/collections/%s/points/delete?wait=true" % COLLECTION,
                             {"filter": {"must": [{"key": "walk_fixture", "match": {"value": TAG}}]}})
     res["qdrant_delete"] = code
@@ -422,14 +528,29 @@ def forget_main():
     res["overlay_delete"] = _oxi_update(
         'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . FILTER(STRSTARTS(STR(?o), "%s") || STRSTARTS(STR(?s), "%s") '
         '|| (STRSTARTS(STR(?s), "urn:ostler:preference:") && EXISTS { ?s <%shasGenre> ?x } ) ) }' % (TAG_NS, TAG_NS, ENRICH_NS))[0]
+    # The typed fixture preferences, by their fixture dataSource. Removes every
+    # triple of a subject that carries a walk_fixture source, nothing else.
+    res["typed_pref_delete"] = _oxi_update(
+        'DELETE { ?s ?p ?o } WHERE { ?s ?p ?o . ?s <%sdataSource> ?src . FILTER(STRSTARTS(STR(?src), "walk_fixture_")) }' % PREF_NS)[0]
+    res["named_graph_delete"] = _oxi_update(
+        "DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } %s }" % _FIXTURE_FILTER)[0]
     res["brief_job_deleted"] = _forget_brief_job()
+    if _marker().get("kick_mark_left"):
+        try:
+            os.remove(KICK_MARK)      # the seed's own bypass mark, never consumed: do not leave it to a later tick
+            res["kick_mark_removed"] = True
+        except OSError:
+            pass
     try:
         os.remove(MARKER)
     except OSError:
         pass
     res["kick_rc"] = _kick()[0]
     res["presence_after"] = fixture_presence()
+    res["fixture_all_graph_after"] = fixture_all_graph_count()
     print(json.dumps(res))
+    # last line, because the seed wrapper shows only the tail of this output
+    print("fixture triples, all graphs: before=%s after=%s" % (res["fixture_all_graph_before"], res["fixture_all_graph_after"]))
     return 0
 
 
@@ -464,7 +585,9 @@ def box_runs_main():
     f["scheduled"] = os.path.isfile(PLIST)
     s = _status()
     f["status"] = {"present": bool(s), "outcome": s.get("outcome"), "last_run_at": s.get("last_run_at"),
-                   "reason": (s.get("reason") or "")[:200], "graph_node_count": s.get("graph_node_count")}
+                   "reason": (s.get("reason") or "")[:200], "graph_node_count": s.get("graph_node_count"),
+                   "writer": s.get("writer"), "consecutive": s.get("consecutive"),
+                   "last_completed_at": s.get("last_completed_at")}
     log = _read(LOG).splitlines()
     f["log"] = {"present": bool(log),
                 "completed_ticks": sum(1 for l in log if "tick finished: written" in l),
@@ -473,9 +596,14 @@ def box_runs_main():
     return 0
 
 
+ROUTE_LIMIT = 5000
+
+
 def _route(tier=None):
     tok = _secret("service_token")
-    q = "limit=200&min_confidence=0" + ("&tier=%s" % tier if tier else "")
+    # limit well above any derived node count (312 on the v1.0.121 box; the route
+    # ranks by round-robin THEN cuts, so limit=200 hid a rank-186 dislike).
+    q = "limit=%d&min_confidence=0" % ROUTE_LIMIT + ("&tier=%s" % tier if tier else "")
     code, body, err = _http("GET", HUB + "/api/v1/preferences/derived?" + q, None,
                             {"Authorization": "Bearer " + tok} if tok else {})
     return code, body, err
@@ -506,6 +634,7 @@ def box_served_main():
     m = _marker()
     f = {"fixture": fixture_presence(),
          "seed": {"marker": bool(m), "ran_after_seed": bool(m.get("ran_after_seed")), "outcome": m.get("outcome"),
+                  "waited_s": m.get("waited_s"), "total_s": m.get("total_s"), "kick_mark_left": m.get("kick_mark_left"),
                   "seed_state_env": os.environ.get("OSTLER_SMARTPREFS_SEED_STATE", "")},
          "engine_can_run": imp["rc"] == 0 and scheduled, "engine_why": "" if imp["rc"] == 0 and scheduled else
          ("not scheduled" if not scheduled else "import failed: %s" % imp["err"])}
@@ -685,9 +814,14 @@ def _gate(f):
         if not f.get("engine_can_run"):
             return [("a derive pass ran after the seed", "FAIL",
                      "the derive engine cannot run on this box (%s); see derived_preferences_runs" % f.get("engine_why"))]
+        waited = ""
+        if sd.get("waited_s") is not None:
+            waited = " within %ss of a %ss budget (OSTLER_SMARTPREFS_DERIVE_TOTAL_S)%s" % (
+                sd.get("waited_s"), sd.get("total_s"),
+                "; the cadence-bypass mark was never consumed, so no tick ran" if sd.get("kick_mark_left") else "")
         return [("a derive pass ran after the seed", "CANNOT",
-                 "the engine can start but no pass finished after the kick (outcome %s); deferred or busy, not a verdict"
-                 % sd.get("outcome"))]
+                 "the engine can start but no pass finished after the kick%s (outcome %s); deferred or busy, not a verdict"
+                 % (waited, sd.get("outcome")))]
     r = f.get("route") or {}
     if r.get("status") is None:
         return [("the Hub route answers", "CANNOT", "route unmeasured: %s" % r.get("error", "no reading"))]
@@ -713,6 +847,19 @@ def judge_runs(f):
         why = "no state/derived-preferences.json: the tick has never recorded a pass"
         broken = any(r[1] == "FAIL" for r in rows)
         rows.append(("a derive pass completed", "FAIL" if broken else "CANNOT", why))
+    elif s.get("outcome") in ("deferred", "yielded") and s.get("last_completed_at"):
+        # The tick wrapper's record: this tick skipped, but it carries a pass
+        # that DID complete. The pass is the question here, so ok, with why.
+        rows.append(("a derive pass completed", "ok",
+                     "last completed %s graph_nodes=%s; the latest tick %s %s tick(s) in a row: %s"
+                     % (s.get("last_completed_at"), s.get("graph_node_count"), s["outcome"],
+                        s.get("consecutive"), s.get("reason"))))
+    elif s.get("outcome") in ("deferred", "yielded"):
+        # Measured, not unmeasured: the tick ran N times and never reached the
+        # runner. That is the v1.0.120 starvation, a FAIL with its cause.
+        rows.append(("a derive pass completed", "FAIL",
+                     "%s %s tick(s) in a row and no pass has completed; reason: %s"
+                     % (s["outcome"], s.get("consecutive"), s.get("reason"))))
     elif s.get("outcome") in ("written", "empty"):
         rows.append(("a derive pass completed", "ok",
                      "outcome=%s last_run_at=%s graph_nodes=%s log_ticks_written=%s"
@@ -835,7 +982,8 @@ def engine_items(tree):
     pts = qdrant_points([0.0])
     ds = rdflib.Dataset()
     ds.graph(rdflib.URIRef(GRAPH)).parse(data="\n".join(fact_triples()), format="turtle")
-    (getattr(ds, "default_graph", None) or ds.default_context).parse(data="\n".join(overlay_triples()), format="nt")
+    (getattr(ds, "default_graph", None) or ds.default_context).parse(
+        data="\n".join(overlay_triples() + typed_preference_triples()), format="nt")
 
     class Gw:
         def scroll(self, categories, fields):
@@ -1001,6 +1149,14 @@ def self_test():
            _mut(R, lambda d: d["status"].update(present=False, outcome=None)), EX_CANNOT)
     expect("runs: never ran AND imports broken is FAIL", judge_runs,
            _mut(R, lambda d: (d["status"].update(present=False, outcome=None), d.update(yaml={"rc": 1, "err": "x"}))), EX_FAIL)
+    expect("runs: deferred 3 times, never passed (the v1.0.120 box) is FAIL, not CANNOT", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="deferred", consecutive=3, writer="tick", last_completed_at=None,
+                                                reason="load: 1m load 40.00 over 10 cores")), EX_FAIL)
+    expect("runs: yielded, never passed is FAIL", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="yielded", consecutive=1, writer="tick", last_completed_at=None)), EX_FAIL)
+    expect("runs: deferred after a completed pass is ok", judge_runs,
+           _mut(R, lambda d: d["status"].update(outcome="deferred", consecutive=1, writer="tick",
+                                                last_completed_at="2026-10-22T00:00:00Z")), EX_PASS)
     expect("runs: no interpreter", judge_runs, _mut(R, lambda d: d.update(python_exists=False, yaml={"rc": 127, "err": "x"})), EX_FAIL)
 
     # the vocabulary this file's judges depend on must still map

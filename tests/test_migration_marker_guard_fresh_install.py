@@ -53,7 +53,7 @@ class FreshInstallMustNotWriteSentinel(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="ostler-migration-guard-"))
         self.legacy = self._tmp / ".pwg"
         self.new = self._tmp / ".ostler"
-        self.conversations = self._tmp / "Documents" / "Ostler" / "Conversations"
+        self.conversations = self._tmp / "Ostler" / "Conversations"
 
     def tearDown(self) -> None:
         shutil.rmtree(self._tmp, ignore_errors=True)

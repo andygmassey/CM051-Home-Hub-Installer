@@ -9,6 +9,44 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 
+# The predicates a preference writer owns (ParsedPreference.to_turtle emits
+# exactly these, plus rdf:type). A re-ingest of the same preference id must
+# REPLACE them, not append a second value beside them. Enrichment triples on
+# the same node (pwg:hasTopic, pwg:enrichedAt, ...) are not in this list and
+# are left alone.
+PREFERENCE_OWNED_PREDICATES = (
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+    "https://schema.ostler.ai/ontology#subject",
+    "https://schema.ostler.ai/ontology#preferenceStrength",
+    "https://schema.ostler.ai/ontology#belongsToCompartment",
+    "https://schema.ostler.ai/ontology#hasSize",
+    "https://schema.ostler.ai/ontology#createdAt",
+    "https://schema.ostler.ai/ontology#belongsToUser",
+    "https://schema.ostler.ai/ontology#dataSource",
+    "https://schema.ostler.ai/ontology#category",
+    "https://schema.ostler.ai/ontology#hasContext",
+    "https://schema.ostler.ai/ontology#observedAt",
+    "https://schema.ostler.ai/ontology#sourceId",
+)
+
+
+def _split_turtle(triples_ttl: str):
+    """Split a Turtle block into (SPARQL PREFIX block, data block)."""
+    prefixes = []
+    data_lines = []
+    for line in triples_ttl.strip().split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('@prefix') or stripped.startswith('PREFIX'):
+            # @prefix pwg: <uri> . -> PREFIX pwg: <uri>
+            if stripped.startswith('@prefix'):
+                prefixes.append(stripped.replace('@prefix ', 'PREFIX ').rstrip(' .'))
+            else:
+                prefixes.append(stripped)
+        elif stripped and not stripped.startswith('#'):
+            data_lines.append(line)
+    return '\n'.join(prefixes), '\n'.join(data_lines)
+
+
 class OxigraphLoader:
     """Handles loading RDF triples into Oxigraph."""
 
@@ -29,49 +67,58 @@ class OxigraphLoader:
             True if successful, False otherwise
         """
         try:
-            # Extract prefixes and data from Turtle content
-            lines = triples_ttl.strip().split('\n')
-            prefixes = []
-            data_lines = []
-
-            for line in lines:
-                stripped = line.strip()
-                if stripped.startswith('@prefix') or stripped.startswith('PREFIX'):
-                    # Convert @prefix to SPARQL PREFIX format
-                    if stripped.startswith('@prefix'):
-                        # @prefix pwg: <uri> . -> PREFIX pwg: <uri>
-                        prefix_line = stripped.replace('@prefix ', 'PREFIX ').rstrip(' .')
-                        prefixes.append(prefix_line)
-                    else:
-                        prefixes.append(stripped)
-                elif stripped and not stripped.startswith('#'):
-                    data_lines.append(line)
-
-            # Build SPARQL UPDATE query
-            prefix_block = '\n'.join(prefixes)
-            data_block = '\n'.join(data_lines)
+            prefix_block, data_block = _split_turtle(triples_ttl)
 
             if graph:
                 update_query = f"{prefix_block}\nINSERT DATA {{ GRAPH <{graph}> {{ {data_block} }} }}"
             else:
                 update_query = f"{prefix_block}\nINSERT DATA {{ {data_block} }}"
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/update",
-                    content=update_query,
-                    headers={"Content-Type": "application/sparql-update"}
-                )
-
-                if response.status_code in (200, 201, 204):
-                    logger.debug("Inserted triples successfully via SPARQL UPDATE")
-                    return True
-                else:
-                    logger.error(f"Failed to insert triples: {response.status_code} - {response.text}")
-                    return False
+            return await self._post_update(update_query, "Inserted triples successfully via SPARQL UPDATE")
 
         except Exception as e:
             logger.error(f"Error inserting triples: {e}")
+            return False
+
+    async def replace_preference_triples(self, pref_ids: list, triples_ttl: str) -> bool:
+        """Replace the owned triples of the given preference nodes, then insert.
+
+        SPARQL INSERT DATA only ADDS. A preference re-ingested under the same
+        stable id with a changed subject or createdAt therefore kept BOTH values
+        in the graph while its Qdrant point (an upsert) held only the new one:
+        six nodes on the v1.0.131 walk box carried two pwg:subject literals.
+        This deletes the owned predicates of ``pref_ids`` and inserts the new
+        block in ONE update request, so the node is replaced, never widened.
+        """
+        try:
+            prefix_block, data_block = _split_turtle(triples_ttl)
+            iris = " ".join("pwg:pref_%s" % pid for pid in pref_ids)
+            preds = " ".join("<%s>" % p for p in PREFERENCE_OWNED_PREDICATES)
+            if iris:
+                delete = (
+                    "DELETE { ?s ?p ?o } WHERE { VALUES ?s { %s } VALUES ?p { %s } ?s ?p ?o } ;\n"
+                    % (iris, preds)
+                )
+            else:
+                delete = ""
+            update_query = f"{prefix_block}\n{delete}INSERT DATA {{ {data_block} }}"
+            return await self._post_update(update_query, "Replaced preference triples via SPARQL UPDATE")
+        except Exception as e:
+            logger.error(f"Error replacing preference triples: {e}")
+            return False
+
+    async def _post_update(self, update_query: str, ok_message: str) -> bool:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.base_url}/update",
+                content=update_query,
+                headers={"Content-Type": "application/sparql-update"}
+            )
+
+            if response.status_code in (200, 201, 204):
+                logger.debug(ok_message)
+                return True
+            logger.error(f"SPARQL update failed: {response.status_code} - {response.text}")
             return False
 
     async def execute_sparql_update(self, update: str) -> bool:

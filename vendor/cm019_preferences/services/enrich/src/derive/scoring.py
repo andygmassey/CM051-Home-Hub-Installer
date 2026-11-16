@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Sequence
 
+from recency import age_days as _age_days
+from recency import recency_weight, resolve_half_life
 from strength import calculate_strength
 
 from .model import EvidenceItem
@@ -21,7 +23,6 @@ from .model import EvidenceItem
 COUNT_SAT = 8
 CONF_CONSUME_MIN = 0.35
 PASSION_COUNT = 5
-PASSION_RECENT_DAYS = 540
 STRONG_STRENGTH = 0.45
 PASSION_STRENGTH = 0.70
 CONTRA_MIN = 0.25
@@ -67,8 +68,20 @@ def contestedness(items: Sequence[EvidenceItem]) -> float:
     return min(likes, dislikes) / total
 
 
-def score_group(items: Sequence[EvidenceItem], now: datetime | None = None) -> GroupScore:
-    """Score one (dimension, value) group of evidence into a derived node's axes."""
+def score_group(
+    items: Sequence[EvidenceItem],
+    now: datetime | None = None,
+    half_life_days: float | None = None,
+    evergreen: bool = False,
+) -> GroupScore:
+    """Score one (dimension, value) group of evidence into a derived node's axes.
+
+    Every evidence item is weighted by its OWN age (recency.recency_weight,
+    540d half-life by default, floor 0.35), applied once, in the strength mean.
+    Repetition still raises strength (frequency is the item count) and
+    confidence, but old evidence fades. Likes and dislikes decay identically; an evergreen
+    (dietary/medical) dimension does not decay at all.
+    """
     now = now or datetime.now(timezone.utc)
     assert items, "cannot score an empty evidence group"
 
@@ -76,9 +89,18 @@ def score_group(items: Sequence[EvidenceItem], now: datetime | None = None) -> G
     likes = sum(1 for i in items if i.item_strength >= 0)
     dislikes = count - likes
 
-    # base_strength: evidence mean (NOT max) so one binge cannot dominate; sign
-    # preserved so dislikes roll into a negative derived strength.
-    base_strength = sum(i.item_strength for i in items) / count
+    hl = resolve_half_life(items[0].dimension, half_life_days, evergreen)
+    weights = [recency_weight(_age_days(i.observed_at, now), hl) for i in items]
+
+    # The recency weight is applied in ONE place: base_strength, the
+    # recency-weighted evidence mean over ALL items (NOT max) so one binge
+    # cannot dominate and a stale item contributes less; sign preserved so
+    # dislikes roll into a negative derived strength. Frequency is the plain
+    # item count: weighting it as well applied the decay twice, so a group of 3
+    # or 8 identical 540d-old items kept 0.39 / 0.42 of a fresh group's
+    # strength instead of 0.5, and very old ones fell below the 0.35 floor.
+    base_strength = sum(w * i.item_strength for w, i in zip(weights, items)) / count
+    frequency = count
 
     sources = {i.source for i in items if i.source}
     source_count = max(len(sources), 1)
@@ -88,10 +110,12 @@ def score_group(items: Sequence[EvidenceItem], now: datetime | None = None) -> G
     last_obs = max(observeds) if observeds else None
     days_since_last = _days_since(last_obs, now)
 
+    # days_since_last=0: the per-item weights above ARE the decay. Passing the
+    # V2 10-year decay as well would double-apply (and floor at 0.4, not 0.35).
     strength = calculate_strength(
-        frequency=count,
+        frequency=frequency,
         base_strength=base_strength,
-        days_since_last=days_since_last,
+        days_since_last=0,
         source_count=source_count,
     )
 
@@ -106,7 +130,10 @@ def score_group(items: Sequence[EvidenceItem], now: datetime | None = None) -> G
     )
 
     strong = abs(strength) >= STRONG_STRENGTH
-    recent = days_since_last <= PASSION_RECENT_DAYS
+    # Passion needs a RECENT signal: the newest item still carries at least half
+    # weight (age within one half-life). Same 540d as before for the default;
+    # a shorter dimension half-life tightens it; an evergreen one is always recent.
+    recent = hl is None or days_since_last <= hl
     if abs(strength) >= PASSION_STRENGTH and count >= PASSION_COUNT and recent:
         tier = "passion"
     elif strong:

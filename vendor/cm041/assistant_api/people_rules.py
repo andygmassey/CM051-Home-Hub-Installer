@@ -107,7 +107,18 @@ def _is_provisional_phone_name(display_name):
     mark, until a better name arrives (tier 0 phone < tier 1 email < tier 2
     human name; names go upward only). Andy's ruling 2026-08-10."""
     s = (display_name or "").strip()
-    return _is_bare_phone_shape(s) and _digit_count(s) >= 7 and not _is_short_code_shape(s)
+    return (_is_bare_phone_shape(s) and 7 <= _digit_count(s) <= _E164_MAX_DIGITS
+            and not _is_short_code_shape(s))
+
+
+# E.164's own ceiling. A bare digit run longer than this is never a phone
+# number (same rule as ical-server ``_displayable_phone``): it is an app's
+# internal id, and naming a person by it shows the customer a raw id.
+_E164_MAX_DIGITS = 15
+
+
+def _is_overlong_digit_id(s):
+    return _is_bare_phone_shape(s) and _digit_count(s) > _E164_MAX_DIGITS
 
 
 # SHARED RULE (Hub, wiki compiler/nameless.py, iOS PersonNameFilter; all three
@@ -169,9 +180,45 @@ def _is_nameless_name(display_name, has_card=False, handles=None):
         return True
     if _is_short_code(s):
         return True
+    # 5. a bare digit run over 15 digits: an internal id, never a phone
+    #    (walk v1.0.122: an 18-digit iMessage handle listed as a name).
+    if _is_overlong_digit_id(s):
+        return True
     if not has_card and _all_handles_are_sender_ids(handles):
         return True
     return False
+
+
+# ── WHAT COUNTS AS A PERSON (v1.0.121): ONE definition, two independent stores ──
+#
+# A person is counted when they are CUSTOMER-VISIBLE:
+#   NAMED : the best display name (SHARED RULE B) is not nameless
+#           (``_is_nameless_name``, SHARED RULE A), and
+#   LIVE  : not merged away (not the source of a ``pwg:mergedInto``).
+#
+# Both people counts apply THIS function, each to its OWN store, so the two
+# numbers stay independent and must agree:
+#   * the graph : walk probe people_count_agreement (Person nodes; ``merged``
+#                 from the node's own ``pwg:mergedInto``);
+#   * Qdrant    : the Doctor's count, ical-server ``_wiki_people_count``
+#                 (``people`` points). A point carries no merge state, so it is
+#                 counted with ``merged=False``: a merge deletes the loser's
+#                 point (identity_resolver merge_journal.delete_person_points,
+#                 both merge paths) and the upgrade repair sweeps any left by
+#                 older builds. Never make the Doctor read the graph: that
+#                 would make the agreement probe compare the graph with itself.
+#
+# A designed difference between the stores (an unnamed join anchor, a
+# merged-away node) is defined away HERE, never absorbed by a wider tolerance.
+def is_countable_person(display_name, given="", family="", emails=(), phones=(),
+                        has_card=False, merged=False):
+    """True when this person record counts as one customer-visible person."""
+    if merged:
+        return False
+    emails = [e for e in (emails or ()) if e]
+    phones = [p for p in (phones or ()) if p]
+    name = _best_display_name(display_name or "", given or "", family or "", emails)
+    return not _is_nameless_name(name, has_card=bool(has_card), handles=phones + emails)
 
 
 def _looks_like_bare_email_or_phone(display_name):
@@ -216,6 +263,8 @@ _SERVICE_NAME_SUFFIX_WORDS = frozenset({
     "notification", "notifications", "alert", "alerts", "advice",
     "marketplace", "reward", "rewards", "gift", "gifts", "update",
     "updates", "delivery", "deliveries",
+    # walk 121: "<x> Verification" and "Order <x>" senders passed every check here.
+    "verification", "verify", "order", "orders",
 })
 
 

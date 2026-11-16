@@ -1,6 +1,6 @@
 # How Ostler decides whether everyone has to agree
 
-Decided by Andy, 2026-09-16. This is the reference for anyone touching consent
+Decided by the owner, 2026-09-16. This is the reference for anyone touching consent
 jurisdiction in CM051, CM042 or CM031. If the code and this file disagree, the
 code is what runs, and one of them is a bug.
 

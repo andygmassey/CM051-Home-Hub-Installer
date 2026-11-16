@@ -126,7 +126,7 @@ hub = load("ical_server_for_p1", root + "/vendor/cm041/assistant_api/ical-server
 gen = load("generate_pwg_context_for_p1", root + "/context-refresh/bin/generate_pwg_context.py")
 served = hub.api_preferences(limit=50)
 def get_json(path):
-    return hub.api_preferences(limit=int(path.split("limit=")[1])) if path.startswith("/api/v1/preferences") else None
+    return hub.api_preferences(limit=int(path.split("limit=")[1])) if path.startswith("/api/v1/preferences?") else None  # the interest route only; /derived is not served here
 gen._get_json = get_json
 print(len(gen._preferences_section()), len((served or {}).get("interests") or []))
 PYEOF

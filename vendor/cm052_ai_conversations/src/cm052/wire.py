@@ -25,7 +25,7 @@ For external-LLM conversations (``provenance.source_kind ==
 "external_llm"``) the wire also writes a durable, human-readable
 **episodic** markdown artefact under
 ``OSTLER_AI_CONVERSATIONS_DIR`` (default
-``~/Documents/Ostler/AI Conversations/<YYYY-MM-DD>/<conversation_id>.md``).
+``~/Ostler/AI Conversations/<YYYY-MM-DD>/<conversation_id>.md``).
 
 The mental model is semantic memory ("the fact that...") versus
 episodic memory ("the conversation in which it was said"). The CM048
@@ -113,7 +113,7 @@ def _service_token() -> str:
         return ""
 
 
-_DEFAULT_AI_CONVERSATIONS_DIR = "~/Documents/Ostler/AI Conversations"
+_DEFAULT_AI_CONVERSATIONS_DIR = "~/Ostler/AI Conversations"
 
 
 def _ai_conversations_root() -> Path:

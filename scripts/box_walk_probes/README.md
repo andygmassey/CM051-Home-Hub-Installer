@@ -19,6 +19,22 @@ installed on.
 whether it survives its own first use, which is the only arm that catches that
 class. On v1.0.45 five arms pass and arm 8 vetoes.
 
+## ▶ NETWORK SAMPLERS: START BEFORE THE INSTALL, REPORT AFTER THE WALK
+
+```sh
+scripts/walk_net_sampler.sh start  --out "$HOME/walk-net-v1.0.NN" --period 5
+scripts/walk_net_sampler.sh stop   --out "$HOME/walk-net-v1.0.NN"
+scripts/walk_net_sampler.sh report --out "$HOME/walk-net-v1.0.NN"
+```
+
+Run ON the box. The host sampler is `sudo -n lsof` every period plus nettop
+once a minute; the in-VM sampler waits for the colima VM, then reads its
+conntrack table and maps container IPs. Each has a held `nc example.com 80`
+control at start and at stop; a sampler whose control was not seen reports
+CANNOT-RUN. The report ends with `gws_spawn_count=` and `telemetry_hosts=`
+(list: `telemetry_hosts.tsv`), both 0 required. Exit 0 PASS, 1 FAIL,
+2 CANNOT-RUN. These are samples, not a capture.
+
 ## ▶ AFTER A DMG WALK, RUN THIS ONE COMMAND
 
 ```sh
@@ -364,7 +380,7 @@ and Ofcom drama-range numbers -- and it sweeps before seeding so a crashed
 earlier run cannot fake a pass. It is the only probe here that is not read-only.
 
 The install log lives under `$HOME/.ostler/`, per `install.sh:962`. It is **not**
-under `$HOME/Documents/Ostler/logs/` — that path was searched twice during the
+under `$HOME/Ostler/logs/` — that path was searched twice during the
 v1.0.31 walk and reported a false absence both times.
 
 ## Compatibility

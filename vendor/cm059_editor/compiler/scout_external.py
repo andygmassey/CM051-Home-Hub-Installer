@@ -56,6 +56,7 @@ import sys
 from datetime import datetime, timezone
 
 from compiler import scouts as sc
+from compiler import sensitive_topics
 from compiler.interest_profile import (MEDIA_CATEGORIES, names_person_or_org,
                                        subject_names_known_contact)
 from compiler.scouts import Scout
@@ -175,6 +176,10 @@ def l1_interests(profile: dict, domain: str | None = None) -> list[dict]:
             if not isinstance(it, dict):
                 continue
             if it.get("polarity") == "dislike":
+                continue
+            # A GDPR Art. 9 topic never feeds a query (it would leave the
+            # machine) nor the scout card built from its results (row 2471).
+            if sensitive_topics.is_sensitive_topic(it.get("subject")):
                 continue
             if (_interest_privacy(it) not in QUERYABLE_LEVELS
                     and not (agreed and _consent_widens(it))):

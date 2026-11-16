@@ -9,7 +9,7 @@ for the in-tier chats (T1 DM + T2 intimate/active group), renders a
 cleaned speaker-labelled transcript plus CM048 metadata, and hands each
 chat to the CM048 ConversationBundle processor (``pwg-convo process``).
 CM048 then emits the four artefacts under
-``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 This is the CONVERSATION-MEMORY leg for WhatsApp. It is deliberately
 separate from the existing ``ostler_fda.whatsapp_history`` metadata

@@ -510,12 +510,20 @@ def _sparql(q):
     return [{k: v["value"] for k, v in b.items()} for b in res["results"]["bindings"]]
 
 
+def owner_about_forms(user_id):
+    """Every URI the owner's facts carry on urn:ostler:about. The CM048 writer
+    emits urn:ostler:user/<id> (generate_pwg_context.py owner_about); the
+    ontology node is the Person form. Missing the first made every owner fact
+    read as 'about someone else' (walk 121)."""
+    return ["urn:ostler:user/" + user_id, "https://schema.ostler.ai/ontology#user_" + user_id]
+
+
 def owner_uris(ident):
     """The owner's Person nodes, by the SAME three arms (plus isOwner) as
     generate_pwg_context.py _owner_uris. None when the read failed."""
     uris = []
     if ident["user_id"]:
-        uris.append("https://schema.ostler.ai/ontology#user_" + ident["user_id"])
+        uris.extend(owner_about_forms(ident["user_id"]))
     arms = ["{ ?p pwg:isOwner true }"]
     if ident["name"]:
         arms.append("{ ?p a pwg:Person ; pwg:displayName ?n . FILTER(LCASE(STR(?n)) = %s) }" % _lit(ident["name"].lower()))

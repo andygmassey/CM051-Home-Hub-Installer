@@ -224,7 +224,7 @@ NO UPSTREAM COUNTERPART (checked CM041 origin/main e2dffc0, 2026-10-21):
 vendored tree (graft from CM051 #2663); upstream `resolve()` Tier 1 merges on a shared
 exact identifier after RULE 2 alone, so the nameless pair already merges there and
 there is nothing to port. Upstreaming this change means upstreaming the whole BW-1
-guard first, which reverses upstream's RULE 1 and is a decision for Andy/Archie, not
+guard first, which reverses upstream's RULE 1 and is a decision for the owner/Archie, not
 a like-for-like port. This record stays until that decision is made.
 
 Tree `cm041/identity_resolver`, `resolver.py` only: `_identifier_match_trustworthy`
@@ -272,3 +272,138 @@ WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses
 (the 15-digit literal upstream keeps in repair_lid_as_phone.py would land on
 the MINUS side). The checked-in patch is stale against the new pin; the
 content gate reads RED for this tree, as on main before this change.
+
+## 2026-10-29, NEW-119: the merge journal names each exact-identifier key as {kind, keyed hash}
+
+Tree: cm041/identity_resolver (vendor/cm041/identity_resolver). Location and shape only.
+
+| file | change |
+|---|---|
+| `exact_identifier.py` | new `card_uid_override_keys()` returns `(allowed, reason, matched usable keys)`; `card_uid_override()` is now a wrapper returning `(allowed, reason)` as before. |
+| `merge_journal.py` | new `journal_identifier_keys()`, `journal_subkey()`, `key_hash()`, `normalise_key_value()`, `install_secret_path()`. `record_merge()` takes `matched_keys` + `matched_keys_reason` (replacing `shared_kinds`) and writes `matched_keys`, `matched_keys_reason`, and `shared_kinds` derived from the matched keys only. |
+| `batch_resolver.py` | `_exact_identifier_override()` returns `(reason, matched keys)`; `execute()` hashes them through `journal_identifier_keys()` before `record_merge()`. The `shared_kinds` guess (searching `action.details` / `action.strategy` for "email", "phone", "linkedin") is deleted. |
+
+Hash: `HMAC-SHA256(subkey, "<kind>:<normalised>")`, first 16 hex; subkey =
+`HMAC-SHA256(<OSTLER_DIR>/secrets/service_token, "ostler.merge-journal.v1")`.
+Missing or empty secret: the merge proceeds, rows carry `hash: null`,
+`matched_keys_reason: "journal_secret_unavailable"`.
+
+Guarded by `tests/test_merge_journal_records_keyed_identifier_hashes.py`
+(wired in `.github/workflows/exact-identifier-merge.yml`).
+
+UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
+re-pinned): CM041 `identity_resolver/{exact_identifier,merge_journal,batch_resolver}.py`,
+the same three changes. The patch is not regenerated, for the reason in the
+2026-10-22 section above.
+
+
+## 2026-10-30: both merge paths honour a "different people" decision
+
+Tree `cm041/identity_resolver`. Pin NOT moved.
+
+Two call sites, nothing else in the tree (`exact_identifier.py` untouched).
+The decision is the #2876 / wiki "Not the same" `distinct` entry in
+`duplicates.yaml`, read with the existing `decisions.load_duplicate_decisions`
+and `decisions.is_blocked`.
+
+- `batch_resolver.py`, `BatchResolver.execute()`: loads the decisions once at
+  the start of the pass and skips a planned merge whose pair is recorded
+  `distinct`, before the RULE 2 check and the exact-identifier override. The
+  import line gains `is_blocked`. Why: `detect()` already drops such a pair,
+  but a converge round plans first and executes later, and a decision recorded
+  in between was ignored by the stale plan.
+- `resolver.py`, `IdentityResolver._resolve_tiers` RULE 1 collapse
+  (`if len(found_uris) > 1`): skips a pair recorded `distinct` before
+  `merge_persons()`, counted with the RULE 2 refusals. Reads
+  `WIKI_CORRECTIONS_DIR` (default `~/.ostler/corrections`), the same file and
+  default as the batch resolver. Why: RULE 2 refuses only pairs with DIFFERING
+  card uids; measured on origin/main 1a9aea59, a same-name pair without them
+  (one holding an email, one a landline) was collapsed from 2 nodes to 1 by a
+  single ingest despite the decision.
+- Pinned by `tests/test_different_people_decision_blocks_remerge.py`: each
+  edit reverted fails exactly its own test (1 failed, 3 passed); controls
+  without a decision merge on both paths.
+- `decisions.py`: NEW `load_duplicate_decisions_strict` and `blocks_merge`,
+  used by the two merge paths above instead of the best-effort loader.
+  STRICT: a duplicates.yaml that exists but will not parse (or whose top
+  level is not a mapping with a `decisions` list) refuses every merge this
+  round, with one warning line, instead of reading as "no decisions".
+  CACHED by (path, mtime_ns, size), one live entry, so ingest parses the file
+  once per change rather than once per matched identity. The best-effort
+  `load_duplicate_decisions` and `apply_user_decisions` are unchanged.
+  Measured, 100 ingests through the collapse path with a 2000-entry file:
+  origin/main 79 ms per ingest, uncached re-read 242 to 284 ms, cached
+  69 to 73 ms; with the pairs recorded distinct, cached 16 ms (no merge
+  write) against 177 to 182 ms uncached.
+- Writer, same file: the Doctor's duplicate_decision.py (POST
+  /api/v1/wiki/duplicates/decision, called by the CM044 duplicates page)
+  writes `${WIKI_CORRECTIONS_DIR:-~/.ostler/corrections}/duplicates.yaml`;
+  the com.ostler.doctor LaunchAgent sets no WIKI_CORRECTIONS_DIR (install.sh
+  at v1.0.120), so writer and both readers resolve the same path.
+- Retire when CM041 carries both checks and a re-vendor makes the files
+  byte-identical.
+
+## 2026-10-30, v1.0.121: a merge deletes the loser's vector, undo restores it, the repair deletes only provable losers
+
+Tree: cm041/identity_resolver (vendor/cm041/identity_resolver). Location and shape only.
+
+| file | change |
+|---|---|
+| `resolver.py` | `IdentityResolver.__init__` takes `qdrant_url` (default env `QDRANT_URL`, else `http://localhost:6333`) and `merge_journal_dir` (default `merge_journal.default_journal_dir()`); new `merge_stats`. `merge_persons()` now returns bool: it calls `merge_journal.record_merge()` (both nodes, both vectors) BEFORE the first write, skips the pair on `SnapshotUnavailable` (journalled `skip`, reason `qdrant_unavailable`), runs the old body (now `_merge_graph()`), then deletes the loser's points via `merge_journal.delete_person_points()`. `resolve()` counts a merge only when it was made. |
+| `merge_journal.py` | new `delete_person_points()` (the uuid5 point plus any point whose payload `person_uri` is the loser) and `default_journal_dir()` (`OSTLER_MERGE_JOURNAL_DIR`, else `<OSTLER_PIPELINE_DIR or ~/.ostler/import-pipeline>/backups/merge_journal`, the converge pass's own journal). |
+| `batch_resolver.py` | `_merge_qdrant()` deletes through `delete_person_points()`, so a loser point keyed by another id goes too. `sweep_qdrant_orphans_of_merged_people()` deletes a point only when its uri is a `mergedInto` source whose chain ENDS at a live Person; a dangling or cyclic chain and a uri that is neither a Person nor a merge source are REPORTED (`unresolved_merge_uris`, `true_orphan_uris`, `candidates`), never deleted. |
+| `repair_merge_consistency.py` | prints the new report lines. |
+
+Why: measured read-only on the v1.0.120 box, 86 `people` points belonged to
+`mergedInto` sources, none of them in the batch converge's journal (670
+journalled merges left 0 points): every one came from the ingest-time
+`merge_persons`, which was graph-only. A search for a merged-away name returned
+a retired uri.
+
+Guarded by `tests/test_a_merge_deletes_the_loser_vector.py` (6 tests, all red
+on main, wired in `.github/workflows/exact-identifier-merge.yml`).
+
+UPSTREAM ROW (owed to CM041; retire when CM041 takes it and the tree is
+re-pinned): CM041 `identity_resolver/{resolver,merge_journal,batch_resolver,repair_merge_consistency}.py`.
+Upstream has no `merge_journal.py` (vendor-only, see the v1.0.107 #30 section),
+so the journalled half cannot be ported alone; the graph-only `merge_persons`
+upstream has the same defect. The patch is not regenerated, for the reason in
+the 2026-10-22 section above.
+## 2026-10-30 (v1.0.121): Tier 1 checks every holder of an identifier
+
+Tree `cm041/identity_resolver`, file `resolver.py`. New method
+`IdentityResolver.find_all_by_identifier` (every live holder, tombstones
+followed, stable order); `_resolve_tiers` Tier 1 now walks every holder of
+each incoming identifier through `_identifier_match_trustworthy`, instead of
+the single arbitrary `LIMIT 1` holder from `find_by_identifier`. With the
+RULE 2 trust filter (vendor-only) in Tier 1, the single holder returned was
+often the OTHER card's node, which RULE 2 rightly declines, and the holders
+that would pass were never seen; a pile of nodes for one person then never
+shrank (v1.0.120 walk, Mini16). The per-pair RULE 2 veto in the collapse
+branch is unchanged. `find_by_identifier` is unchanged for its other callers.
+
+Proof: `tests/test_two_card_person_is_not_reminted_every_sync.py`
+(the 3-node arm goes red with this hunk reverted).
+
+UPSTREAM ROW: none owed today. CM041 main (fe3290d) Tier 1 has no RULE 2
+trust filter, so its LIMIT 1 lookup cannot hide an acceptable holder behind
+a declined one. Owed only if CM041 takes the RULE 2 Tier-1 guard.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.
+
+## 2026-11-11: user-facing root moved to ~/Ostler (CM051 #3429), cm041/identity_resolver
+
+Regeneration run as a dry run, and REFUSED: "the patch this would record carries PII-shaped content" (pattern `/Users/<name>` on the changed lines, MINUS side). Not re-synced: a re-sync would delete the vendored side. Recorded here instead.
+
+- `compartment.py` (3 lines): default user root `~/Documents/Ostler` becomes `~/Ostler` in code and docstring text.
+- `identity_resolver/tests/test_compartment.py` in upstream only, not vendored.
+
+Upstream: andygmassey/CM041-People-Graph PR #246, not merged. Tests: `identity_resolver/tests/test_compartment.py`, 66 passed, rc 0 (system python, throwaway HOME).
+- Same tree, same PR, one table cell: the example `~/Ostler/Users/<name>` replaced a lowercase first name in the same place. The PII-shape scan flagged the home-folder path shape (a lowercase name after the users folder) on the added line (CI, 23ff9b06). Upstream CM041 PR #246 gets the same edit.

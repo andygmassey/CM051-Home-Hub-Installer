@@ -26,7 +26,7 @@ def _now_iso(now: Optional[datetime]) -> str:
 
 
 def _item(view) -> dict:
-    return {
+    d = {
         "dimension": view.dimension,
         "label": view.subject,
         "strength": round(float(view.strength), 4),
@@ -34,6 +34,25 @@ def _item(view) -> dict:
         "intensity": view.intensity,
         "because": list(view.because),
     }
+    # Only when the evidence carried a level: consumers apply their L2 handling.
+    if getattr(view, "privacy", ""):
+        d["privacy_level"] = view.privacy
+    # Optional pattern fields: present only when derived, so a consumer written
+    # against derived-preferences.v1 without them is unaffected.
+    trend = getattr(view, "trend", "")
+    if trend:
+        d["trend"] = trend
+    winner = getattr(view, "contradiction_winner", "")
+    if winner:
+        d["contradiction"] = {
+            "winner": winner,
+            "suppress": bool(getattr(view, "suppress", False)),
+            "reason": getattr(view, "contradiction_reason", ""),
+        }
+    context = getattr(view, "context", ())
+    if context:
+        d["context"] = list(context)
+    return d
 
 
 def build_derived_preferences_response(
@@ -42,13 +61,38 @@ def build_derived_preferences_response(
     limit: int = 8,
     min_confidence: float = 0.4,
     now: Optional[datetime] = None,
+    tier: Optional[str] = None,
 ) -> dict:
-    """Build the endpoint payload. Never raises; degrades loudly instead."""
+    """Build the endpoint payload. Never raises; degrades loudly instead.
+
+    ``tier``: ``broad`` (types of things: genres, cuisines, topics), ``specific``
+    (single things) or ``all`` (every tier, broad first). The round-robin by
+    category applies within the tier. A reader without ``get_mixed_preferences``
+    ignores the tier and serves the plain ranked read.
+
+    ``None`` means the caller did not ask: it reads ``broad``, and if that is
+    EMPTY it serves ``all`` and says so (``"tier": "all", "tier_fallback": true``).
+    An upgraded box holds a graph written before tiers until the next derive run;
+    without the fallback the first look after an update would be empty. An
+    EXPLICIT ``broad`` stays strict.
+    """
+    defaulted = tier is None
+    tier = tier or "broad"
     ts = _now_iso(now)
     try:
-        views = reader.get_derived_preferences(
-            user_id, min_confidence=min_confidence, limit=limit
-        )
+        # Prefer the category-interleaved read: ranked by confidence alone, one
+        # wide category (every TV series, every site) owns the whole list.
+        mixed = getattr(reader, "get_mixed_preferences", None)
+        if mixed is not None:
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier=tier)
+        else:
+            views = reader.get_derived_preferences(
+                user_id, min_confidence=min_confidence, limit=limit
+            )
+        fell_back = False
+        if not views and defaulted and mixed is not None and tier == "broad":
+            views = mixed(user_id, min_confidence=min_confidence, limit=limit, tier="all")
+            fell_back = bool(views)
     except Exception as exc:  # dependency down: degrade, do not 200 []
         return {
             "generated_at": ts,
@@ -58,15 +102,24 @@ def build_derived_preferences_response(
         }
 
     if not views:  # empty graph is NOT a healthy empty result
+        reason = (
+            "no derived preferences materialized yet"
+            if tier == "all"
+            else f"no derived preferences materialized yet in the {tier} tier (tier=all shows every tier)"
+        )
         return {
             "generated_at": ts,
             "items": [],
             "degraded": True,
-            "cannot_check": "no derived preferences materialized yet",
+            "cannot_check": reason,
         }
 
-    return {
+    out = {
         "generated_at": ts,
         "items": [_item(v) for v in views],
         "degraded": False,
     }
+    if fell_back:
+        out["tier"] = "all"
+        out["tier_fallback"] = True
+    return out

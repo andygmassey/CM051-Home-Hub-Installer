@@ -63,3 +63,39 @@ pwg:DerivedPreferenceShape a sh:NodeShape ;
         sh:maxCount 1 ;
         sh:message "evidenceCount must be a single integer" ;
     ] .
+
+# Optional pattern-deriver fields (patterns.py). Absent is valid; present must be
+# well formed. A marker without its winner and reason is an unexplained marker.
+pwg:DerivedPatternShape a sh:NodeShape ;
+    sh:targetClass pwg:DerivedPreference ;
+    sh:name "Derived Preference Pattern Fields" ;
+    sh:property [
+        sh:path pwg:trend ; sh:maxCount 1 ;
+        sh:in ( "rising" "falling" "stable" ) ;
+        sh:message "trend must be one of rising, falling, stable" ;
+    ] ;
+    sh:property [
+        sh:path pwg:contradictionWinner ; sh:maxCount 1 ;
+        sh:in ( "stated" "behaviour" ) ;
+        sh:message "contradictionWinner must be stated or behaviour" ;
+    ] ;
+    sh:property [
+        sh:path pwg:contradictionReason ; sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path pwg:suppressSuggestion ; sh:maxCount 1 ;
+        sh:datatype xsd:boolean ;
+    ] ;
+    sh:property [
+        sh:path pwg:timeContext ; sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+pwg:SuppressionIsExplainedShape a sh:NodeShape ;
+    sh:targetSubjectsOf pwg:suppressSuggestion ;
+    sh:name "A suppression carries its winner and reason" ;
+    sh:property [ sh:path pwg:contradictionWinner ; sh:minCount 1 ;
+                  sh:message "suppressSuggestion without a contradictionWinner" ] ;
+    sh:property [ sh:path pwg:contradictionReason ; sh:minCount 1 ;
+                  sh:message "suppressSuggestion without a contradictionReason" ] .

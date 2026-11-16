@@ -71,6 +71,8 @@ from pathlib import Path
 from typing import Any
 
 from .participants import normalise_participants
+from . import bulk_classifier as _bulk_classifier
+from . import scam_guard as _scam_guard
 
 logger = logging.getLogger(__name__)
 
@@ -656,6 +658,8 @@ def _deterministic_todo_id(
 def extract_outstanding_todos(
     enrichment_md: str,
     metadata: dict,
+    *,
+    transcript: str = "",
 ) -> list[OutstandingTodo]:
     """Parse the enrichment markdown's Action items table into todos.
 
@@ -683,6 +687,19 @@ def extract_outstanding_todos(
     if not conversation_id:
         return []
 
+    # A commitment is the user's own words. Inbound bulk, marketing,
+    # newsletter, job-alert and transactional mail ("click to confirm your
+    # place on the waitlist") is never one: the extractor reads a sales CTA
+    # as an action item owned by "You". The processor stamps
+    # ``non_relational`` before enrichment; classify again here so a caller
+    # that did not (resume, backfill, tests) cannot slip it through.
+    if metadata.get("non_relational") or _bulk_classifier.is_non_relational(metadata):
+        logger.info(
+            "outstanding_todos: %s is bulk/automated mail, no commitments",
+            conversation_id,
+        )
+        return []
+
     others = [
         p for p in participants
         if (p.get("role") or "other") != "user" and p.get("id")
@@ -694,6 +711,11 @@ def extract_outstanding_todos(
     if not subject_person_ids:
         return []
 
+    # Junk, spam or fraud mail produces no todo at all, and a payment todo
+    # from someone the owner has never written to is dropped (scam_guard).
+    # Counted in the log by reason, never shown.
+    junk = _scam_guard.junk_reason(metadata)
+    withheld: dict[str, int] = {}
     rows = parse_action_items_table(enrichment_md)
     todos: list[OutstandingTodo] = []
     for row in rows:
@@ -703,6 +725,12 @@ def extract_outstanding_todos(
             continue
         # Truncate runaway LLM cells.
         action_text = action_text[:_MAX_TEXT_LEN]
+        why = _scam_guard.todo_withheld_reason(
+            action_text, metadata, transcript=transcript, junk=junk
+        )
+        if why:
+            withheld[why] = withheld.get(why, 0) + 1
+            continue
 
         owner_id, owner_display = resolve_owner(
             row.get("owner") or "", participants
@@ -737,6 +765,12 @@ def extract_outstanding_todos(
         )
         todos.append(todo)
 
+    if withheld:
+        logger.warning(
+            "outstanding_todos: withheld %s for %s",
+            ", ".join(f"{k}={v}" for k, v in sorted(withheld.items())),
+            conversation_id,
+        )
     return todos
 
 

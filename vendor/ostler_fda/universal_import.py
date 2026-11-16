@@ -747,9 +747,17 @@ _KNOWLEDGE_SOURCES = {
     "markdown_collection": "notion",
 }
 
+def _owner_side_or(name, fallback):
+    """${OSTLER_DIR}/bin/<name> when it exists (a GUI install links there, since
+    /usr/local/bin is root-owned), else the /usr/local/bin fallback. Owner-side first."""
+    base = os.environ.get("OSTLER_DIR") or os.path.join(os.path.expanduser("~"), ".ostler")
+    owner = os.path.join(base, "bin", name)
+    return owner if os.path.exists(owner) else fallback
+
+
 # Resolve the same binary path the Doctor runner uses, honouring the same
 # override env var so the two stay consistent on every install.
-_DEFAULT_KNOWLEDGE_BIN = "/usr/local/bin/ostler-knowledge"
+_DEFAULT_KNOWLEDGE_BIN = _owner_side_or("ostler-knowledge", "/usr/local/bin/ostler-knowledge")
 
 
 def _dispatch(detection: Detection, *, dry_run: bool, output_dir: Optional[Path]) -> dict:
@@ -812,7 +820,7 @@ def _out_dir(output_dir: Optional[Path]) -> Path:
 
 # The Doctor / per-feed bundles resolve pwg-convo by this env var first,
 # then the CM048 venv binary, then the /usr/local/bin symlink, then PATH.
-_DEFAULT_PWG_CONVO_BIN = "/usr/local/bin/pwg-convo"
+_DEFAULT_PWG_CONVO_BIN = _owner_side_or("pwg-convo", "/usr/local/bin/pwg-convo")
 
 
 def _pwg_convo_cmd() -> Optional[List[str]]:
@@ -1047,6 +1055,35 @@ def _dispatch_facebook(detection: Detection, *, output_dir: Optional[Path]) -> d
         "status": "ok",
         "dispatched": "facebook_messenger",
         "summary": stats,
+        **persist,
+    }
+
+
+def _dispatch_whatsapp_export(detection: Detection, *, output_dir: Optional[Path]) -> dict:
+    """A dropped WhatsApp per-chat .txt: parse it, then persist through the
+    SAME CM048 sink the Messenger leg uses (pwg-convo process, one per chat)."""
+    from . import whatsapp_export as wae
+
+    chat = wae.parse_chat_file(Path(detection.route_path))
+    # Supplement, not a second copy: messages the live WhatsApp store already
+    # holds are dropped here. The conversation id stays that of the FULL chat.
+    cid = wae.conversation_id(chat) if chat.messages else None
+    new_chat, already_live = wae.drop_already_live(
+        chat,
+        wae.live_key_counts(wae.default_live_index_path()),
+        wae.owner_names_from_env(),
+    )
+    payloads = [wae.chat_to_payload(new_chat, cid=cid)] if new_chat.messages else []
+    persist = (
+        _stage_then_persist(payloads, wae.OUTPUT_FILENAME, wae.SOURCE, output_dir=output_dir)
+        if payloads else {}
+    )
+    return {
+        "status": "ok",
+        "dispatched": wae.SOURCE,
+        "summary": wae.conversation_stats([chat]),
+        "already_in_live": already_live,
+        "new_messages": len(new_chat.messages),
         **persist,
     }
 
@@ -2155,12 +2192,11 @@ _DISPATCH: dict = {
     "mbox": _dispatch_mbox,
     "google_takeout": _dispatch_google_takeout,
     "apple_mail_emlx": _dispatch_apple_mail_emlx,
+    "whatsapp_export": _dispatch_whatsapp_export,
     # Knowledge formats convert through the bundled ostler-knowledge binary.
     "obsidian_vault": _dispatch_knowledge,
     "evernote_enex": _dispatch_knowledge,
     "markdown_collection": _dispatch_knowledge,
-    # whatsapp_export (.txt) intentionally has no ostler_fda dispatcher --
-    # see _dispatch() for the honest recognised_no_parser result.
 }
 
 

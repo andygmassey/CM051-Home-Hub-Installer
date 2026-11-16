@@ -2,7 +2,7 @@
 
 Every human-to-human conversation (iMessage / WhatsApp / email
 thread / meeting transcript / voice note) lands as a folder under
-``~/Documents/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``
+``~/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``
 with three markdown artefacts inside:
 
     summary.md      Overall summary + per-topic breakdown.
@@ -226,7 +226,7 @@ def write_conversation(
     """Produce the four-artefact bundle on disk and (for non-L3)
     invoke the gist callback.
 
-    ``root`` defaults to ``~/Documents/Ostler/Conversations`` via
+    ``root`` defaults to ``~/Ostler/Conversations`` via
     ``ostler_paths.conversations_dir()``. Tests should pass a
     ``tmp_path`` to keep filesystem effects sandboxed.
 
@@ -410,7 +410,7 @@ def _resolve_folder(
     """Return ``<root>/<YYYY-MM-DD>/<slug>-<short-id>/``.
 
     ``root`` defaults to the user-facing
-    ``~/Documents/Ostler/Conversations`` path. The slug is
+    ``~/Ostler/Conversations`` path. The slug is
     derived from the FULL participant list (including the user-
     side label) so multi-user installs -- e.g. a Hub Mac shared
     by two iCloud accounts -- preserve the user axis in the

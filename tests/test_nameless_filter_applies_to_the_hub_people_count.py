@@ -16,7 +16,8 @@ ICAL = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_
 SRC = pathlib.Path(__file__).resolve().parent.parent / "vendor/cm041/assistant_api/people_rules.py"
 WANT = {"_is_nameless_name", "_NAMELESS_BARE_ID_CHARS", "_digit_count",
         "_is_bare_phone_shape", "_is_short_code", "_is_sender_id_handle", "_all_handles_are_sender_ids",
-        "_is_provisional_phone_name", "_is_short_code_shape", "_SHORT_CODE_MAX_DIGITS"}
+        "_is_provisional_phone_name", "_is_short_code_shape", "_SHORT_CODE_MAX_DIGITS",
+        "_is_overlong_digit_id", "_E164_MAX_DIGITS"}
 
 try:
     text = SRC.read_text()
@@ -66,6 +67,8 @@ if f:
                    ("HSBCALERT", None), ("AMAZON", [])):
         check(f"NOT nameless without sender-ID-only handles: {nm!r} {hs!r}", not f(nm, handles=hs))
     check("a carded ALERT with only a sender-ID handle is shown", not f("ALERT", has_card=True, handles=["ALERT"]))
+    # walk v1.0.122: a bare digit run over E.164's 15 digits is an id, never a name.
+    check("nameless: an 18-digit id", f("9" * 18))
     # A phone-only person is SHOWN (ruling 2026-08-10), never dropped.
     pf = ns.get("_is_provisional_phone_name")
     check("_is_provisional_phone_name exists", pf is not None)
