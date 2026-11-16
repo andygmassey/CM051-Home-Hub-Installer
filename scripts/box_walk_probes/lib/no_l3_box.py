@@ -623,23 +623,45 @@ exit 0
 """
 
 
+class DockerNotFound(RuntimeError):
+    """docker is not on the dirs searched. Its own CANNOT: the message names them."""
+
+
+def find_docker(dirs=None, path_env=None):
+    """Resolve docker the way the installer does: OSTLER_BOX_DOCKER_DIRS (default
+    /opt/homebrew/bin:/usr/local/bin) checked FIRST, then the inherited PATH. The
+    box-side python runs under a non-login shell whose PATH lacks /opt/homebrew/bin
+    (the same defect class as the colima vm_size read), so a bare "docker" is not
+    findable there. -> absolute path. Raises DockerNotFound naming what was searched."""
+    raw = dirs if dirs is not None else os.environ.get("OSTLER_BOX_DOCKER_DIRS", "/opt/homebrew/bin:/usr/local/bin")
+    pe = path_env if path_env is not None else os.environ.get("PATH", "")
+    searched = [d for d in raw.split(":") if d] + [d for d in pe.split(":") if d]
+    for d in searched:
+        cand = os.path.join(d, "docker")
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    raise DockerNotFound("docker not found in %s; inherited PATH=%s" % (raw, pe or "(empty)"))
+
+
 def _wiki_volume_pages(action, needle):
     """Count (and for action=delete, remove by exact path) the compiled timeline
     pages carrying `needle` inside the wiki-docs and wiki-built docker volumes, via a
     one-shot --rm container of the wiki-compiler image already on the box. Raises
     when docker or the image is unavailable: that is CANNOT, never 0."""
-    img = subprocess.run(["docker", "image", "ls", "--format", "{{.Repository}} {{.ID}}"],
-                         capture_output=True, text=True, timeout=60)
+    docker = find_docker()
+    denv = dict(os.environ, PATH=os.path.dirname(docker) + ":" + os.environ.get("PATH", ""))
+    img = subprocess.run([docker, "image", "ls", "--format", "{{.Repository}} {{.ID}}"],
+                         capture_output=True, text=True, timeout=60, env=denv)
     if img.returncode != 0:
         raise RuntimeError("docker image ls rc=%s %s" % (img.returncode, img.stderr.strip()[:100]))
     ids = [l.split()[1] for l in img.stdout.splitlines() if "ostler-wiki-compiler" in l and len(l.split()) > 1]
     if not ids:
         raise RuntimeError("no ostler-wiki-compiler image on the box")
-    cmd = ["docker", "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "sh"]
+    cmd = [docker, "run", "--rm", "--pull=never", "--network", "none", "--entrypoint", "sh"]
     for _k, vol, mnt in WIKI_VOLUMES:
         cmd += ["-v", "%s:%s" % (vol, mnt)]
     cmd += [ids[0], "-c", WIKI_VOLUME_SH, "sh", action, needle]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=denv)
     if p.returncode != 0:
         raise RuntimeError("docker run rc=%s %s" % (p.returncode, p.stderr.strip()[:150]))
     return parse_volume_output(p.stdout)
@@ -848,6 +870,29 @@ def self_test():
               os.path.exists(os.path.join(sv, "search", "search_index.json"))], [True, True])
     finally:
         shutil.rmtree(d6, ignore_errors=True)
+    # docker is resolved from OSTLER_BOX_DOCKER_DIRS before the inherited PATH, and a
+    # missing docker is its own named error, never a bare ENOENT
+    d7 = tempfile.mkdtemp(prefix="no-l3-selftest-docker-")
+    try:
+        fake = os.path.join(d7, "docker")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(fake, 0o755)
+        want("docker found via the installer dirs with an empty PATH", find_docker(dirs=d7, path_env=""), fake)
+        try:
+            find_docker(dirs=os.path.join(d7, "nothing"), path_env="/usr/bin-nonexistent")
+            want("docker absent raises", "no error", "DockerNotFound")
+        except DockerNotFound as exc:
+            want("docker-absent error names the dirs and the PATH", ("nothing" in str(exc), "/usr/bin-nonexistent" in str(exc)), (True, True))
+        # a non-executable file is not docker
+        os.chmod(fake, 0o644)
+        try:
+            find_docker(dirs=d7, path_env="")
+            want("non-executable docker is not accepted", "found", "DockerNotFound")
+        except DockerNotFound:
+            pass
+    finally:
+        shutil.rmtree(d7, ignore_errors=True)
     want("volume output parsed", parse_volume_output("PAGE docs\nPAGE docs\nPAGE built\nSHARED docs\njunk"),
          {"wiki_docs": 2, "wiki_built": 1, "shared": 1})
     # the per-store tally puts each leftover path in its own store, so a file left
