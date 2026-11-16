@@ -87,11 +87,11 @@ def _person_hit(i, name, privacy_level=None):
 
 class TestPeopleSearchOutbound(unittest.TestCase):
     NAMES = {
-        "L0": "Synthetic Alpha",
-        "L3": "Synthetic Bravo",
-        "L2": "Synthetic Charlie",
-        "untagged": "Synthetic Delta",
-        "unparseable": "Synthetic Echo",
+        "L0": "Jane Doe",
+        "L3": "Bob Smith",
+        "L2": "Ana Jones",
+        "untagged": "Ben Ross",
+        "unparseable": "Carl Coe",
     }
 
     def _names_served(self):
@@ -131,7 +131,7 @@ class TestPeopleSearchFactsOutbound(unittest.TestCase):
             {"text": "Synthetic L2 fact", "privacy_level": "L2"},
             {"text": "Synthetic L3 fact", "privacy_level": "L3"},
         ]
-        hit = _person_hit(0, "Synthetic Foxtrot", "L2")
+        hit = _person_hit(0, "Tom Patel", "L2")
         hit["payload"]["facts"] = facts
         with patch.object(server.urllib.request, "urlopen",
                           _fake_urlopen({"result": [hit]})):
