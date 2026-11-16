@@ -195,8 +195,12 @@ def main():
         "l3": _teardown(f"ostler-walk-l3-{stamp}", owner),
         "l2": _teardown(f"ostler-walk-l2-{stamp}", owner),
     }
-    print(json.dumps({"markers": {"l3": m3, "l2": m2}, "seeds": seeds,
-                      "tools": tools, "teardown": teardown}))
+    # NOT YET: the L0 seed route and the timeline, brief (catchup) and reply-debt
+    # captures are unverified (see the PR body). They are reported as not_yet, so
+    # the judge returns CANNOT-RUN, never PASS, until each one is captured.
+    paths = {name: {"status": "not_yet"} for name in ("timeline", "brief_catchup", "reply_debt")}
+    print(json.dumps({"markers": {"l3": m3, "l2": m2, "l0": "ZETA" + stamp}, "seeds": seeds,
+                      "tools": tools, "teardown": teardown, "paths": paths}))
     return 0
 
 

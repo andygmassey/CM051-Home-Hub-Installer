@@ -14,11 +14,32 @@ import json, sys
 PASS, FAIL, CANNOT = 0, 1, 78
 
 
+# The window the ruling needs (ORM, from Archie). Each must be a CAPTURED path,
+# never a "not_yet" one: a not-yet path is CANNOT-RUN, not PASS.
+PATHS = ("timeline", "brief_catchup", "reply_debt")
+
+
 def judge(cap, out=sys.stdout):
     if "error" in cap:
         print(f"  CANNOT {cap['error']}", file=out)
         return CANNOT
     m3, m2 = cap["markers"]["l3"], cap["markers"]["l2"]
+    m0 = cap["markers"].get("l0")
+    paths = cap.get("paths", {})
+    for name in PATHS:
+        p = paths.get(name)
+        if p is None or p.get("status") != "captured":
+            print(f"  CANNOT path {name} not captured (status={(p or {}).get('status', 'absent')}); not a pass", file=out)
+            return CANNOT
+    if m0 is None:
+        print("  CANNOT no L0 marker in the capture; the L0 item was not seeded", file=out)
+        return CANNOT
+    for name in PATHS:
+        text = paths[name].get("text", "")
+        for lvl, mk in (("L0", m0), ("L3", m3)):
+            if mk in text:
+                print(f"  FAIL path {name} returned the {lvl} marker", file=out)
+                return FAIL
     seeds = cap.get("seeds", {})
     # Teardown first: the seeded rows must be present before the delete (the
     # positive control) and gone after it. Residue is CANNOT, never a pass.
@@ -70,7 +91,7 @@ def judge(cap, out=sys.stdout):
 
 
 def _case(seeds, tools, m2_in_tool, m3_in_tool):
-    m3, m2 = "ZEPHYR1", "QUARTZ1"
+    m3, m2 = "ZEPHYR1", "QUARTZ1"  # the L0 marker lives in the markers dict
     ok = {"status": 200, "text": "[]"}
     t = {k: dict(ok) for k in ("pwg_decisions", "pwg_topics", "pwg_commitments",
                                "pwg_preferences", "pwg_overview", "pwg_derived_preferences",
@@ -84,10 +105,29 @@ def _case(seeds, tools, m2_in_tool, m3_in_tool):
     good = {"cli_rc": 0, "bundle": "present"}
     ok_td = {"parsed": True, "before_qdrant": 2, "before_graph": 3,
              "after_qdrant": 0, "after_graph": 0}
-    return {"markers": {"l3": m3, "l2": m2},
+    clean_path = {"status": "captured", "text": "L2 only"}
+    return {"markers": {"l3": m3, "l2": m2, "l0": "ZETA1"},
             "seeds": seeds if seeds is not None else {"l3": good, "l2": good},
             "teardown": {"l3": dict(ok_td), "l2": dict(ok_td)},
+            "paths": {k: dict(clean_path) for k in PATHS},
             "tools": t}
+
+
+def _paths(text_by_path=None, status="captured"):
+    base = {"timeline": "", "brief_catchup": "", "reply_debt": ""}
+    if text_by_path:
+        base.update(text_by_path)
+    return {k: {"status": status, "text": v} for k, v in base.items()}
+
+
+def _cap_with_paths(paths, l0="ZETA0"):
+    """A full capture: an L2 control in topics, no tool leak, teardown clean."""
+    cap = _case(None, None, True, False)
+    cap["markers"]["l0"] = l0
+    cap["paths"] = paths
+    cap["teardown"] = {"l3": {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},
+                       "l2": {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0}}
+    return cap
 
 
 def _with_td(td):
@@ -112,6 +152,20 @@ def self_test():
             {"parsed": True, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 1, "after_graph": 0}), CANNOT),
         ("teardown: no counts parsed", _with_td({"parsed": False}), CANNOT),
         ("box refused: owner id unset", {"error": "OSTLER_NO_L3_OWNER_ID is unset"}, CANNOT),
+        ("L0/L3 window: paths not yet captured -> CANNOT, never PASS",
+         _cap_with_paths(_paths(status="not_yet")), CANNOT),
+        ("L0/L3 window: one path not captured -> CANNOT",
+         _cap_with_paths({**_paths(), "reply_debt": {"status": "not_yet"}}), CANNOT),
+        ("L0/L3 window: clean on all three paths -> PASS",
+         _cap_with_paths(_paths({"timeline": "L2 only", "brief_catchup": "L2 only", "reply_debt": "L2 only"})), PASS),
+        ("L0 marker in the timeline path -> FAIL",
+         _cap_with_paths(_paths({"timeline": "ZETA0 leaked"})), FAIL),
+        ("L0 marker in the brief (catchup) path -> FAIL",
+         _cap_with_paths(_paths({"brief_catchup": "ZETA0 leaked"})), FAIL),
+        ("L0 marker in the reply-debt path -> FAIL",
+         _cap_with_paths(_paths({"reply_debt": "ZETA0 leaked"})), FAIL),
+        ("no L0 marker in the capture -> CANNOT (the L0 item was not seeded)",
+         {**_cap_with_paths(_paths(), l0=None), "markers": {"l3": "ZEPHYR1", "l2": "QUARTZ1"}}, CANNOT),
         ("every tool errored", _case(None, {k: {"error": "refused"} for k in (
             "pwg_decisions", "pwg_topics", "pwg_commitments", "pwg_preferences",
             "pwg_overview", "pwg_derived_preferences", "pwg_knowledge_search")}, False, False), CANNOT),

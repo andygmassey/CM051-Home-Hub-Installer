@@ -103,8 +103,11 @@ self_test() {
     local cap rc
     cap="$(mktemp)"
     cat > "${cap}" <<'JSON'
-{"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST"},
+{"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST", "l0": "ZETA-SELFTEST"},
  "seeds": {"l3": {"cli_rc": 0, "bundle": "present"}, "l2": {"cli_rc": 0, "bundle": "present"}},
+ "paths": {"timeline": {"status": "captured", "text": "L2 only"},
+           "brief_catchup": {"status": "captured", "text": "L2 only"},
+           "reply_debt": {"status": "captured", "text": "L2 only"}},
  "teardown": {"l3": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0},
               "l2": {"parsed": true, "before_qdrant": 2, "before_graph": 3, "after_qdrant": 0, "after_graph": 0}},
  "tools": {"pwg_commitments": {"status": 200, "text": "{\"commitments\":[{\"action\":\"ZEPHYR-SELFTEST\"}]}"},
