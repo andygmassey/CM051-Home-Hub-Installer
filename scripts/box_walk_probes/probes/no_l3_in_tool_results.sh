@@ -100,7 +100,7 @@ self_test() {
     local fake_rc=$?
     probe_examined 1 "failing fake box run"
     [ "${fake_rc}" -eq 78 ] || {
-        probe_pass "SELF-TEST BROKEN: a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        probe_fail "SELF-TEST BROKEN: a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     # A box that DISCONNECTS mid-run (stage ok, launch ok, first poll ALIVE, then
     # every ssh fails) must come out CANNOT-RUN with the residue line, and the
@@ -122,23 +122,23 @@ self_test() {
     probe_examined 1 "mid-run disconnect"
     [ "${fake_rc}" -eq 78 ] || {
         rm -f "${log}"
-        probe_pass "SELF-TEST BROKEN: a mid-run disconnect came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        probe_fail "SELF-TEST BROKEN: a mid-run disconnect came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     printf '%s' "${out2}" | grep -q 'TEARDOWN NOT OBSERVED, residue unknown' || {
         rm -f "${log}"
-        probe_pass "SELF-TEST BROKEN: a mid-run disconnect did not print the residue-unknown line"
+        probe_fail "SELF-TEST BROKEN: a mid-run disconnect did not print the residue-unknown line"
     }
     printf '%s' "${out2}" | grep -q '4242' || {
         rm -f "${log}"
-        probe_pass "SELF-TEST BROKEN: the residue line did not carry the pid"
+        probe_fail "SELF-TEST BROKEN: the residue line did not carry the pid"
     }
     if grep -q 'rm -rf' "${log}"; then
         rm -f "${log}"
-        probe_pass "SELF-TEST BROKEN: the staging dir was removed while the pid could still be alive"
+        probe_fail "SELF-TEST BROKEN: the staging dir was removed while the pid could still be alive"
     fi
     grep -q 'caffeinate -dimsu' "${log}" || {
         rm -f "${log}"
-        probe_pass "SELF-TEST BROKEN: the box run was not launched under caffeinate"
+        probe_fail "SELF-TEST BROKEN: the box run was not launched under caffeinate"
     }
     rm -f "${log}"
     # An empty capture (box run ok, no output) must also be CANNOT-RUN.
@@ -147,19 +147,19 @@ self_test() {
       OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
     fake_rc=$?
     [ "${fake_rc}" -eq 78 ] || {
-        probe_pass "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        probe_fail "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     python3 "${_PATHS_REPORT}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "path-report cases"
-        probe_pass "SELF-TEST BROKEN: the per-path report put a known case on the wrong line"
+        probe_fail "SELF-TEST BROKEN: the per-path report put a known case on the wrong line"
     }
     python3 "${_BOXSCRIPT}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "box-script cases"
-        probe_pass "SELF-TEST BROKEN: the box script's path classifier or snapshot shape is wrong"
+        probe_fail "SELF-TEST BROKEN: the box script's path classifier or snapshot shape is wrong"
     }
     python3 "${_JUDGE}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "judge cases"
-        probe_pass "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
+        probe_fail "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
     }
     # A leak-free capture whose fixture teardown was NOT proven (no graph rows
     # counted, directory not restored) must be CANNOT-RUN, never PASS.
@@ -181,11 +181,18 @@ JSON
     rm -f "${capc}"
     probe_examined 1 "clean read, unproven teardown"
     [ "${fake_rc}" -eq 78 ] || {
-        probe_pass "SELF-TEST BROKEN: a leak-free read with residue came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        probe_fail "SELF-TEST BROKEN: a leak-free read with residue came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
-    # Known-bad capture through the SAME decide() run_probe uses: the L3 marker
-    # is in the commitments response. Must come back FAIL.
-    local cap rc
+    probe_pass "self-test: every fixture check held. The negative control is a SEPARATE invocation: --negative-control (rc 1 required)."
+}
+
+# THE NEGATIVE CONTROL, its own invocation. A known-bad capture (an L3 marker in a
+# tool response) run through the SAME decide() run_probe uses. decide must FAIL it:
+# probe_fail prints the FAIL verdict and exits 1. This function never returns:
+# rc 1 with the FAIL line means the control held; rc 0 means decide() passed a
+# known-bad capture, i.e. the control is broken and the wiring step must fail.
+negative_control() {
+    local cap
     cap="$(mktemp)"
     cat > "${cap}" <<'JSON'
 {"markers": {"l3": "ZEPHYR-SELFTEST", "l2": "QUARTZ-SELFTEST", "l0": "ZETA-SELFTEST"},
@@ -198,11 +205,11 @@ JSON
  "tools": {"pwg_commitments": {"status": 200, "text": "{\"commitments\":[{\"action\":\"ZEPHYR-SELFTEST\"}]}"},
            "pwg_topics": {"status": 200, "text": "{\"topics\":[{\"label\":\"QUARTZ-SELFTEST\"}]}"}}}
 JSON
-    ( decide "${cap}" ) >/dev/null; rc=$?
-    rm -f "${cap}"
     probe_examined 1 "known-bad capture"
-    [ "${rc}" -eq 1 ] && probe_fail "negative control behaved: an L3 marker in a tool response was FAIL, and the judge's own cases landed on their verdicts"
-    probe_pass "SELF-TEST BROKEN: the known-bad capture came back rc=${rc}, not FAIL"
+    decide "${cap}"
+    rm -f "${cap}"
+    printf 'VERDICT: BROKEN -- negative control returned without a verdict\n'
+    exit 2
 }
 
 run_probe() {
@@ -304,4 +311,7 @@ _no_l3_capture_ok() {
     [ -s "$1" ] && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1"
 }
 
+if [ "${1:-}" = "--negative-control" ]; then
+    negative_control
+fi
 probe_main "$@"
