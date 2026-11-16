@@ -1,15 +1,6 @@
 {
-  "count": 4,
+  "count": 3,
   "events": [
-    {
-      "channel": "email",
-      "marker": true,
-      "summary": "",
-      "title": "Last email contact",
-      "type": "email",
-      "when_human": "25 Jun 2026",
-      "when_iso": "2026-06-25"
-    },
     {
       "channel": "conversation",
       "conversation_id": "conv-1",
