@@ -52,7 +52,10 @@ on:
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'tests/test_public_lookups_withdraw.py'
-      - 'lib/ostler_consent_enrichment.py'
+      - 'vendor/doctor/agent/consent_enrichment.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_doctor_public_lookups_toggle.py'
       - 'vendor/cm019_preferences/services/enrich/src/consent.py'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
@@ -74,7 +77,10 @@ on:
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
       - 'tests/test_public_lookups_withdraw.py'
-      - 'lib/ostler_consent_enrichment.py'
+      - 'vendor/doctor/agent/consent_enrichment.py'
+      - 'vendor/doctor/agent/web_ui.py'
+      - 'vendor/doctor/agent/web_ui_copy.py'
+      - 'tests/test_doctor_public_lookups_toggle.py'
       - 'vendor/cm019_preferences/services/enrich/src/consent.py'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
@@ -159,7 +165,7 @@ jobs:
         run: bash tests/test_wiki_compile_honours_public_lookup_consent.sh
 
       # GDPR Art.7(3): withdrawing the public-lookups consent must stop the next
-      # request. Drives the real writer (lib/ostler_consent_enrichment.py), the
+      # request. Drives the real writer (vendor/doctor/agent/consent_enrichment.py), the
       # shipped tick flag and the CM019 gate, and counts requests at a local
       # recording proxy. Exits 2 (CANNOT-RUN) rather than passing if any input
       # is missing. Sandboxed HOME inside the test; no real Keychain.
@@ -170,6 +176,16 @@ jobs:
         run: |
           mkdir -p "$HOME"
           python3 tests/test_public_lookups_withdraw.py
+
+      # The Doctor's own POST route, through the real cross-site and owner guards.
+      # Needs fastapi + httpx; exits 2 (CANNOT-RUN) and fails the step if absent.
+      - name: Doctor owner toggle withdraws public look-ups, next run sends nothing (134)
+        if: success() || failure()
+        env:
+          HOME: ${{ runner.temp }}/withdraw-home
+        run: |
+          python3 -m pip install --quiet fastapi httpx
+          python3 -W ignore tests/test_doctor_public_lookups_toggle.py
 
       - name: Install pytest for the wiki-recompile-tick behaviour suite
         if: success() || failure()

@@ -659,6 +659,26 @@ CONFIG_READONLY_INTRO = (
 )
 CONFIG_BTN_SAVE = "Save changes"
 CONFIG_BTN_SAVING = "Saving..."
+
+# Public look-ups consent (134). Withdrawing must be as easy as giving (GDPR
+# Art.7(3)). Plain text, no em dashes, Apple Restraint: say what leaves the
+# Mac and what turning it off does, and nothing more.
+PUBLIC_LOOKUPS_SECTION = "Public look-ups"
+PUBLIC_LOOKUPS_BODY = (
+    "When this is on, Ostler sends the names of places, artists, "
+    "organisations and some topics to Wikipedia, Wikidata and "
+    "OpenStreetMap, to add facts to your notes. It never sends the name "
+    "of a contact."
+)
+PUBLIC_LOOKUPS_STATE_ON = "On."
+PUBLIC_LOOKUPS_STATE_OFF = "Off. Ostler sends nothing to these services."
+PUBLIC_LOOKUPS_BTN_ON = "Turn on"
+PUBLIC_LOOKUPS_BTN_OFF = "Turn off"
+PUBLIC_LOOKUPS_NOTE = (
+    "Turning this off takes effect at the next wiki update. Anything "
+    "already sent stays with the service that received it."
+)
+PUBLIC_LOOKUPS_FAILED = "Could not save that. Nothing was changed."
 CONFIG_OPT_UNSET = "Not set"
 CONFIG_SECRET_SET = "Set"
 CONFIG_SECRET_UNSET = "Not set"

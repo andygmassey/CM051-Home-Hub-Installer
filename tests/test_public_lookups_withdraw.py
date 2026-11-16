@@ -2,7 +2,7 @@
 """Withdrawing the public-lookups consent stops the next enrichment request.
 
 GDPR Art.7(3): withdrawal must be as easy as giving. This drives the writer
-that the owner's settings toggle calls (lib/ostler_consent_enrichment.py) and
+that the owner's settings toggle calls (vendor/doctor/agent/consent_enrichment.py) and
 then the two gates a public look-up must pass, both read fresh from the file:
 
   gate 1  the tick's ostler_public_lookups_flag (extracted from the shipped
@@ -43,7 +43,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TICK_SH = Path(os.environ.get("WITHDRAW_TEST_TICK_SH") or (ROOT / "wiki-recompile" / "bin" / "wiki-recompile-tick.sh"))
-WRITER = ROOT / "lib" / "ostler_consent_enrichment.py"
+WRITER = ROOT / "vendor" / "doctor" / "agent" / "consent_enrichment.py"
 GATE_DIR = ROOT / "vendor" / "cm019_preferences" / "services" / "enrich" / "src"
 
 passes = fails = cannots = 0

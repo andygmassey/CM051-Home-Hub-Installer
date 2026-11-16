@@ -33,6 +33,17 @@ from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+import consent_enrichment  # 134: owner withdrawal of public look-ups (GDPR Art.7(3))
+from web_ui_copy import (  # 134
+    PUBLIC_LOOKUPS_BODY,
+    PUBLIC_LOOKUPS_BTN_OFF,
+    PUBLIC_LOOKUPS_BTN_ON,
+    PUBLIC_LOOKUPS_FAILED,
+    PUBLIC_LOOKUPS_NOTE,
+    PUBLIC_LOOKUPS_SECTION,
+    PUBLIC_LOOKUPS_STATE_OFF,
+    PUBLIC_LOOKUPS_STATE_ON,
+)
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -7384,6 +7395,74 @@ async def api_pair_regenerate(request: Request):
 # whitelist, validation, and the atomic write.
 
 
+def _public_lookups_panel_html() -> str:
+    """The owner's public look-ups control on the Configuration page (134).
+
+    State is read from the same file the wiki tick reads, so the page shows
+    what the next compile will do. Button posts to the route below.
+    """
+    on = consent_enrichment.read_decision_from_base(consent_enrichment.ostler_dir()) == "accepted"
+    state = PUBLIC_LOOKUPS_STATE_ON if on else PUBLIC_LOOKUPS_STATE_OFF
+    target = "declined" if on else "accepted"
+    label = PUBLIC_LOOKUPS_BTN_OFF if on else PUBLIC_LOOKUPS_BTN_ON
+    return f"""
+        <div id="publicLookupsPanel" class="panel">
+            <div class="section-title">{PUBLIC_LOOKUPS_SECTION}</div>
+            <p>{PUBLIC_LOOKUPS_BODY}</p>
+            <p><strong id="publicLookupsState">{state}</strong></p>
+            <div class="button-row">
+                <button type="button" class="primary" id="publicLookupsBtn" data-target="{target}">{label}</button>
+            </div>
+            <p class="config-path" id="publicLookupsNote">{PUBLIC_LOOKUPS_NOTE}</p>
+        </div>
+        <script>
+        (function() {{
+            const btn = document.getElementById('publicLookupsBtn');
+            btn.addEventListener('click', function() {{
+                btn.disabled = true;
+                fetch('/api/v1/consent/public-lookups', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{decision: btn.dataset.target}})
+                }}).then(function(r) {{
+                    if (!r.ok) throw new Error('refused');
+                    window.location.reload();
+                }}).catch(function() {{
+                    btn.disabled = false;
+                    document.getElementById('publicLookupsNote').textContent = {PUBLIC_LOOKUPS_FAILED!r};
+                }});
+            }});
+        }})();
+        </script>
+"""
+
+
+@app.post("/api/v1/consent/public-lookups", response_class=JSONResponse)
+async def api_public_lookups_post(request: Request):
+    """Give or withdraw the public look-ups consent (134, GDPR Art.7(3)).
+
+    Same cross-site guard as the config write. The only writer is
+    consent_enrichment.set_decision: it rewrites config/.env (the file every
+    wiki compile and enrich gate re-reads, fail closed on anything but
+    "accepted") and logs a timestamped event. Body: {"decision": "accepted"|"declined"}.
+    """
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    decision = body.get("decision") if isinstance(body, dict) else None
+    if decision not in ("accepted", "declined"):
+        return JSONResponse({"error": "decision must be accepted or declined"}, status_code=400)
+    try:
+        event = consent_enrichment.set_decision(consent_enrichment.ostler_dir(), decision)
+    except OSError as exc:
+        return JSONResponse({"error": f"could not write: {exc.strerror or type(exc).__name__}"}, status_code=500)
+    return JSONResponse({"public_lookups": "on" if decision == "accepted" else "off", "event": event}, status_code=200)
+
+
 def _render_config_page() -> str:
     """Render the Doctor Configuration panel.
 
@@ -7683,6 +7762,7 @@ def _render_config_page() -> str:
             <div id="readonlyRows"></div>
         </div>
 
+        {_public_lookups_panel_html()}
         <div class="button-row">
             <button type="button" class="primary" id="saveBtn">{CONFIG_BTN_SAVE}</button>
             <span class="config-path" id="configPath"></span>

@@ -19,7 +19,7 @@ Only "accepted" and "declined" are valid. "declined" is the withdrawal: every
 reader treats it as off.
 
 CLI:
-    python3 lib/ostler_consent_enrichment.py set accepted|declined [--ostler-dir DIR]
+    python3 vendor/doctor/agent/consent_enrichment.py set accepted|declined [--ostler-dir DIR]
 
 Exit: 0 written, 2 usage or invalid decision, 1 could not write.
 """
@@ -56,6 +56,16 @@ def read_decision(env_text: str) -> Optional[str]:
     if len(value) >= 2 and value[0] == value[-1] == '"':
         value = value[1:-1]
     return value
+
+
+def read_decision_from_base(base: Path) -> Optional[str]:
+    """The decision as the wiki tick reads it: config/.env under base."""
+    env_path = base / "config" / ".env"
+    try:
+        text = env_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    return read_decision(text)
 
 
 def rewrite_env(env_text: str, decision: str) -> str:
@@ -147,7 +157,7 @@ def main(argv: list[str]) -> int:
             return 2
         del args[i:i + 2]
     if len(args) != 2 or args[0] != "set":
-        print("usage: ostler_consent_enrichment.py set accepted|declined [--ostler-dir DIR]", file=sys.stderr)
+        print("usage: consent_enrichment.py set accepted|declined [--ostler-dir DIR]", file=sys.stderr)
         return 2
     if args[1] not in VALID:
         print(f"invalid decision {args[1]!r}; expected accepted or declined", file=sys.stderr)

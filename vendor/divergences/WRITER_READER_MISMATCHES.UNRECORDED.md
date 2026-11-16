@@ -1905,3 +1905,24 @@ Its request URL is also in installer Q11 (`install.sh`), which the drift test ch
   documented Settings > Data Controls > Export data).
 - No upstream patch: the row lives only in CM051 until the same change lands in the
   Doctor source table. Re-vendor must keep this row or the drift test goes red.
+
+## Doctor: owner toggle for public look-ups (134, GDPR Art.7(3))
+
+Added 2026-11-17 on branch feat/public-lookups-withdraw-134 (not yet pushed).
+Edits to the vendored doctor tree that the regenerated patch cannot carry, and
+that the upstream HR015 doctor source does not have yet.
+
+- files: vendor/doctor/agent/web_ui.py (imports, `_public_lookups_panel_html`,
+  `POST /api/v1/consent/public-lookups`, the panel inserted above the Save row),
+  vendor/doctor/agent/web_ui_copy.py (PUBLIC_LOOKUPS_* constants),
+  vendor/doctor/agent/consent_enrichment.py (new: the single writer).
+- what it does: the POST passes the cross-site guard and the owner gate, then
+  calls consent_enrichment.set_decision, which rewrites config/.env (the file
+  every wiki compile and enrich gate re-reads) and appends a timestamped event
+  to posture/consent-events.jsonl.
+- why not upstream here: the upstream copy (HR015 doctor/agent/web_ui.py on
+  origin/main) has no `_cross_site_refusal`, so the vendored tree is ahead of
+  it by more than this change. Upstreaming needs a sync first.
+- proof: tests/test_doctor_public_lookups_toggle.py (FastAPI TestClient through
+  the real guards; 0 requests after withdrawal, control and mutant included) and
+  tests/test_public_lookups_withdraw.py.
