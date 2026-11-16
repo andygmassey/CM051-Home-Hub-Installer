@@ -42,7 +42,7 @@ bounded; the gap is hardware-blindness and the coincident spawn spike.
 | Daemon cron catch-up | ostler-assistant `cron/scheduler.rs:89,149` | daemon startup, `catch_up_on_startup=true` | Fires ALL overdue agent jobs at once, bounded by `scheduler.max_concurrent` (default 4) |
 | Daemon heartbeat | ostler-assistant `daemon/mod.rs:408` | `heartbeat.interval_minutes` if enabled | 2-phase agent LLM run |
 | Docker VM | CM051 (lima/colima) | install | qdrant + oxigraph + redis, steady CPU |
-| macOS first-login | OS | first login after a cold install | Spotlight / mdworker indexing the freshly-hydrated `~/Documents/Ostler` tree |
+| macOS first-login | OS | first login after a cold install | Spotlight / mdworker indexing the freshly-hydrated `~/Ostler` tree |
 
 ### 2.2 Concurrency that ALREADY exists (do not reimplement)
 

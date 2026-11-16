@@ -13,7 +13,7 @@ EXACTLY today's storage layout. Nothing about single-user behaviour changes:
     SPARQL read endpoint          ``{base}/query``           ``{base}/query?default-graph-uri=...``
     SPARQL INSERT DATA payload    unchanged                  wrapped in ``GRAPH <iri> { ... }``
     Qdrant collection             base name unchanged        ``user__priya__<base>``
-    Visible zone                  ``~/Documents/Ostler``     ``~/Documents/Ostler/Users/priya``
+    Visible zone                  ``~/Ostler``     ``~/Ostler/Users/<name>``
     Engine zone                   ``~/.ostler``              ``~/.ostler/users/priya``
     ============================  =========================  ==========================
 
@@ -273,7 +273,7 @@ class UserCompartment:
     # -- Filesystem zones ------------------------------------------------------
 
     def visible_zone(self, home: Optional[Path] = None) -> Path:
-        """User-facing zone. Primary: ``~/Documents/Ostler`` (unchanged).
+        """User-facing zone. Primary: ``~/Ostler`` (unchanged).
 
         Secondary derivation is a provisional seam: if single-Mac
         multi-user ships for real, compartments are expected to bind to
@@ -281,7 +281,7 @@ class UserCompartment:
         this function is the one place that policy lands.
         """
         home = home or Path.home()
-        base = home / "Documents" / "Ostler"
+        base = home / "Ostler"
         if self.is_primary:
             return base
         return base / "Users" / self.user_id

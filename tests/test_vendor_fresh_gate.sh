@@ -395,6 +395,117 @@ fi
 rm -rf "$TMP11"
 
 # ---------------------------------------------------------------------------
+# Scenarios 12-16 (rows 2206/2212, v1.0.124): source_mask and VENDOR_FRESH_SCOPE.
+#
+# source_mask lets a divergence patch rebuild a tree whose vendored copy removed
+# an id-shaped literal, without the patch re-publishing that literal on its
+# minus side. The literal is composed at runtime here so this file never carries
+# the shape it is testing.
+LIT="$(printf '%015d' 7)"
+
+mask_fixture() { # root -> source carries the literal, vendor carries a composed form
+    local root="$1" src="$1/synthetic-source" sha
+    make_fixture "$root" >/dev/null
+    (
+        cd "$src"
+        printf 'CONTROL = "%s"\n\ndef hello():\n    return "v1"\n' "$LIT" > pkg/mod.py
+        git add pkg/mod.py; git commit --quiet -m "source with an id-shaped literal"
+    )
+    sha="$(git -C "$src" rev-parse HEAD)"
+    printf 'CONTROL = "0" * 14 + "7"\n\ndef hello():\n    return "v1"\n' > "$root/vendor/synthtree/pkg/mod.py"
+    remanifest "$root" "$src" 'source_mask = "pkg/mod.py::[0-9]{15,}"'
+    sed -i.bak "s#^divergence_patch = \"\"#divergence_patch = \"vendor/divergences/synthtree.patch\"#" "$root/vendor/VENDOR_MANIFEST.toml"
+    rm -f "$root/vendor/VENDOR_MANIFEST.toml.bak"
+    # The patch the regenerator would write: the gate's own diff, from the
+    # MASKED source to the vendored tree.
+    ( cd "$root" && bash -c '. scripts/_vendor_lib.sh; d="$(mktemp -d)"; vlib_materialise synthtree "$d" && { vlib_vendor_diff synthtree "$d" "$VLIB_REPO_ROOT/vendor/synthtree" vendor/divergences/synthtree.patch; true; }; rm -rf "$d"' )
+}
+
+note "=== Scenario 12: source_mask -> pin + patch rebuilds the tree, and the patch carries no literal ==="
+TMP12="$(mktemp -d)"
+mask_fixture "$TMP12"
+out12="$(run_gate "$TMP12")"; rc12=$?
+if [ "$rc12" -eq 0 ] && grep -qE "OK    synthtree" <<< "$out12" \
+   && ! grep -q "$LIT" "$TMP12/vendor/divergences/synthtree.patch" \
+   && grep -q 'MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK' "$TMP12/vendor/divergences/synthtree.patch"; then
+    ok "masked source + patch -> GREEN, literal absent from the patch (exit $rc12)"
+else
+    bad "source_mask did not reconstruct cleanly (exit $rc12)"; printf '%s\n' "$out12" | tail -5
+fi
+
+note "=== Scenario 13: the SAME patch with the mask REMOVED -> RED (the mask is load-bearing) ==="
+sed -i.bak '/^source_mask/d' "$TMP12/vendor/VENDOR_MANIFEST.toml"; rm -f "$TMP12/vendor/VENDOR_MANIFEST.toml.bak"
+out13="$(run_gate "$TMP12")"; rc13=$?
+if [ "$rc13" -ne 0 ] && grep -qE "FAIL  synthtree" <<< "$out13"; then
+    ok "mask removed -> RED, the patch no longer applies (exit $rc13)"
+else
+    bad "removing the mask did not go RED (exit $rc13)"
+fi
+rm -rf "$TMP12"
+
+note "=== Scenario 14: a STALE mask (matches nothing at the pin) -> RED, never silently ignored ==="
+TMP14="$(mktemp -d)"
+mask_fixture "$TMP14"
+sed -i.bak 's#\[0-9\]{15,}#[0-9]{40,}#' "$TMP14/vendor/VENDOR_MANIFEST.toml"; rm -f "$TMP14/vendor/VENDOR_MANIFEST.toml.bak"
+out14="$(run_gate "$TMP14")"; rc14=$?
+if [ "$rc14" -ne 0 ] && grep -q "matches NOTHING" <<< "$out14" && grep -qE "FAIL  synthtree" <<< "$out14"; then
+    ok "stale source_mask -> RED, named (exit $rc14)"
+else
+    bad "a stale source_mask was not refused (exit $rc14)"; printf '%s\n' "$out14" | tail -4
+fi
+rm -rf "$TMP14"
+
+note "=== Scenario 15: VENDOR_FRESH_SCOPE examines only its trees and SAYS what it skipped ==="
+TMP15="$(mktemp -d)"
+make_fixture "$TMP15" >/dev/null
+sha15="$(git -C "$TMP15/synthetic-source" rev-parse HEAD)"
+mkdir -p "$TMP15/vendor/othertree/pkg"
+cp "$TMP15/vendor/synthtree/pkg/mod.py" "$TMP15/vendor/othertree/pkg/mod.py"
+printf '\n# rot outside the scope\n' >> "$TMP15/vendor/othertree/pkg/mod.py"
+cat >> "$TMP15/vendor/VENDOR_MANIFEST.toml" <<EOF2
+
+[[tree]]
+name             = "othertree"
+vendor_path      = "vendor/othertree"
+source_repo      = "$TMP15/synthetic-source"
+source_path      = "."
+pinned_sha       = "$sha15"
+divergence_patch = ""
+exclude          = ["__pycache__/"]
+verify           = "full"
+EOF2
+out15a="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=synth bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15a=$?
+out15b="$( cd "$TMP15" && bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15b=$?
+if [ "$rc15a" -eq 0 ] && grep -q "GREEN FOR SCOPE 'synth' ONLY" <<< "$out15a" \
+   && grep -q "1 of 2 tree(s); the other 1 NOT EXAMINED" <<< "$out15a" \
+   && ! grep -q "othertree" <<< "$out15a"; then
+    ok "scoped run -> GREEN for its scope only, and names the 1 tree it did not examine"
+else
+    bad "scoped run did not report its scope (exit $rc15a)"; printf '%s\n' "$out15a" | tail -4
+fi
+if [ "$rc15b" -ne 0 ] && grep -qE "FAIL  othertree" <<< "$out15b"; then
+    ok "control: the unscoped run on the same fixture is RED on the rotted tree (exit $rc15b)"
+else
+    bad "control failed: the unscoped run did not see the rot (exit $rc15b)"
+fi
+printf '\n# rot inside the scope\n' >> "$TMP15/vendor/synthtree/pkg/mod.py"
+out15c="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=synth bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15c=$?
+if [ "$rc15c" -ne 0 ] && grep -qE "FAIL  synthtree" <<< "$out15c" && grep -q "SCOPED to 'synth'" <<< "$out15c"; then
+    ok "rot inside the scope -> RED (exit $rc15c)"
+else
+    bad "a scoped run missed rot inside its own scope (exit $rc15c)"
+fi
+
+note "=== Scenario 16: a scope that names nothing -> CANNOT-RUN (exit 2), never GREEN ==="
+out16="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=nosuchprefix/ bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc16=$?
+if [ "$rc16" -eq 2 ] && grep -q "CANNOT-RUN" <<< "$out16"; then
+    ok "empty scope -> CANNOT-RUN (exit 2)"
+else
+    bad "an empty scope did not refuse (exit $rc16)"
+fi
+rm -rf "$TMP15"
+
+# ---------------------------------------------------------------------------
 note ""
 note "self-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

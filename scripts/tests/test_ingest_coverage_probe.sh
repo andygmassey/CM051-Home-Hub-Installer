@@ -204,6 +204,101 @@ elif [ "$(printf '%s' "$OUT" | grep -cF 'only 3 of 4 stores answered')" -eq 0 ];
 else note "arm9 CONTROL: the 404-blind mutant reproduces the v1.0.101 reading, CANNOT-RUN 'only 3 of 4 stores answered' ✅"; fi
 
 # ============================================================================
+# SOURCE-ABSENT (walk34 classify, v1.0.115). A box where Safari was never opened
+# has no ~/Library/Safari: the reader writes safari_history status not_found in
+# the box's extraction_summary.json and no collection is ever created. The
+# probe used to FAIL that box. Real HTTP, real summary file (HOME=$WORK, so
+# box_run reads $WORK/.ostler/imports/fda/extraction_summary.json), real
+# marker file. Only not_found, with no planted fixture, may leave FAIL.
+# ============================================================================
+printf '\nsource-absent arms: 404 + the box'"'"'s own extract summary\n'
+
+SUMMARY="${WORK}/.ostler/imports/fda/extraction_summary.json"
+SEEDMARK="${WORK}/.walk-safari-seed-run"
+set_summary() { # $1 = safari_history status, or NONE (no file), or GARBAGE, or NOENTRY
+    mkdir -p "$(dirname "$SUMMARY")"; rm -f "$SUMMARY"
+    case "$1" in
+        NONE)    : ;;
+        GARBAGE) printf 'not json{' > "$SUMMARY" ;;
+        NOENTRY) printf '{"sources":{"imessage":{"status":"ok"}}}' > "$SUMMARY" ;;
+        *)       printf '{"sources":{"safari_history":{"status":"%s"}}}' "$1" > "$SUMMARY" ;;
+    esac
+}
+set_seed() { rm -f "$SEEDMARK"; [ -n "$1" ] && printf '%s\n' "$1" > "$SEEDMARK"; return 0; }
+run_absent() { # $1 summary state  $2 seed marker text (may be empty)  $3 probe
+    set_summary "$1"; set_seed "$2"
+    start_partial "$OK_PORT" safari_history
+    rm -f "${WORK}/baseline.tsv"
+    OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_auth" auth "${3:-$PROBE}")"; stop_fake
+    V="$(verdict_of "$OUT")"
+}
+
+# ARM 10: not_found, no seed -> CANNOT-RUN naming SOURCE-ABSENT (was FAIL).
+run_absent not_found "" "$PROBE"
+if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm10-source-absent "404 + not_found got '${V}', expected CANNOT-RUN"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'SOURCE-ABSENT: safari_history')" -eq 0 ]; then fail arm10-reason "CANNOT-RUN but the reason does not name SOURCE-ABSENT safari_history"
+else note "arm10 404 + extract not_found -> CANNOT-RUN, reason SOURCE-ABSENT ✅"; fi
+
+# ARM 11: the v1.0.101 rule intact. Source PRESENT (status ok) + 404 -> FAIL.
+run_absent ok "" "$PROBE"
+if [ "$V" != "VERDICT: FAIL" ]; then fail arm11-present-404 "404 + status ok got '${V}', expected FAIL (v1.0.101 rule)"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'safari_history(no such collection)')" -eq 0 ]; then fail arm11-reason "FAIL but not naming the absent collection"
+else note "arm11 404 + status ok (source present) -> FAIL, v1.0.101 rule intact ✅"; fi
+
+# ARM 12: every way the status can be missing or unknown -> FAIL, never absent.
+_bad12=""
+for st in NONE GARBAGE NOENTRY error disabled_by_user brand_new_status; do
+    run_absent "$st" "" "$PROBE"
+    [ "$V" = "VERDICT: FAIL" ] || _bad12="${_bad12} ${st}=${V}"
+done
+if [ -n "$_bad12" ]; then fail arm12-unknown "status missing/unreadable/unknown did not FAIL:${_bad12}"
+else note "arm12 summary missing, unreadable, no safari entry, error, disabled, unknown -> FAIL ✅"; fi
+
+# ARM 13: not_found but the walk PLANTED a History.db -> FAIL (reader missed a present file).
+run_absent not_found "planted(visits=18)" "$PROBE"
+if [ "$V" != "VERDICT: FAIL" ]; then fail arm13-planted "not_found with a planted fixture got '${V}', expected FAIL"
+else note "arm13 not_found + planted fixture -> FAIL (a reader fault, not absence) ✅"; fi
+
+# ARM 14: no_fda -> CANNOT-RUN naming FDA, planted or not.
+_bad14=0
+for sd in "" "planted(visits=18)" "cannot-plant:mkdir-refused (Operation not permitted)"; do
+    run_absent no_fda "$sd" "$PROBE"
+    if [ "$V" != "VERDICT: CANNOT-RUN" ]; then fail arm14-fda "404 + no_fda (seed '${sd}') got '${V}', expected CANNOT-RUN"; _bad14=1; break
+    elif [ "$(printf '%s' "$OUT" | grep -cF 'FDA-BLOCKED: safari_history')" -eq 0 ]; then fail arm14-reason "CANNOT-RUN but not naming FDA-BLOCKED"; _bad14=1; break
+    fi
+done
+[ "$_bad14" -eq 0 ] && note "arm14 404 + no_fda -> CANNOT-RUN (FDA) with no seed, a planted seed, and a refused plant ✅"
+
+# ARM 15: a SOURCE-ABSENT safari does not hide a REAL empty store: with
+# conversations ALSO 404 (and the summary saying safari not_found) the verdict
+# is FAIL naming conversations, not CANNOT-RUN.
+set_summary not_found; set_seed ""
+start_partial "$OK_PORT" safari_history,conversations
+rm -f "${WORK}/baseline.tsv"
+OUT="$(run_probe_capture "http://127.0.0.1:${OK_PORT}" "${WORK}/conf_auth" auth)"; stop_fake
+V="$(verdict_of "$OUT")"
+if [ "$V" != "VERDICT: FAIL" ]; then fail arm15-other-empty "safari absent + conversations 404 got '${V}', expected FAIL"
+elif [ "$(printf '%s' "$OUT" | grep -cF 'conversations(no such collection)')" -eq 0 ]; then fail arm15-reason "FAIL but conversations is not named"
+else note "arm15 safari source-absent does not mask another store that is genuinely missing -> FAIL ✅"; fi
+
+# ARM 16, THE CONTROL ON ARMS 10 AND 14: mutants that remove the new reading
+# must put the SAME inputs back to FAIL (the pre-change behaviour).
+sed 's/\[ "\$extract_status" = "not_found" \] \&\& \[ "\$seed_state" != "planted" \]/false/' "$PROBE" > "$MUT"
+if cmp -s "$PROBE" "$MUT"; then echo "CANNOT-RUN: arm16 mutant sed did not change the probe; the mutation target moved." >&2; exit 2; fi
+run_absent not_found "" "$MUT"
+[ "$V" = "VERDICT: FAIL" ] && note "arm16 MUTANT (source-absent branch disabled): same input -> FAIL, so arm10 measures that branch ✅" || fail arm16-mutant-absent "mutant got '${V}' on not_found, expected FAIL"
+# mutant 2: drop the planted-fixture guard -> arm13's input must stop failing.
+sed 's/ && \[ "\$seed_state" != "planted" \]//' "$PROBE" > "$MUT"
+if cmp -s "$PROBE" "$MUT"; then echo "CANNOT-RUN: arm16b mutant sed did not change the probe." >&2; exit 2; fi
+run_absent not_found "planted(visits=18)" "$MUT"
+[ "$V" = "VERDICT: CANNOT-RUN" ] && note "arm16b MUTANT (planted guard removed): a planted fixture is wrongly excused as absent, so arm13 measures that guard ✅" || fail arm16-mutant-planted "planted-guard mutant got '${V}', expected CANNOT-RUN"
+# mutant 3: absence granted to ANY status -> arm11 (status ok) must go wrong.
+sed 's/\[ "\$extract_status" = "not_found" \] \&\& \[ "\$seed_state" != "planted" \]/true/' "$PROBE" > "$MUT"
+run_absent ok "" "$MUT"
+[ "$V" = "VERDICT: CANNOT-RUN" ] && note "arm16c MUTANT (any status counts as absent): status ok is wrongly excused, so arm11 measures the v1.0.101 rule ✅" || fail arm16-mutant-any "any-status mutant got '${V}' on status ok, expected CANNOT-RUN"
+rm -f "$SUMMARY" "$SEEDMARK"
+
+# ============================================================================
 # THE TOP-UP AGENT PARSER, DRIVEN ON REAL launchctl print TEXT (v1.0.82 walk,
 # 2026-09-09). Until this section existed the self-test substituted the WHOLE
 # health verdict (FAKE_topup_health) and returned before the awk, so no test

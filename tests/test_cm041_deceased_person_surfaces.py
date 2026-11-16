@@ -178,9 +178,14 @@ class Store:
         if "urn:ostler:warmth" in q:
             return [{"warmth": "0.2", "trust": "0.9", "observedAt": _days_ago(400),
                      "spriv": "L1"}]
+        if "SELECT ?priv WHERE" in q:
+            # Real graph rows carry a level; main's fail-closed rule (S23)
+            # withholds a meeting with no parseable level on either axis.
+            return [{"priv": "L1"}]
         if "pwg:Meeting" in q and "meetingAttendee" in q:
             return [{"summary": "Sunday lunch", "date": _days_ago(500),
-                     "location": "Home", "m": NS + "meeting_fixture01"}]
+                     "location": "Home", "mpriv": "L1",
+                     "m": NS + "meeting_fixture01"}]
         return []
 
 

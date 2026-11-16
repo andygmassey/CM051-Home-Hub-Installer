@@ -1,3 +1,5 @@
+diff --git a/run.py b/run.py
+index 46da11d6..d9693b7b 100644
 --- a/run.py
 +++ b/run.py
 @@ -18,12 +18,22 @@ A periodic, off-hot-path job. Safety posture copies CM048's discipline:

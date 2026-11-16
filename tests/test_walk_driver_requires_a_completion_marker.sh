@@ -85,9 +85,9 @@ make_box() {
 run_box() {
     local D="$1" H="$2" GUI="$3" OUT RC
     if [ "${GUI}" = "1" ]; then
-        OUT="$( HOME="${H}" OSTLER_GUI=1 python3 "${D}" 2>&1 )"; RC=$?
+        OUT="$( HOME="${H}" OSTLER_WALK_OWNER_FILE="${H}/.walk-owner.env" OSTLER_GUI=1 python3 "${D}" 2>&1 )"; RC=$?
     else
-        OUT="$( HOME="${H}" env -u OSTLER_GUI python3 "${D}" 2>&1 )"; RC=$?
+        OUT="$( HOME="${H}" OSTLER_WALK_OWNER_FILE="${H}/.walk-owner.env" env -u OSTLER_GUI python3 "${D}" 2>&1 )"; RC=$?
     fi
     printf '%s\t%s' "${RC}" "$(printf '%s' "${OUT}" | tr '\n' ' ')"
 }

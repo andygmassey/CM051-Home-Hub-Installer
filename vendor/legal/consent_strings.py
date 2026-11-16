@@ -67,7 +67,7 @@ class ConsentString:
 # wording here is the canonical text the SHA-256 is computed over.
 ARTICLE_9_EU_CONSENT = ConsentString(
     tickbox_id="article_9_special_category_consent",
-    version="v1.1-2026-07-15",
+    version="v1.2-2026-11-05",
     text="""One last thing – what Ostler will look at on your Mac
 
 Ostler is a personal assistant, so it works by looking at the parts of your life you keep on this Mac. Some of that is sensitive. UK and EU privacy law requires us to ask you, in clear words, before we touch any of it.
@@ -85,7 +85,7 @@ What's in scope. Depending on which connectors you turn on, Ostler may process t
 
 We do not perform emotion recognition. If that ever changes we will ask you again, separately, on a new consent screen.
 
-The categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
+The categories above are processed on this Mac and stay on it - the one exception is voice speaker-identification, which happens only on your iPhone (as noted above) and never reaches this Mac. None of it is sent to Creative Machines or to any third party, except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: software update checks and a handful of public metadata services). If you want to read those exceptions before consenting, click "Read the Privacy Policy" below.
 
 You can change your mind any time. You can:
 
@@ -162,7 +162,7 @@ Legal note: Your relationship with WhatsApp (Meta Platforms Ireland Ltd) is cont
 # rm -rf ~/.ostler/, mirroring Article 9 decline.
 THIRD_PARTY_DATA_NOTICE = ConsentString(
     tickbox_id="third_party_data_personal_records",
-    version="v1.0-2026-05-12",
+    version="v1.1-2026-11-05",
     text="""About the data on your Mac that's not just yours
 
 Ostler reads parts of your life that contain information about other people – emails they sent you, messages they wrote, faces in your photos, contact details, calendar attendees. This is normal. It's your inbox, your contacts, your life as it actually exists.
@@ -173,7 +173,7 @@ Before you continue, please understand:
 
 - You are keeping these records for yourself, like a private address book, a personal diary, or a journal. Ostler is the tool that helps you organise and search what you already have. You decide what to keep and what to delete.
 - Specific requests to be removed. If anyone you have records of asks you to be removed, you can delete that person from Ostler entirely (Settings → People → Delete a person). The deletion removes their data from your wiki, your graph, your search index, and your assistant's memory.
-- Nothing leaves your Mac. Not to us, not to a cloud, not to a third party – except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: optional cloud routing for non-personal questions, software update checks, public metadata enrichment).
+- Nothing leaves your Mac. Not to us, not to a cloud, not to a third party – except in the specific cases listed in our Privacy Policy at ostler.ai/privacy (mainly: software update checks and public metadata enrichment).
 
 [ ] I understand. Continue.
 [ ] Read more.   (links to docs.ostler.ai/privacy/third-party-data)
@@ -247,6 +247,30 @@ What we ask of you:
 Legal note: Recording the spoken word can be regulated by national law – for example section 201 of the German Criminal Code (Verletzung der Vertraulichkeit des Wortes) or Article 226-1 of the French Penal Code – independently of data-protection law. As the person making the recording on this Mac, you are responsible for compliance. Creative Machines never receives your recordings and is not a party to them.
 """,
 )
+
+
+# The spoken-capture LEGAL NOTE is chosen by the Mac's region (CM051,
+# 2026-10-24), so the note in SPOKEN_CAPTURE_RECORDING_CONSENT.text above is
+# not what every customer sees. The installer records the note it actually
+# showed alongside the wording (consent.record_consent legal_note: region,
+# variant, verbatim text, sha256), and the recorded wording_version becomes
+# "<version>+<variant>", so two regions record two different versions.
+# wording_hash stays the hash of .text, so `check`, Doctor and the Rust gates
+# are unchanged and records written before this existed stay current.
+# Every region line is a best-effort draft that needs local professional
+# sign-off; the strings live in CM051 install.sh.strings.en-GB.sh
+# (MSG_CONSENT_SPOKEN_CAPTURE_LEGAL_*).
+SPOKEN_CAPTURE_LEGAL_VARIANTS = ("core", "gb", "eu", "eu.de", "eu.fr", "hk", "us")
+
+
+def spoken_capture_recorded_version(variant: str) -> str:
+    """The wording_version recorded for a spoken-capture legal-note variant."""
+    if variant not in SPOKEN_CAPTURE_LEGAL_VARIANTS:
+        raise ValueError(
+            f"unknown spoken-capture legal variant {variant!r}; "
+            f"known: {SPOKEN_CAPTURE_LEGAL_VARIANTS}"
+        )
+    return f"{SPOKEN_CAPTURE_RECORDING_CONSENT.version}+{variant}"
 
 
 # Personal-use-only terms, shown to every user in the Phase-2 consent batch.

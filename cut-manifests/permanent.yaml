@@ -59,19 +59,22 @@ entries:
   # the source string is present at the pinned SHA, and the daemon build
   # pipeline compiles from that SHA into the shipped binary.
   - id: firstrun-popup-governor-source
-    title: firstrun welcome modal opens the Governor route (source, at daemon-pinned SHA)
+    title: firstrun welcome modal opens the Front Page (source, at the daemon this cut ships)
     # v1.0.13.2 (2026-08-01 ORM): FirstRunPopup.tsx was superseded by
     # GovernorWelcomeModal.tsx (oa #231). The equivalent invariant now: the
     # welcome modal navigates to '/settings#governor' (the modern Governor
     # route location; the panel scrolls to that anchor). Updated file + regex
     # to prove the same wire-through against the current source.
-    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt
+    incident: 3-4 recuts (2026-06/07) where copy changed but route didn't, or route changed but daemon wasn't rebuilt. RE-KEYED 2026-10-29 (v1.0.120) - since oa 5011a2d6 (in hub-v0.5.30) the first-run popup offers Front Page / Ask and no longer opens the Governor; the Governor is reachable from the sidebar (web/src/components/layout/Sidebar.tsx:122) and the header status chip (web/src/components/StatusChip.tsx:33). The product owner accepted this on 2026-10-29.
     source_pr: ostler-ai/ostler-assistant#231
+    # v1.0.120 (ORM 2026-10-29): pinned to the daemon this cut SHIPS (cut.env DAEMON_COMMIT 610b0c5c = tag hub-v0.5.30),
+    # never the clone's HEAD (dispatch 40903304399 read HEAD and failed). Pattern count: 0 at d9854a99, 1 at 610b0c5c.
+    source_sha: 610b0c5c5fd5c6535b4342688858bf7817c72737
     proof:
       kind: grep_in_source_at_sha
       target: ostler-assistant
       path: "web/src/components/GovernorWelcomeModal.tsx"
-      pattern: "navigate\\(['\"]\\/settings#governor['\"]\\)"
+      pattern: "navigate\\(FRONT_PAGE_ROUTE\\)"
       must_match: true
 
   # ==========================================================================
@@ -290,6 +293,11 @@ entries:
           - ec8200f59f  # gateway tests: serve_mock not webauthn-gated (test-only)
           - 125094c5f5  # feat(pairing): optional hub_tailnet_addr in the pairing QR, default off
           - 6f5c6d9aac  # test(pairing): default config QR keys equal the spec v1 set (test-only)
+          # ---- v1.0.123 addition (2026-11-04, ORM; carries the v1.0.122 cut-branch addition, Archie 2026-11-03, which never reached main). Pin hub-v0.5.33 = oa 06f2eb80 held; delta to oa main re-measured 2026-11-04: FOUR commits, all oa #659 test-only (cron/scheduler.rs +61 -0). Same adjudication as scripts/daemon_hold_ack.tsv row 06f2eb80.
+          - 1249d494cdaf10fcf1a353cb3b3d686c1fe316e5  # oa #659 (test-only)
+          - f9bfc3a70148e08d97b008812303d9f6e16ce5ee  # oa #659 (test-only)
+          - b2ffa2e7aa1d928495eb178925501f6b8a669e05  # oa #659 (test-only)
+          - 2d85e2de651f3c73ddb37d2c0724c73eceb42c28  # oa #659 merge (test-only)
 
   - id: permanent-remotecapture-freshness
     title: pinned RemoteCapture app must contain all merged source changes on its default branch
@@ -303,6 +311,10 @@ entries:
         pattern: 'OSTLER_REMOTECAPTURE_VERSION="\$\{OSTLER_REMOTECAPTURE_VERSION:-(\d+\.\d+\.\d+)\}"'
       tag_format: "remote-capture-v{version}"
       source_repo: "ostler-ai/ostler-remote-capture"
+      # (v1.0.119, 2026-10-28 ORM) RC pin 0.1.9 = tag remote-capture-v0.1.9 -> CM042 f476394 (#37 the Ostler app icon,
+      # #38 version bump; 0.1.8 = #23 consent fail-closed is its ancestor). Tarball ecdf349b, notarised b982596d.
+      # (v1.0.119, 2026-10-29 ORM) RC pin 0.1.10 = CM042 4b4cab8 (#40 version bump on #39 8d12e368: jurisdiction checks
+      # device region before GPS, stricter consent regime wins, row 1001). Tarball 6910cfb0, notarised b9d9c071.
       # The RemoteCapture repo compiles the whole app from Sources/ + supporting
       # Swift/Xcode + package files; freshness matters for any of them.
       source_paths:
@@ -471,6 +483,35 @@ entries:
       probe: "the_recovery_key_reached_the_customer"
 
   # ==========================================================================
+  - id: box-walk-setup-progress-advancing
+    title: every source in the Setting-up denominator is terminal or still advancing over the settle window
+    incident: >-
+      the Hub's Setting-up bar stalled below 100 (71 on a walk box) because
+      producers never wrote an explicit terminal marker, so a finished source
+      and a stuck one read the same. Each shard must carry complete or a
+      skip_reason, or be seen advancing between two samples.
+      SCOPE (Archie 2026-11-11): ADVISORY for v1.0.129 only, expires after that
+      one cut; BLOCKING from v1.0.130. It has never run on a walk, so it is not
+      yet shown it can fail correctly
+    proof:
+      kind: box_walk_probe
+      probe: "setup_progress_advancing"
+
+  # ==========================================================================
+  - id: box-walk-settling-json-refreshes
+    title: settling.json, served through the gateway, is refreshed on the 15-minute settling-refresh cadence
+    incident: >-
+      the setup status screen reads settling.json, written only by the daily
+      full wiki compile (hours long), so the screen could freeze for 24 h. The
+      settling-refresh LaunchAgent runs the CM044 settling-only mode every 15
+      minutes. SCOPE: ADVISORY for its first cut (see walk_promote_scope.tsv);
+      it has never run on a walk box and depends on CM044 shipping
+      --settling-only and the gateway serving /wiki/settling.json
+    proof:
+      kind: box_walk_probe
+      probe: "settling_json_refreshes"
+
+  # ==========================================================================
   - id: box-walk-ostler-unlock-reachable-by-name
     title: ostler-unlock must resolve by bare name in the shell a customer's Terminal actually opens
     incident: >-
@@ -485,6 +526,20 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "ostler_unlock_reachable_by_name"
+
+  # ==========================================================================
+  - id: box-walk-care-rules-present-in-workspace-agents-md
+    title: the assistant workspace AGENTS.md carries the care rules with a rendered helpline sentence
+    incident: >-
+      install.sh renders care/AGENTS_CARE.md.tmpl into the assistant
+      workspace AGENTS.md, and the daemon reads that file. Nothing measured
+      the rendered result on a box, so a missing or half-rendered file would
+      have meant a customer in crisis got no helpline text. BLOCKING: care
+      rules are a 121 requirement. An unreadable file or a failed transport
+      is CANNOT-RUN, never PASS.
+    proof:
+      kind: box_walk_probe
+      probe: "care_rules_present_in_workspace_agents_md"
 
   # ==========================================================================
   - id: box-walk-people-seed-and-retrieval
@@ -566,6 +621,18 @@ entries:
       kind: box_walk_probe
       probe: "no_person_holds_two_contact_cards"
 
+  - id: box-walk-front-page-not-me-is-saved
+    title: a Not me tap from the Hub app must still be there after a reload
+    incident: >-
+      v1.0.105 walk (CM051 #2470); a Front Page card marked Not me came back on
+      the next visit because the Hub posted nothing and the route refused the
+      app's own origin, and no walk step ever tapped it. The probe POSTs from
+      tauri://localhost, re-reads interest_corrections.json and card_states.json
+      from disk, and requires a foreign origin to be refused
+    proof:
+      kind: box_walk_probe
+      probe: "front_page_not_me_is_saved"
+
   - id: box-walk-freshness-panel-has-dates
     title: every freshness-panel source must report a real date rather than 'unknown'
     incident: >-
@@ -598,6 +665,42 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "source_status_artefact_is_served"
+
+  - id: box-walk-ostler-launchd-jobs-loaded-and-exit-clean
+    title: every Ostler LaunchAgent and LaunchDaemon on the box must be loaded, and none stopped on a non-zero last exit code
+    incident: >-
+      launchctl load exits 0 on failure, so "the installer loaded it" proves
+      nothing; only launchctl print carries whether the label is in the domain
+      and its last exit code. Before this row the suite asked that of one label
+      (com.ostler.fda-rerun, inside ingest_coverage) and every other Ostler job
+      could be unloaded or dying on every fire unseen (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "ostler_launchd_jobs_loaded_and_exit_clean"
+
+  - id: box-walk-gateway-not-exposed-on-lan
+    title: from the box's own LAN IP the gateway :8000 must be refused and :8443 frontpage/cards must be 404, with :8443/health as the control
+    incident: >-
+      fix-register row 947. The gateway host defaults to loopback in the
+      assistant config schema but install.sh writes port=8000 with no host, and
+      :8443 carries the companion route table; a listener table cannot say what
+      a LAN neighbour reaches, so the probe connects to the LAN IP itself, with
+      a positive control that makes a dead LAN path CANNOT-RUN, never PASS
+    proof:
+      kind: box_walk_probe
+      probe: "gateway_not_exposed_on_lan"
+
+  - id: box-walk-install-log-error-lines
+    title: every level=error and Command failed line in the box install.log is printed with its count
+    incident: >-
+      the install's DONE errors= counter misses errors raised in subshells
+      (lib/progress_emitter.sh err() funnel counts in the parent shell only),
+      so "DONE errors=0" can sit beside real errors in the same log. ADVISORY
+      for its first cut via walk_promote_scope.tsv (a new row expires after one
+      cut), then blocking against the reviewed allowlist (harness119)
+    proof:
+      kind: box_walk_probe
+      probe: "install_log_error_lines"
 
   # ==========================================================================
   # #722. The estate had no instrument that observes OUTBOUND traffic at all.
@@ -1140,6 +1243,52 @@ entries:
       kind: box_walk_probe
       probe: "owner_knowledge_score"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, derived_preferences_reach_digest_and_tool
+  # row): smart-prefs, first cut. Declared here because every probe on disk must
+  # be invoked by the cut; the promote scope decides it never refuses a promote.
+  - id: box-walk-derived-preferences-reach-digest-and-tool
+    title: "advisory: derived preferences (What you like) are served by the Hub route, named in the assistant digest, and named by the assistant when asked"
+    incident: "smart-prefs: the derive engine shipped dark, so derived preferences were empty on every box"
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_reach_digest_and_tool"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv, the five smart-prefs rows): Andy
+  # 2026-10-22, Smart Preferences is CORE and kept slipping. Declared here so the
+  # cut re-drives each one (verify_cut_manifest --require-runtime-proofs) and
+  # because every probe on disk must be invoked by the cut. NOT advisory: a RED or
+  # a CANNOT-RUN in any of the five makes the walk not clean.
+  - id: box-walk-derived-preferences-runs
+    title: "box-walk probe must PASS: derived_preferences_runs"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_runs"
+  - id: box-walk-derived-preferences-breadth
+    title: "box-walk probe must PASS: derived_preferences_breadth"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_breadth"
+  - id: box-walk-derived-preferences-dislike
+    title: "box-walk probe must PASS: derived_preferences_dislike"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_dislike"
+  - id: box-walk-derived-preferences-not-others
+    title: "box-walk probe must PASS: derived_preferences_not_others"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "derived_preferences_not_others"
+  - id: box-walk-dislike-respected-in-brief
+    title: "box-walk probe must PASS: dislike_respected_in_brief"
+    incident: "Smart Preferences (OS003 SMART_PREFERENCES_SPEC.md): shipped dark and films-only, reported as working when merged. BLOCKING from v1.0.118."
+    proof:
+      kind: box_walk_probe
+      probe: "dislike_respected_in_brief"
+
   # PR-branch staleness gate. Encodes feedback_mergeable_api_state_isnt_semantic_safety
   # (filed 2026-07-31): mergeable: MERGEABLE from the GH API does NOT prove the
   # branch is semantically safe to merge. A branch that predates a critical
@@ -1399,11 +1548,19 @@ entries:
   # probe on disk must be invoked by the cut; the promote scope decides it
   # never refuses a promote.
   - id: box-walk-chat-latency-baseline
-    title: "advisory: time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier"
+    title: "time to first token and total time on /ws/chat for five fixed questions, with the model and the RAM tier; FAILS a long answer that arrives in one piece (#2416)"
     incident: "Andy: chat replies took a while, and Hub-side LLM latency was NOT INSTRUMENTED"
     proof:
       kind: box_walk_probe
       probe: "chat_latency_baseline"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, needs_you_now_birthdays_survive_fallback row).
+  - id: box-walk-needs-you-now-birthdays-survive-fallback
+    title: "advisory: with the Hub editor feed forced absent, the Front Page Needs-you-now still lists the nearest upcoming birthday"
+    incident: "CM044 fix/v107-needs-you-now-shared-source: Needs-you-now has a Hub-feed source and a SPARQL fallback; the shipped compiler container has no /editor mount, so the fallback path was never forced on a walk"
+    proof:
+      kind: box_walk_probe
+      probe: "needs_you_now_birthdays_survive_fallback"
 
   # ADVISORY (scripts/walk_promote_scope.tsv, data_conservation row): per
   # source, importer IN vs stores STORED vs wiki/Doctor SHOWN. Declared here
@@ -1426,3 +1583,137 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "call_audio_never_retained"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv, the three send-safety rows): the
+  # assistant send-safety fixes ostler-assistant #626 (S4, 1476bbeb) and #627
+  # (C1, 4f9f7f24) are MERGED, which is not PROVEN. Declared here so the cut
+  # re-drives each one and because every probe on disk must be invoked by the cut.
+  - id: box-walk-stranger-cannot-trigger-send
+    title: "box-walk probe must PASS: stranger_cannot_trigger_send"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "stranger_cannot_trigger_send"
+  - id: box-walk-tainted-owner-send-needs-exact-approval
+    title: "box-walk probe must PASS: tainted_owner_send_needs_exact_approval"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "tainted_owner_send_needs_exact_approval"
+  - id: box-walk-cron-run-makes-no-sends
+    title: "box-walk probe must PASS: cron_run_makes_no_sends"
+    incident: "PROMPT_INJECTION_AUDIT_2026-10-20 F9: send safety existed on paper and was unwired; fixed in ostler-assistant #626/#627, MERGED not PROVEN. BLOCKING."
+    proof:
+      kind: box_walk_probe
+      probe: "cron_run_makes_no_sends"
+
+  # NEW-119 (diag118 Mini16, macOS 27.2, 2026-10-29). Two probes for the class
+  # the diagnostic found unguarded: a scheduled job that reads Full Disk Access
+  # data outside the daemon's grant, and a second refresh after install that
+  # nothing measured. tests/test_fda_refresh_tcc_probes.sh drives both (RED,
+  # GREEN, one mutant each), wired by .github/workflows/fda-refresh-tcc-probes.yml.
+  - id: box-walk-no-python-is-tcc-responsible
+    title: "box-walk probe must PASS: no_python_is_tcc_responsible (0 TCC requests with the bundled python RESPONSIBLE since install start; control = daemon-attributed python child requests, 0 is CANNOT-RUN)"
+    incident: >-
+      diag118 Mini16 2026-10-29 (python_fda_trace.md): every FDA-reading job runs
+      under `ostler-assistant run-source <src>`; the stale python3.11=0 row in the
+      system TCC.db predates the install, so only the unified log over the
+      install window can prove absence. studio29 2026-10-15 proved the defect
+      shape (ical-server's bare python3.11 denied on chat.db). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "no_python_is_tcc_responsible"
+
+  # BLOCKING (scripts/walk_promote_scope.tsv) since the fda-rerun registration
+  # fix (CM051 #3210) merged.
+  - id: box-walk-fda-rerun-second-tick-lands-a-new-row
+    title: "box-walk probe must PASS: fda_rerun_second_tick_lands_a_new_row (com.ostler.fda-rerun, kickstarted until runs >= 2, lands a synthetic Safari visit seeded after install)"
+    incident: >-
+      diag118 Mini16 2026-10-29: com.ostler.fda-rerun was never loaded after an
+      abort and re-run (plist present, launchctl print rc=113), and a second
+      refresh after install was NOT INSTRUMENTED. Registration fixed in CM051
+      #3210 (MERGED, not PROVEN). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "fda_rerun_second_tick_lands_a_new_row"
+  # NEW-119 (CM051 #3200). Declared here because every probe on disk must be
+  # invoked by the cut; the promote scope (scripts/walk_promote_scope.tsv) decides
+  # which of them can refuse a promote.
+  - id: box-walk-wiki-maps-links-carry-no-join-secret
+    title: "box-walk probe must PASS: wiki_maps_links_carry_no_join_secret"
+    incident: >-
+      #2528: a meeting join passcode (pwd= or passcode=) rode inside a maps
+      link in the compiled wiki, so one click sent it to a maps provider
+      (fixed by CM044 #289 maps_href). Greps the compiled wiki in
+      ostler-wiki-site; a seeded positive control must be caught or the probe
+      fails. BLOCKING (privacy).
+    proof:
+      kind: box_walk_probe
+      probe: "wiki_maps_links_carry_no_join_secret"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, l3_not_prefetched row) for ONE cut:
+  # expires after the first cut that carries it, then BLOCKING (launch directive
+  # item 5: a non-blocking row expires after one cut).
+  - id: box-walk-l3-not-prefetched
+    title: "advisory: a synthetic L3 person is not returned by people/search (the daemon prefetch surface), with an L1 control that is"
+    incident: >-
+      #2435: L3 people could reach the assistant via the daemon prefetch
+      (ostler-assistant #428). NOT BLOCKING for v1.0.103, owed to v1.0.104.
+      ADVISORY for its first cut only, then BLOCKING. NOT INSTRUMENTED: the
+      Oxigraph context leg, the chat-level reply, core_ memory (#2436).
+    proof:
+      kind: box_walk_probe
+      probe: "l3_not_prefetched"
+
+  - id: box-walk-chat-reminder-routes-to-home
+    title: "box-walk probe must PASS: chat_reminder_routes_to_home"
+    incident: >-
+      #2397 + #2398: a chat reminder landed on the first announcing cron job
+      in config order, not the [cron] home target, and a model-sent delivery
+      mode none was stored silent. Drives the installed binary in the
+      send_safety sandbox. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "chat_reminder_routes_to_home"
+
+  - id: box-walk-image-pulls-match-pins
+    title: "box-walk probe must PASS: image_pulls_match_pins"
+    incident: >-
+      #2404: the qdrant, nginx and valkey images pulled and running must be
+      the digests install.sh pins. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "image_pulls_match_pins"
+
+  - id: box-walk-third-party-telemetry-off
+    title: "box-walk probe must PASS: third_party_telemetry_off"
+    incident: >-
+      v1.0.124 egress audit D1+D2+D3: Qdrant telemetry, Homebrew analytics and
+      Google Fonts must not be reached from the installed Hub. BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "third_party_telemetry_off"
+
+  - id: box-walk-status-api-dates-are-sane
+    title: "box-walk probe must PASS: status_api_dates_are_sane"
+    incident: >-
+      #966: no date field on /api/v1/sources or /doctor/api/status may parse
+      past now + 10 years (the year-2318 sentinel). BLOCKING.
+    proof:
+      kind: box_walk_probe
+      probe: "status_api_dates_are_sane"
+
+  # #2436 (ostler-assistant #644). ADVISORY (scripts/walk_promote_scope.tsv) for ONE
+  # cut: expires after the first cut that carries it, then BLOCKING.
+  - id: box-walk-core-memory-holds-no-prefetch-block
+    title: "advisory: no core_ memory on the box carries the daemon's graph-prefetch block"
+    incident: >-
+      #2436: the daemon appends a lookup block ([Looked up in the user's own
+      data ...), possibly carrying L3, to the user turn; consolidation could
+      store it as a core_ memory attributed to the user. ostler-assistant #644
+      strips it inside consolidation. Post-walk box check: every core entry from
+      GET /api/memory?category=core is read; a carried block is FAIL, zero core
+      entries is CANNOT-RUN.
+    proof:
+      kind: box_walk_probe
+      probe: "core_memory_holds_no_prefetch_block"

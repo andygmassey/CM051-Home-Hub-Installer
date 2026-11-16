@@ -20,6 +20,10 @@
    "header": null,
    "note": "no credential required"
   },
+  "owner_peer": {
+   "header": null,
+   "note": "the caller's process must run as the Mac's owner and not be a relay (tailscaled, lima); read from the kernel by the Doctor (owner_peer.py, S1)"
+  },
   "qdrant_api_key": {
    "header": "api-key: <QDRANT_API_KEY>",
    "note": "Qdrant native key, behind the :6333 store proxy"
@@ -111,7 +115,7 @@
  "routes": [
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -156,13 +160,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -193,20 +202,24 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "install.sh"
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -230,7 +243,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -399,7 +412,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -424,7 +437,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -460,10 +473,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -491,10 +507,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -550,7 +571,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -611,6 +632,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -619,7 +641,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -638,7 +660,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -736,7 +758,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -759,7 +781,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -789,7 +811,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -810,7 +832,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -833,7 +855,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -863,7 +885,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -884,7 +906,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -907,7 +929,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -937,7 +959,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -979,13 +1001,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "install.sh"
   },
@@ -1033,10 +1061,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "install.sh"
   },
@@ -1072,7 +1109,51 @@
   },
   {
    "auth": [
-    "none"
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
+   "id": "doctor GET /api/v1/minors",
+   "listener": "doctor",
+   "method": "GET",
+   "path": "/api/v1/minors",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:GET:/api/v1/minors",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
+   "id": "doctor GET /api/v1/minors/suggestions",
+   "listener": "doctor",
+   "method": "GET",
+   "path": "/api/v1/minors/suggestions",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:GET:/api/v1/minors/suggestions",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1091,7 +1172,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1110,7 +1191,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1129,7 +1210,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1156,7 +1237,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1199,7 +1280,6 @@
     "error",
     "people",
     "reason",
-    "suppression_check",
     "total"
    ],
    "source": "install.sh"
@@ -1251,14 +1331,12 @@
    "response_fields": [
     "count",
     "current_employer",
-    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query",
-    "reason"
+    "query"
    ],
    "source": "install.sh"
   },
@@ -1310,10 +1388,8 @@
    "request_required": [],
    "response_fields": [
     "count",
-    "degraded",
     "error",
     "query",
-    "reason",
     "results"
    ],
    "source": "install.sh"
@@ -1367,10 +1443,13 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
@@ -1380,7 +1459,65 @@
   },
   {
    "auth": [
-    "none"
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "doctor POST /api/v1/people/{slug}/minor",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor",
+   "query_params": [],
+   "request_optional": [
+    "minor"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "doctor POST /api/v1/people/{slug}/minor-suggestion/dismiss",
+   "listener": "doctor",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "ports": [
+    8089
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
+   ],
+   "source": "install.sh"
+  },
+  {
+   "auth": [
+    "owner_peer",
+    "device_bearer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1426,6 +1563,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -1456,7 +1594,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": true,
@@ -1479,7 +1617,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1503,7 +1641,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1524,7 +1662,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1546,7 +1684,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1568,7 +1706,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1633,7 +1771,6 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
-    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -1660,6 +1797,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
@@ -1672,7 +1810,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "install.sh"
   },
@@ -1731,10 +1870,10 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
-   "cross_site_refusal": false,
+   "cross_site_refusal": true,
    "id": "doctor GET /api/v1/whatsapp/pair",
    "listener": "doctor",
    "method": "GET",
@@ -1750,7 +1889,8 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer",
+    "device_bearer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1788,7 +1928,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1817,7 +1957,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1836,7 +1976,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1855,7 +1995,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1874,7 +2014,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1893,7 +2033,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1915,7 +2055,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1936,7 +2076,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1958,7 +2098,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1977,7 +2117,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -1996,7 +2136,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -2017,7 +2157,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -2038,7 +2178,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -2059,7 +2199,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -2078,7 +2218,7 @@
   },
   {
    "auth": [
-    "none"
+    "owner_peer"
    ],
    "body_limit_bytes": null,
    "cross_site_refusal": false,
@@ -2157,6 +2297,25 @@
     "admin_token"
    ],
    "body_limit_bytes": 65536,
+   "id": "gateway POST /admin/paircode/rotate",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/admin/paircode/rotate",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "admin_token"
+   ],
+   "body_limit_bytes": 65536,
    "id": "gateway POST /admin/shutdown",
    "listener": "gateway",
    "method": "POST",
@@ -2180,6 +2339,25 @@
    "listener": "gateway",
    "method": "POST",
    "path": "/announce",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/assistant-mailbox/self-test",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/assistant-mailbox/self-test",
    "ports": [
     8000,
     8443
@@ -2865,13 +3043,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -2903,13 +3086,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -3183,10 +3370,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3368,14 +3560,58 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/invites/mint",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/invites/mint",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "id": "gateway POST /api/v1/invites/rewards",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/invites/rewards",
+   "ports": [
+    8000,
+    8443
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
   {
@@ -3424,10 +3660,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3486,7 +3731,6 @@
     "error",
     "people",
     "reason",
-    "suppression_check",
     "total"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
@@ -3541,14 +3785,12 @@
    "response_fields": [
     "count",
     "current_employer",
-    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query",
-    "reason"
+    "query"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
    "via_wildcard": "/api/v1/people/{rest}"
@@ -3604,10 +3846,8 @@
    "request_required": [],
    "response_fields": [
     "count",
-    "degraded",
     "error",
     "query",
-    "reason",
     "results"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
@@ -3647,6 +3887,42 @@
     "device_bearer"
    ],
    "body_limit_bytes": null,
+   "id": "gateway GET /api/v1/people/timeline",
+   "listener": "gateway",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:GET:/api/v1/people/timeline",
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": null,
    "id": "gateway GET /api/v1/people/{slug}/enrichment",
    "listener": "gateway",
    "method": "GET",
@@ -3663,6 +3939,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -3694,14 +3971,78 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/minor",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor",
+   "query_params": [],
+   "request_optional": [
+    "minor"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
+   "via_wildcard": "/api/v1/people/{rest}"
+  },
+  {
+   "auth": [
+    "device_bearer"
+   ],
+   "body_limit_bytes": 65536,
+   "content_type": "application/json",
+   "id": "gateway POST /api/v1/people/{slug}/minor-suggestion/dismiss",
+   "listener": "gateway",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "ports": [
+    8000,
+    8443
+   ],
+   "proxy_to": "ical:POST:/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs",
    "via_wildcard": "/api/v1/people/{rest}"
@@ -3723,23 +4064,17 @@
    "proxy_to": "ical:POST:/api/v1/people/{slug}/suppress-suggestions",
    "query_params": [],
    "request_optional": [
-    "contact_uid",
-    "person_uri",
     "reason",
     "suppressed"
    ],
    "request_required": [],
    "response_fields": [
-    "ambiguous",
-    "candidates",
-    "contact_uid",
     "degraded",
     "error",
     "found",
     "identifiers_recorded",
-    "keyed_on",
+    "match_count",
     "nodes_matched",
-    "person_uri",
     "person_uris",
     "reason",
     "record_cleared",
@@ -3981,7 +4316,6 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
-    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -4009,6 +4343,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
@@ -4021,7 +4356,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4772,13 +5108,18 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
+    "status",
     "stored",
-    "summary_status"
+    "summary_status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -4808,13 +5149,17 @@
     "url"
    ],
    "response_fields": [
+    "detail",
     "error",
     "id",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "reason",
     "skipped_sensitive",
     "status",
     "stored",
+    "surface",
     "visit_id"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -4972,10 +5317,13 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "as_of",
     "counts",
     "degraded",
     "items",
+    "preparing",
     "reason",
+    "refreshing",
     "schema_version",
     "total_persons"
    ],
@@ -5002,10 +5350,15 @@
     "transcript"
    ],
    "response_fields": [
+    "detail",
     "error",
     "job_id",
+    "licence_tier",
+    "licence_tier_state",
+    "reason",
     "state_url",
-    "status"
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5166,6 +5519,7 @@
     "errors",
     "hours",
     "local_store_age_seconds",
+    "not_connected",
     "source",
     "stale",
     "unread_total"
@@ -5188,7 +5542,20 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
-    "found"
+    "confidence",
+    "conflict",
+    "conflicting_employers",
+    "corroboration",
+    "corroboration_available",
+    "employer",
+    "former_employers",
+    "found",
+    "identity_fragmented",
+    "job_title",
+    "signal",
+    "source_fact",
+    "start_date",
+    "verified"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5291,13 +5658,19 @@
    "response_fields": [
     "accepted",
     "batch_id",
+    "detail",
     "error",
     "health_degraded",
     "health_observations",
     "item_count",
+    "licence_tier",
+    "licence_tier_state",
     "ok",
     "path",
-    "quick_notes"
+    "quick_notes",
+    "reason",
+    "status",
+    "surface"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5319,8 +5692,10 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "considered",
     "count",
     "degraded",
+    "filtered",
     "meetings",
     "reason",
     "within_minutes"
@@ -5369,10 +5744,19 @@
    "request_optional": [],
    "request_required": [],
    "response_fields": [
+    "candidates",
     "degraded",
     "error",
+    "fact_id",
+    "person_slug",
+    "person_uri",
     "reason",
-    "status"
+    "relationship",
+    "retry_after_seconds",
+    "spool_id",
+    "status",
+    "status_url",
+    "wiki_recompile_queued"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5433,6 +5817,48 @@
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
   {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/minors",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/minors",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/minors/suggestions",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/minors/suggestions",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "minors",
+    "registry"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
    "alias_of": "/people",
    "auth": [
     "service_token"
@@ -5455,7 +5881,6 @@
     "error",
     "people",
     "reason",
-    "suppression_check",
     "total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5507,14 +5932,12 @@
    "response_fields": [
     "count",
     "current_employer",
-    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query",
-    "reason"
+    "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5566,10 +5989,8 @@
    "request_required": [],
    "response_fields": [
     "count",
-    "degraded",
     "error",
     "query",
-    "reason",
     "results"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -5606,6 +6027,39 @@
     "service_token"
    ],
    "body_limit_bytes": null,
+   "id": "ical GET /api/v1/people/timeline",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/people/timeline",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "days",
+    "limit",
+    "uri"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "count",
+    "degraded",
+    "degraded_sources",
+    "error",
+    "events",
+    "found",
+    "message",
+    "person",
+    "reason",
+    "slug"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
    "id": "ical GET /api/v1/people/{slug}/enrichment",
    "listener": "ical",
    "method": "GET",
@@ -5620,6 +6074,7 @@
     "degraded",
     "error",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -5648,14 +6103,72 @@
     "degraded",
     "error",
     "forgotten",
+    "found",
+    "match_count",
     "nodes_erased",
     "not_found",
     "reason",
     "retry",
+    "slug",
     "stores_purged",
     "stores_remaining",
     "tombstone_written",
     "wiki_recompile_queued"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/people/{slug}/minor",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [
+    "minor"
+   ],
+   "request_required": [],
+   "response_fields": [
+    "changed",
+    "degraded",
+    "error",
+    "identifier_lookup_degraded",
+    "identifiers_recorded",
+    "minor",
+    "reason",
+    "registry_written",
+    "slug"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": 1048576,
+   "content_type": "application/json",
+   "id": "ical POST /api/v1/people/{slug}/minor-suggestion/dismiss",
+   "listener": "ical",
+   "method": "POST",
+   "path": "/api/v1/people/{slug}/minor-suggestion/dismiss",
+   "ports": [
+    8090
+   ],
+   "query_params": [],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "dismissed",
+    "error",
+    "refused",
+    "slug"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5674,23 +6187,17 @@
    ],
    "query_params": [],
    "request_optional": [
-    "contact_uid",
-    "person_uri",
     "reason",
     "suppressed"
    ],
    "request_required": [],
    "response_fields": [
-    "ambiguous",
-    "candidates",
-    "contact_uid",
     "degraded",
     "error",
     "found",
     "identifiers_recorded",
-    "keyed_on",
+    "match_count",
     "nodes_matched",
-    "person_uri",
     "person_uris",
     "reason",
     "record_cleared",
@@ -5726,6 +6233,7 @@
     "error",
     "events",
     "found",
+    "match_count",
     "message",
     "person",
     "reason",
@@ -5762,6 +6270,34 @@
     "reason",
     "schema_version",
     "source_path"
+   ],
+   "source": "vendor/cm041/assistant_api/ical-server.py"
+  },
+  {
+   "auth": [
+    "service_token"
+   ],
+   "body_limit_bytes": null,
+   "id": "ical GET /api/v1/preferences/derived",
+   "listener": "ical",
+   "method": "GET",
+   "path": "/api/v1/preferences/derived",
+   "ports": [
+    8090
+   ],
+   "query_params": [
+    "limit",
+    "tier"
+   ],
+   "request_optional": [],
+   "request_required": [],
+   "response_fields": [
+    "cannot_check",
+    "degraded",
+    "error",
+    "generated_at",
+    "items",
+    "still_learning"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5915,7 +6451,6 @@
    "response_fields": [
     "birthdays",
     "birthdays_error",
-    "degraded",
     "follow_up",
     "privacy_level",
     "recent_error",
@@ -5941,6 +6476,7 @@
    "query_params": [
     "days",
     "limit",
+    "outbound",
     "past_days"
    ],
    "request_optional": [],
@@ -5953,7 +6489,8 @@
     "entries",
     "items",
     "limit",
-    "past_days"
+    "past_days",
+    "photos_error"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6112,6 +6649,7 @@
     "count",
     "error",
     "messages",
+    "not_connected",
     "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -6138,6 +6676,7 @@
     "count",
     "error",
     "messages",
+    "not_connected",
     "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -6182,7 +6721,6 @@
     "error",
     "people",
     "reason",
-    "suppression_check",
     "total"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
@@ -6232,14 +6770,12 @@
    "response_fields": [
     "count",
     "current_employer",
-    "degraded",
     "error",
     "found",
     "matches",
     "message",
     "person",
-    "query",
-    "reason"
+    "query"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6289,10 +6825,8 @@
    "request_required": [],
    "response_fields": [
     "count",
-    "degraded",
     "error",
     "query",
-    "reason",
     "results"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"

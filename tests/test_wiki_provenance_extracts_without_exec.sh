@@ -76,8 +76,8 @@ echo "image under test: ${REF##*@}"
 echo
 
 # --- 1. POSITIVE: a marker that is genuinely in the image -------------------
-out="$(run_gate 'wiki_image_grep|wiki-compiler:/app/compiler|_render_settling_panel|positive control: this string IS in the shipped compiler')"
-if grep -q 'PASS.*_render_settling_panel' <<<"$out"; then
+out="$(run_gate 'wiki_image_grep|wiki-compiler:/app/compiler|build_settling_snapshot|positive control: this string IS in the shipped compiler')"
+if grep -q 'PASS.*build_settling_snapshot' <<<"$out"; then
   ok "a present marker PASSES (the gate can read image content at all)"
 else
   bad "a present marker did not pass -- the gate cannot read the image"
@@ -101,7 +101,7 @@ else
 fi
 
 # --- 3. MIRROR POLARITY: absent-check must fire on something present --------
-out="$(run_gate 'wiki_image_absent|wiki-compiler:/app/compiler|_render_settling_panel|mirror control: asserting absence of a string that IS present must go RED')"
+out="$(run_gate 'wiki_image_absent|wiki-compiler:/app/compiler|build_settling_snapshot|mirror control: asserting absence of a string that IS present must go RED')"
 if grep -q 'FAIL.*IS PRESENT' <<<"$out"; then
   ok "wiki_image_absent RED-flags a pattern that is present (mirror polarity works)"
 else
@@ -145,7 +145,7 @@ else
 fi
 
 # --- 5. the extraction itself must be evidenced -----------------------------
-out="$(run_gate 'wiki_image_grep|wiki-compiler:/app/compiler|_render_settling_panel|count control')"
+out="$(run_gate 'wiki_image_grep|wiki-compiler:/app/compiler|build_settling_snapshot|count control')"
 if grep -qE '\[[0-9]+ files extracted\]' <<<"$out" && ! grep -qE '\[0 files extracted\]' <<<"$out"; then
   n="$(grep -oE '\[[0-9]+ files extracted\]' <<<"$out" | head -1)"
   ok "the extraction is evidenced by a non-zero file count ${n}"

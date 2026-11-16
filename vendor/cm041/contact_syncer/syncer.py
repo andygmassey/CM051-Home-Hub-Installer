@@ -35,6 +35,7 @@ from contact_syncer.dedup import DedupDetector, print_report
 from contact_syncer.photo_storage import remove_photo, write_photo
 from contact_syncer.relationship_labels import is_relationship_label
 from contact_syncer.person_audit import record_person_removal
+from contact_syncer.qdrant_collection import read_existing_payload
 
 from identity_resolver.resolver import IdentityResolver  # type: ignore[import-untyped]
 from identity_resolver.forget_tombstone import MATCH_TYPE as FORGOTTEN
@@ -49,9 +50,87 @@ from identity_resolver.normalise import (  # type: ignore[import-untyped]
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 
+# ---------------------------------------------------------------------------
+# v1.0.111 contact photos from the local AddressBook store.
+#
+# Before this, _read_abcddb_as_vcards selected no image column, so on every
+# customer install (ostler-contact-resync forces this path) no address-book
+# photo ever reached write_photo: the walk box had no PHOTO_DIR at all.
+#
+# Where macOS keeps a contact's image is NOT measured on a real store by this
+# change (reading one needs Full Disk Access, which no agent shell holds), so
+# every known shape is tried and the per-store counter line logged by the
+# reader is the instrument: a walk reads it from contact-resync.log.
+#   1. a blob that already starts with image magic (plain inline storage);
+#   2. CoreData external-storage framing: 0x01 + bytes (inline) or
+#      0x02 + UUID (bytes in .<store>_SUPPORT/_EXTERNAL_DATA/<UUID>);
+#   3. the legacy per-store Images/<uid without ':ABPerson'> file.
+# Full image first, thumbnail second. Anything that is not an image is
+# counted and dropped; vcard_parser sniffs again and enforces its 5 MiB cap.
+# ---------------------------------------------------------------------------
+_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a")
+_EXTERNAL_REF_RE = re.compile(rb"^[0-9A-Fa-f-]{36}$")
+
+
+def _is_image(data: Optional[bytes]) -> bool:
+    return bool(data) and any(data.startswith(m) for m in _IMAGE_MAGIC)
+
+
+def _abcddb_blob_image(db_path: Any, blob: Any) -> Tuple[Optional[bytes], str]:
+    if not blob:
+        return None, ""
+    data = bytes(blob)
+    if _is_image(data):
+        return data, "inline"
+    if data[:1] == b"\x01" and _is_image(data[1:]):
+        return data[1:], "inline"
+    if data[:1] == b"\x02":
+        ref = data[1:].split(b"\x00", 1)[0].strip()
+        if _EXTERNAL_REF_RE.match(ref):
+            ext = (db_path.parent / ("." + db_path.stem + "_SUPPORT")
+                   / "_EXTERNAL_DATA" / ref.decode("ascii"))
+            try:
+                body = ext.read_bytes() if ext.is_file() else b""
+            except OSError:
+                body = b""
+            if _is_image(body):
+                return body, "external"
+    return None, "not_image"
+
+
+def _abcddb_photo_bytes(db_path: Any, row: Any, uid: str,
+                        stats: Dict[str, int]) -> Optional[bytes]:
+    seen_bad = False
+    for key in ("image", "thumb"):
+        try:
+            blob = row[key]
+        except (KeyError, IndexError):
+            blob = None
+        data, how = _abcddb_blob_image(db_path, blob)
+        if data:
+            stats[how] += 1
+            return data
+        seen_bad = seen_bad or how == "not_image"
+    if uid:
+        name = uid.split(":", 1)[0]
+        if re.match(r"^[0-9A-Za-z-]+$", name):
+            f = db_path.parent / "Images" / name
+            try:
+                body = f.read_bytes() if f.is_file() else b""
+            except OSError:
+                body = b""
+            if _is_image(body):
+                stats["images_dir"] += 1
+                return body
+    stats["not_image" if seen_bad else "none"] += 1
+    return None
+
 
 class ContactSyncer:
     """Orchestrates the full contact sync pipeline."""
+
+    # Qdrant writes skipped because the existing point could not be read.
+    qdrant_writes_skipped_unreadable: int = 0
 
     def __init__(self, cfg: Any = None) -> None:
         self.cfg = cfg or config
@@ -119,44 +198,45 @@ class ContactSyncer:
         }
 
         # Step 1: CTag check
-        print("Checking collection CTag...")
+        logger.info("Checking collection CTag...")
         try:
             current_ctag = self.carddav.get_ctag()
         except Exception as exc:
-            print(f"WARNING: CTag check failed ({exc}), proceeding with full ETag comparison.")
+            logger.warning("CTag check failed (%s), proceeding with full ETag comparison.", exc)
             current_ctag = ""
 
         if current_ctag and current_ctag == old_ctag and old_etags:
-            print("CTag unchanged – no contacts modified since last sync. Skipping.")
+            logger.info("CTag unchanged – no contacts modified since last sync. Skipping.")
             return {"imported": 0, "skipped": 0, "errors": [], "deleted": 0}
 
         # Step 2: Get ETags and determine changes
-        print("Fetching ETags...")
+        logger.info("Fetching ETags...")
         if old_etags:
             vcard_texts, deleted_hrefs = self.carddav.get_changed_vcards(old_etags)
             current_etags = self.carddav.get_etags()
-            print(
-                f"Found {len(vcard_texts)} changed/new contacts, "
-                f"{len(deleted_hrefs)} deleted."
+            logger.info(
+                "Found %d changed/new contacts, %d deleted.",
+                len(vcard_texts),
+                len(deleted_hrefs),
             )
         else:
-            # Initial sync – fetch everything
-            print("Initial sync – fetching all vCards...")
+            # Initial sync — fetch everything
+            logger.info("Initial sync – fetching all vCards...")
             vcard_texts = self.carddav.get_all_vcards()
             current_etags = self.carddav.get_etags()
             deleted_hrefs = []
-            print(f"Fetched {len(vcard_texts)} vCards.")
+            logger.info("Fetched %d vCards.", len(vcard_texts))
 
         if limit is not None:
             vcard_texts = vcard_texts[:limit]
-            print(f"Limited to {limit} contacts.")
+            logger.info("Limited to %d contacts.", limit)
 
         # Step 2b: Process deletions (before writes, so stale nodes are gone first)
         deleted_count = 0
         if deleted_hrefs and not dry_run:
             deleted_count = self._process_deletions(deleted_hrefs)
         elif deleted_hrefs and dry_run:
-            print(f"[DRY RUN] Would process {len(deleted_hrefs)} deletion(s).")
+            logger.info("[DRY RUN] Would process %d deletion(s).", len(deleted_hrefs))
 
         # Step 3-4: Parse, classify, resolve, write
         total = len(vcard_texts)
@@ -168,22 +248,25 @@ class ContactSyncer:
             # Progress every 100 contacts
             if i % 100 == 0 or i == total:
                 pct = int(i / total * 100) if total else 0
-                print(
-                    f"Syncing contacts: {i}/{total} ({pct}%) – "
-                    f"{counts['person']} people, {counts['business']} businesses, "
-                    f"{counts['errors']} errors"
+                logger.info(
+                    "Syncing contacts: %d/%d (%d%%) – %d people, %d businesses, %d errors",
+                    i,
+                    total,
+                    pct,
+                    counts["person"],
+                    counts["business"],
+                    counts["errors"],
                 )
 
             # Stage 1: parse
             try:
                 parsed = parse_vcard(vcard_text)
             except Exception as exc:
-                import traceback
                 counts["errors"] += 1
                 skipped.append({"uid": None, "fn": None, "stage": "parse", "error": str(exc)})
-                print(f"  ERROR parsing vCard [{i}/{total}]: {exc}")
-                print(f"    vCard preview: {vcard_text[:200]!r}")
-                print(f"    {traceback.format_exc().splitlines()[-1]}")
+                logger.error("  ERROR parsing vCard [%d/%d]: %s", i, total, exc)
+                logger.error("    vCard preview: %r", vcard_text[:200])
+                logger.debug("    parse traceback", exc_info=True)
                 continue
 
             uid_for_log = parsed.get("uid")
@@ -196,7 +279,7 @@ class ContactSyncer:
                 counts[contact_type] = counts.get(contact_type, 0) + 1
 
                 if dry_run:
-                    print(f"  [DRY RUN] {fn_for_log} (uid={uid_for_log}) -> {contact_type}")
+                    logger.info("  [DRY RUN] %s (uid=%s) -> %s", fn_for_log, uid_for_log, contact_type)
                     continue
 
                 if contact_type == "business":
@@ -227,10 +310,10 @@ class ContactSyncer:
                             "person_uri": person_uri,
                             "parsed": parsed,
                             "description": description,
+                            "contact_type": contact_type,
                         }
                     )
             except Exception as exc:
-                import traceback
                 counts["errors"] += 1
                 skipped.append({
                     "uid": uid_for_log,
@@ -238,13 +321,20 @@ class ContactSyncer:
                     "stage": "write",
                     "error": f"{type(exc).__name__}: {exc}",
                 })
-                print(f"  ERROR writing contact [{i}/{total}] {fn_for_log!r} (uid={uid_for_log}): {exc}")
-                print(f"    {traceback.format_exc().splitlines()[-1]}")
+                logger.error(
+                    "  ERROR writing contact [%d/%d] %r (uid=%s): %s",
+                    i,
+                    total,
+                    fn_for_log,
+                    uid_for_log,
+                    exc,
+                )
+                logger.debug("    write traceback", exc_info=True)
                 continue
 
         # Step 5-6: Batch embed and upsert Qdrant (only for people)
         if qdrant_queue and not dry_run:
-            print(f"\nEmbedding {len(qdrant_queue)} person descriptions...")
+            logger.info("Embedding %d person descriptions...", len(qdrant_queue))
             descriptions = [item["description"] for item in qdrant_queue]
             batch_size = self.cfg.EMBED_BATCH_SIZE
             all_vectors: List[List[float]] = []
@@ -254,16 +344,28 @@ class ContactSyncer:
                 vectors = self._embed_batch(batch)
                 all_vectors.extend(vectors)
                 done = min(batch_start + batch_size, len(descriptions))
-                print(f"  Embedding: {done}/{len(descriptions)} ({int(done / len(descriptions) * 100)}%)")
+                logger.info(
+                    "  Embedding: %d/%d (%d%%)",
+                    done,
+                    len(descriptions),
+                    int(done / len(descriptions) * 100),
+                )
 
             for idx, item in enumerate(qdrant_queue):
                 if idx < len(all_vectors):
-                    self._upsert_qdrant(
+                    if not self._upsert_qdrant(
                         person_id=item["person_id"],
                         person_uri=item["person_uri"],
                         parsed=item["parsed"],
                         vector=all_vectors[idx],
-                    )
+                        contact_type=item.get("contact_type", "person"),
+                    ):
+                        skipped.append({
+                            "uid": item["parsed"].get("uid"),
+                            "fn": None,
+                            "stage": "qdrant_read",
+                            "error": "existing point unreadable; not overwritten",
+                        })
 
         # Step 7: Update state
         if not dry_run:
@@ -276,20 +378,26 @@ class ContactSyncer:
             self._save_state(state)
 
         # Step 8: Log summary
-        print("\n" + "=" * 60)
-        print("Sync complete:")
-        print(f"  People:        {counts['person']}")
-        print(f"  Businesses:    {counts['business']}")
-        print(f"  Unclassified:  {counts['unclassified']}")
-        print(f"  Errors:        {counts['errors']}")
+        logger.info("=" * 60)
+        logger.info("Sync complete:")
+        logger.info("  People:        %d", counts["person"])
+        logger.info("  Businesses:    %d", counts["business"])
+        logger.info("  Unclassified:  %d", counts["unclassified"])
+        logger.info("  Errors:        %d", counts["errors"])
         if deleted_hrefs:
-            print(f"  Deleted:       {deleted_count}/{len(deleted_hrefs)}")
-        print("=" * 60)
+            logger.info("  Deleted:       %d/%d", deleted_count, len(deleted_hrefs))
+        logger.info("=" * 60)
 
         if skipped:
-            print(f"\nSkipped contacts ({len(skipped)}):")
+            logger.warning("Skipped contacts (%d):", len(skipped))
             for item in skipped:
-                print(f"  - [{item['stage']}] {item.get('fn')!r} uid={item.get('uid')}: {item.get('error')}")
+                logger.warning(
+                    "  - [%s] %r uid=%s: %s",
+                    item["stage"],
+                    item.get("fn"),
+                    item.get("uid"),
+                    item.get("error"),
+                )
             # Persist skip log for post-sync analysis
             try:
                 skip_log = os.path.join(
@@ -305,9 +413,9 @@ class ContactSyncer:
                         fh,
                         indent=2,
                     )
-                print(f"  (written to {skip_log})")
+                logger.info("  (written to %s)", skip_log)
             except Exception as exc:
-                print(f"  (could not write skip log: {exc})")
+                logger.warning("  (could not write skip log: %s)", exc)
 
         imported = counts["person"] + counts["business"] + counts["unclassified"]
         return {
@@ -341,10 +449,11 @@ class ContactSyncer:
 
             {"imported": N, "skipped": N, "errors": [...], "deleted": 0}
         """
-        # Local helper -- keep prints off stdout so the caller can capture
-        # a single-line JSON status from stdout.
+        # Local helper -- route progress through the module logger (which writes
+        # to stderr by default) so the caller can still capture a single-line
+        # JSON status from stdout.
         def _log(msg: str) -> None:
-            print(msg, file=sys.stderr)
+            logger.info(msg)
 
         text = ""
         if os.path.isfile(vcf_path):
@@ -444,6 +553,7 @@ class ContactSyncer:
                             "person_uri": person_uri,
                             "parsed": parsed,
                             "description": description,
+                            "contact_type": contact_type,
                         }
                     )
             except Exception as exc:
@@ -470,12 +580,19 @@ class ContactSyncer:
 
             for idx, item in enumerate(qdrant_queue):
                 if idx < len(all_vectors):
-                    self._upsert_qdrant(
+                    if not self._upsert_qdrant(
                         person_id=item["person_id"],
                         person_uri=item["person_uri"],
                         parsed=item["parsed"],
                         vector=all_vectors[idx],
-                    )
+                        contact_type=item.get("contact_type", "person"),
+                    ):
+                        skipped.append({
+                            "uid": item["parsed"].get("uid"),
+                            "fn": None,
+                            "stage": "qdrant_read",
+                            "error": "existing point unreadable; not overwritten",
+                        })
 
         imported = counts["person"] + counts["business"] + counts["unclassified"]
         _log(
@@ -639,6 +756,8 @@ class ContactSyncer:
 
         vcards: List[str] = []
         for db_path in db_paths:
+            photo_stats = {"inline": 0, "external": 0, "images_dir": 0,
+                           "none": 0, "not_image": 0}
             try:
                 conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                 conn.row_factory = _sqlite3.Row
@@ -682,7 +801,13 @@ class ContactSyncer:
                     _col("ZBIRTHDAYDAY", "birth_day"),
                     _col("ZBIRTHDAY", "birth_day_only"),
                     _col("Z_PK", "pk"),
+                    # v1.0.111 contact photos. Neither column is guaranteed
+                    # on every macOS build, so both go through _col (absent
+                    # -> NULL) exactly like the birthday columns above.
+                    _col("ZIMAGEDATA", "image"),
+                    _col("ZTHUMBNAILIMAGEDATA", "thumb"),
                 ])
+                photo_cols = [c for c in ("ZIMAGEDATA", "ZTHUMBNAILIMAGEDATA") if c in avail]
                 try:
                     rows = conn.execute(
                         f"SELECT {sel} FROM ZABCDRECORD"
@@ -783,10 +908,22 @@ class ContactSyncer:
                                 )
                             except (TypeError, ValueError):
                                 pass
+                    photo = _abcddb_photo_bytes(db_path, r, uid, photo_stats)
+                    if photo:
+                        # vCard 3.0 ENCODING=b, one unfolded line: the shape
+                        # vcard_parser._PHOTO_LINE_RE extracts and sniffs, so
+                        # the existing _persist_photo path writes it to
+                        # PHOTO_DIR and foaf:img / profile_photo_path follow.
+                        lines.append(
+                            "PHOTO;ENCODING=b:" + base64.b64encode(photo).decode("ascii"))
                     if uid:
                         lines.append(f"UID:{uid}")
                     lines.append("END:VCARD")
                     vcards.append("\n".join(lines))
+                logger.warning(
+                    "abcddb photos in %s: columns=%s %s", db_path.parent.name or "top",
+                    ",".join(photo_cols) or "none",
+                    " ".join(f"{k}={v}" for k, v in sorted(photo_stats.items())))
             except Exception as exc:
                 logger.warning("Failed to read contacts from %s: %s", db_path, exc)
             finally:
@@ -847,10 +984,11 @@ class ContactSyncer:
             f"{self.cfg.EMBED_OLLAMA_URL}/api/embed",
             json={"model": self.cfg.EMBED_MODEL, "input": texts},
             timeout=120.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
         data = resp.json()
-        from contact_syncer.usage import record_embed_usage  # usage journal: enriching
+        from contact_syncer.usage import record_embed_usage  # usage journal (#482): enriching
         record_embed_usage(data, self.cfg.EMBED_MODEL)
         return data.get("embeddings", [])
 
@@ -912,8 +1050,12 @@ class ContactSyncer:
         person_uri: str,
         parsed: Dict[str, Any],
         vector: List[float],
-    ) -> None:
-        """Upsert a single person point into Qdrant."""
+        contact_type: str = "person",
+    ) -> bool:
+        """Upsert a single person point into Qdrant.
+
+        Returns False, having written nothing, when the existing point could
+        not be read (counted in qdrant_writes_skipped_unreadable)."""
         # Fresh-install self-heal: make sure the collection exists before
         # the first upsert of the run, sized from this real embedding.
         # Once per syncer run via the _collection_ensured latch (#638).
@@ -947,20 +1089,31 @@ class ContactSyncer:
         last_contact_ts: int = 0
         last_contact: str = ""
         point_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, person_uri))
-        try:
-            existing = self.qdrant.retrieve(
-                collection_name=self.cfg.QDRANT_COLLECTION,
-                ids=[point_uuid],
-                with_payload=True,
+        # ONLY THE RETRIEVE IS GUARDED, AND A FAILED READ SKIPS THE WRITE.
+        # This was one `try` around the retrieve and the preservation with
+        # `except Exception: pass  # point doesn't exist yet, fine`, followed
+        # by an UNCONDITIONAL upsert. A transient store failure took the same
+        # path as "no such point", and the upsert replaced the stored record
+        # (last_contact included) with a partial one, silently (board row
+        # 963). A missing collection is still a readable "no point" (first
+        # run). Same shape as the CM041 #172 social writers.
+        existing = read_existing_payload(
+            self.qdrant, self.cfg.QDRANT_COLLECTION, point_uuid
+        )
+        if not existing.readable:
+            self.qdrant_writes_skipped_unreadable += 1
+            logger.warning(
+                "Qdrant read failed for %s; NOT overwriting the stored record "
+                "(%d skipped this run)",
+                point_uuid, self.qdrant_writes_skipped_unreadable,
             )
-            if existing and existing[0].payload:
-                existing_ts = existing[0].payload.get("last_contact_ts") or 0
-                existing_lc = existing[0].payload.get("last_contact") or ""
-                if existing_ts:
-                    last_contact_ts = existing_ts
-                    last_contact = existing_lc
-        except Exception:
-            pass  # point doesn't exist yet, fine
+            return False
+        if existing.payload:
+            existing_ts = existing.payload.get("last_contact_ts") or 0
+            existing_lc = existing.payload.get("last_contact") or ""
+            if existing_ts:
+                last_contact_ts = existing_ts
+                last_contact = existing_lc
 
         payload = {
             "person_id": person_id,
@@ -987,7 +1140,12 @@ class ContactSyncer:
             "emails": [e["value"] for e in parsed.get("emails", [])],
             "icloud_uid": parsed.get("uid") or "",
             "profile_photo_path": parsed.get("profile_photo_path") or "",
-            "contact_type": "person",
+            # The REAL classification, not a literal. Businesses never
+            # reach Qdrant (they short-circuit to pwg:BusinessContact),
+            # but UNCLASSIFIED records do, and they were arriving here
+            # asserting they were human. Readers that filter
+            # contact_type == "person" were therefore filtering nothing.
+            "contact_type": contact_type or "unclassified",
             "privacy_level": self.cfg.DEFAULT_PRIVACY_LEVEL,
             "source": "icloud_contacts",
             "last_contact": last_contact,
@@ -1007,6 +1165,7 @@ class ContactSyncer:
             collection_name=self.cfg.QDRANT_COLLECTION,
             points=[point],
         )
+        return True
 
     def _resolve_and_write_person(
         self, parsed: Dict[str, Any], contact_type: str
@@ -1118,7 +1277,7 @@ class ContactSyncer:
             )
             parsed["profile_photo_path"] = path
         except Exception as exc:
-            print(f"    (photo write failed for {person_uri}: {exc})")
+            logger.warning("    (photo write failed for %s: %s)", person_uri, exc)
 
     def _create_person_oxigraph(
         self,
@@ -1274,12 +1433,13 @@ class ContactSyncer:
 
         # CM051 #2556: a bare kinship word ("Mum", "Wife") in the INCOMING
         # vCard must never overwrite this person's displayName -- including
-        # by blanking it. If the delete fires unconditionally and fn is then
-        # "" (falsy), the existing GOOD name is deleted and nothing replaces
-        # it, which is worse than leaving a stale name alone. So
-        # pwg:displayName is dropped from this run's delete set entirely
-        # when the incoming value is a relationship label, and whatever is
-        # already on the node (good or bad) is left untouched.
+        # by blanking it. "decline, never overwrite" (owner_node.py's own
+        # phrase for the same hazard): if the delete fires unconditionally
+        # and fn is then "" (falsy), the existing GOOD name is deleted and
+        # nothing replaces it, which is worse than leaving a stale name
+        # alone. So pwg:displayName is dropped from this run's delete set
+        # entirely when the incoming value is a relationship label, and
+        # whatever is already on the node (good or bad) is left untouched.
         _fn_is_relationship_label = is_relationship_label(_raw_fn)
         fn = "" if _fn_is_relationship_label else _raw_fn.replace('"', '\\"')
 
@@ -1382,7 +1542,19 @@ class ContactSyncer:
         self, person_uri: str, incoming_uid: str
     ) -> Optional[bool]:
         """True if *person_uri* already carries an icloud_contact_uid that is not
-        *incoming_uid*.
+        *incoming_uid*, AND does not also carry *incoming_uid* itself.
+
+        A node that already holds the incoming card's uid IS that card's node,
+        whatever else it holds. The converge path's ratified exception
+        (identity_resolver/exact_identifier.py: same full name plus a shared
+        email, mobile or LinkedIn) folds one person's two Contacts cards into
+        one node holding both uids. Asking only "any OTHER uid here?" refused
+        that survivor for BOTH of its own cards on every sync, so each
+        contact-resync tick minted a fresh node per card (v1.0.120 walk,
+        Mini16: one person, 8 live Person nodes, 2 uids between them). This is
+        the resolver's own rule (two PRESENT and DISJOINT value sets refuse):
+        a node holding only a different card still refuses, so RULE 2 is not
+        loosened.
 
         Returns None when the graph could not be read. "Could not look" and "no
         conflict" must not come back as the same value: a read failure that
@@ -1401,6 +1573,12 @@ class ContactSyncer:
             '  ?id pwg:identifierType "icloud_contact_uid" ;\n'
             "      pwg:identifierValue ?v .\n"
             f'  FILTER(str(?v) != "{safe_val}")\n'
+            "  FILTER NOT EXISTS {\n"
+            f"    <{person_uri}> pwg:hasIdentifier ?own .\n"
+            '    ?own pwg:identifierType "icloud_contact_uid" ;\n'
+            "         pwg:identifierValue ?ov .\n"
+            f'    FILTER(str(?ov) = "{safe_val}")\n'
+            "  }\n"
             "}"
         )
         try:
@@ -1450,7 +1628,8 @@ class ContactSyncer:
                     "Accept": "application/sparql-results+json",
                 },
                 timeout=30.0,
-             trust_env=False)
+                trust_env=False,
+            )
             resp.raise_for_status()
             return bool(resp.json().get("boolean", False))
         except Exception:
@@ -1539,7 +1718,8 @@ class ContactSyncer:
                 "Accept": "application/sparql-results+json",
             },
             timeout=30.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -1561,7 +1741,7 @@ class ContactSyncer:
             data = self._sparql_query(sparql)
             return [b["node"]["value"] for b in data.get("results", {}).get("bindings", [])]
         except Exception as exc:
-            print(f"    (lookup failed: {exc})")
+            logger.warning("    (lookup failed: %s)", exc)
             return []
 
     def _delete_node_full(self, node_uri: str) -> None:
@@ -1604,14 +1784,14 @@ WHERE {{
                 ),
             )
         except Exception as exc:
-            # Not fatal – business contacts never had a Qdrant point
-            print(f"    (Qdrant delete skipped for {node_uri}: {exc})")
+            # Not fatal — business contacts never had a Qdrant point
+            logger.warning("    (Qdrant delete skipped for %s: %s)", node_uri, exc)
 
         # Photo file: aligns with GDPR erasure – delete any portrait on disk
         try:
             remove_photo(node_uri, self.cfg.PHOTO_DIR)
         except Exception as exc:
-            print(f"    (photo unlink skipped for {node_uri}: {exc})")
+            logger.warning("    (photo unlink skipped for %s: %s)", node_uri, exc)
 
     def _process_deletions(self, deleted_hrefs: List[str]) -> int:
         """Delete contacts whose hrefs disappeared from CardDAV.
@@ -1621,19 +1801,19 @@ WHERE {{
         if not deleted_hrefs:
             return 0
 
-        print(f"\nProcessing {len(deleted_hrefs)} deletion(s)...")
+        logger.info("Processing %d deletion(s)...", len(deleted_hrefs))
         removed = 0
         seen_nodes: Set[str] = set()
 
         for href in deleted_hrefs:
             uids = self._candidate_uids_from_href(href)
             if not uids:
-                print(f"  SKIP: cannot extract UID from {href!r}")
+                logger.warning("  SKIP: cannot extract UID from %r", href)
                 continue
 
             nodes = self._find_nodes_by_icloud_uid(uids)
             if not nodes:
-                print(f"  SKIP: no Oxigraph node found for href {href} (uids={uids})")
+                logger.warning("  SKIP: no Oxigraph node found for href %s (uids=%s)", href, uids)
                 continue
 
             for node_uri in nodes:
@@ -1643,11 +1823,15 @@ WHERE {{
                 try:
                     self._delete_node_full(node_uri)
                     removed += 1
-                    print(f"  DELETED {node_uri}")
+                    logger.info("  DELETED %s", node_uri)
                 except Exception as exc:
-                    print(f"  ERROR deleting {node_uri}: {exc}")
+                    logger.error("  ERROR deleting %s: %s", node_uri, exc)
 
-        print(f"Deletion summary: removed {removed} node(s) from {len(deleted_hrefs)} href(s).")
+        logger.info(
+            "Deletion summary: removed %d node(s) from %d href(s).",
+            removed,
+            len(deleted_hrefs),
+        )
         return removed
 
     def _sparql_update(self, sparql: str) -> None:
@@ -1657,7 +1841,8 @@ WHERE {{
             content=sparql,
             headers={"Content-Type": "application/sparql-update"},
             timeout=30.0,
-         trust_env=False)
+            trust_env=False,
+        )
         resp.raise_for_status()
 
 
@@ -1730,6 +1915,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Configure console logging for direct CLI use so the progress/summary
+    # lines (now routed through the module logger) are visible on stderr, the
+    # same channel they used to print to. This is a no-op when the syncer is
+    # imported by a host (e.g. the daemon) that has already configured logging.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
     # Apply --graph-endpoint by mutating the config module so any code that
     # reads config.OXIGRAPH_URL after this point picks up the override.
     # ContactSyncer reads it inside __init__, so this must happen first.
@@ -1756,13 +1951,15 @@ def main() -> None:
         result = syncer.sync(limit=args.limit, dry_run=args.dry_run)
 
     if args.dedup and not args.dry_run and not args.vcf:
-        print("\nRunning duplicate detection...")
+        logger.info("Running duplicate detection...")
         detector = DedupDetector(config.OXIGRAPH_URL)
         report = detector.detect()
         print_report(report)
 
     # Single-line JSON status on stdout when requested or when reading from
     # a vCard file. install.sh's hydrate_graph step parses this with `jq`.
+    # This MUST stay on stdout (not the logger) -- it is a machine-readable
+    # CLI contract consumed by jq, not a diagnostic log line.
     if args.json or args.vcf:
         print(json.dumps(result or {"imported": 0, "skipped": 0, "errors": []}))
 

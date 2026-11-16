@@ -19,7 +19,7 @@
 # subprocess-shaped search: PROVED-RED-NONE here meant "not recognised", never
 # "not proven".
 #
-# What is actually proven, from `--self-test`, 9 passed / 0 failed:
+# What is actually proven, from `--self-test`, 16 passed / 0 failed (tag gate arms 10-15 added 2026-11-13):
 #   (1) RED   a pin whose install.sh predates the fix exits 1
 #   (4) RED   fires even though the pin IS an ancestor of the ref, which is the
 #             exact excuse that would otherwise wave the red away
@@ -118,10 +118,12 @@ done
 # algorithm in its self-test, which proved a copy correct and said nothing
 # about what shipped. Not repeating that.
 #
-# EXIT: 0 green, 1 pin is stale (BLOCK), 2 CANNOT-RUN (never a pass).
+# EXIT: 0 green, 1 pin is stale (BLOCK), 2 CANNOT-RUN (never a pass),
+#       3 SKIP (the cut is TAGGED and HEAD is past the tag: its cut.env is history).
+# SKIP is not green: it is printed as SKIP and the callers say so.
 # ---------------------------------------------------------------------------
 run_gate() {
-    local repo="$1" cut="$2" ref="$3" ref_was_default="${4:-0}"
+    local repo="$1" cut="$2" ref="$3"
 
     cd "$repo" 2>/dev/null || { echo "CANNOT-RUN: cannot enter '$repo'" >&2; return 2; }
     git rev-parse --git-dir >/dev/null 2>&1 || { echo "CANNOT-RUN: not a git repository" >&2; return 2; }
@@ -137,30 +139,43 @@ run_gate() {
     local env_file="cuts/${cut}/cut.env"
     [ -f "$env_file" ] || { echo "CANNOT-RUN: no ${env_file}" >&2; return 2; }
 
-    # A SHIPPED CUT IS COMPARED AGAINST WHAT SHIPPED, NOT AGAINST HEAD (#600).
+    # A SHIPPED CUT IS HISTORY, NOT A CLAIM ABOUT MAIN (#600, and 2026-11-13).
     #
-    # This gate exists to stop a cut being TAGGED on a pin chosen early -- it
-    # is what caught v1.0.31. While a cut is being prepared, HEAD is exactly
-    # the right ref. But the moment the tag exists, the tree being cut is
-    # frozen AT the tag and main is supposed to move past it: v1.0.38's record
-    # went red the instant #939 touched install.sh, and it would stay red for
-    # ever, widening.
+    # The gate exists to stop a cut being TAGGED on a pin chosen early. At tag
+    # time the ref being cut IS the tag, so the comparison below is the check
+    # that matters and it must run. Once main has moved PAST the tag, the cut
+    # record describes history: main moving on is correct, not staleness, and
+    # a red here only teaches people to ignore this gate (v1.0.129 went red this
+    # way on every PR after its tag).
     #
-    # That is not a harmless nag. The remediation this gate printed was
-    # "re-point CM051= to the ref being cut", and following it post-ship makes
-    # the v1.0.38 record claim it cut code that shipped AFTER v1.0.38. The
-    # register would be confidently wrong about the one thing it exists to
-    # record. The two outcomes on offer were: falsify the record, or learn to
-    # ignore a red gate -- and the second is worse, because it is the same
-    # gate that guards the NEXT cut.
-    #
-    # Only applies when the caller DEFAULTED the ref. An explicit --ref is a
-    # deliberate question and is always honoured.
-    if [ "$ref_was_default" = "1" ] && git rev-parse --verify --quiet "refs/tags/${cut}" >/dev/null 2>&1; then
-        ref="${cut}^{}"
-        echo "  note: ${cut} is TAGGED, so this compares the record against what"
-        echo "        SHIPPED, not against HEAD. main moving on after a tag is"
-        echo "        correct and is not staleness. See HR015 #600."
+    # So: tag present AND ref is not the tagged commit -> SKIP (exit 3), said
+    # out loud. Tag present AND ref IS the tagged commit -> compare as normal.
+    # Tag absent -> compare as normal. Tags UNREADABLE -> CANNOT-RUN, never SKIP:
+    # a skip we could not justify is a pass we did not earn.
+    local tag_list tag_rc
+    tag_list="$(git for-each-ref --format='%(refname)' 'refs/tags/' 2>&1)"; tag_rc=$?
+    if [ "$tag_rc" -ne 0 ]; then
+        echo "CANNOT-RUN: cannot read the tags of this checkout (git for-each-ref exit ${tag_rc})" >&2
+        echo "  ${tag_list}" | head -2 >&2
+        return 2
+    fi
+    if grep -qx "refs/tags/${cut}" <<<"$tag_list"; then
+        local tag_sha ref_head_sha
+        tag_sha="$(git rev-parse --verify --quiet "refs/tags/${cut}^{commit}")" || {
+            echo "CANNOT-RUN: tag ${cut} is listed but does not resolve to a commit" >&2; return 2; }
+        ref_head_sha="$(git rev-parse --verify --quiet "${ref}^{commit}")" || {
+            echo "CANNOT-RUN: ref '${ref}' does not resolve in this checkout" >&2; return 2; }
+        if [ "$tag_sha" != "$ref_head_sha" ]; then
+            echo "SKIP: ${cut} is tagged, so its cut.env is history. main is past the tag"
+            echo "      (tag ${tag_sha}, ref ${ref_head_sha}). Not compared, and not green either."
+            return 3
+        fi
+        echo "  note: ${cut} is tagged at the ref being cut, so this is the tag-time check and it runs."
+    elif [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+        echo "CANNOT-RUN: this is a shallow clone, so the tags cannot be trusted to be complete." >&2
+        echo "  Cannot tell whether ${cut} is tagged, so cannot decide between SKIP and COMPARE." >&2
+        echo "  Fetch the tags (checkout fetch-tags: true, fetch-depth: 0)." >&2
+        return 2
     fi
 
     # Read the key without sourcing. cut.env is written for a permissive shell
@@ -303,29 +318,51 @@ if [ "$SELF_TEST" -eq 1 ]; then
       git add -A && git -c user.email=t@t -c user.name=t commit -qm "a post-cut fix, as main is supposed to receive"
     ) >/dev/null 2>&1
 
-    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" "1" ) > "$d/tagged.out" 2>&1; rct=$?
-    [ "$rct" -eq 0 ] && ok "(10) a TAGGED cut with a correct record is GREEN even though main moved" \
-                     || no "(10) a shipped cut read stale (exit ${rct}) -- #600 is back"
-    grep -qi 'is TAGGED' "$d/tagged.out" \
-        && ok "(11) and it SAYS why it compared against the tag" \
-        || no "(11) redirected silently; a reader cannot tell which ref was used"
-
-    # ANTI-OVERREACH: an EXPLICIT ref is a deliberate question and must not be
-    # redirected. Without this, the fix above would make it impossible to ask
-    # "has main drifted from what shipped?" -- which is a real question.
-    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" "0" ) > "$d/explicit.out" 2>&1; rce=$?
-    [ "$rce" -eq 1 ] && ok "(12) an EXPLICIT ref is still honoured and still reports the drift" \
-                     || no "(12) explicit ref was redirected too (exit ${rce}) -- the fix overreached"
+    # SKIP: the cut is tagged and main is past it. Passing --ref HEAD explicitly
+    # (as the workflow does) must SKIP too: the SKIP is decided by the tag, not
+    # by whether the caller defaulted the ref.
+    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" ) > "$d/tagged.out" 2>&1; rct=$?
+    [ "$rct" -eq 3 ] && ok "(10) TAGGED cut, main past the tag: SKIP (exit 3), not green and not red" \
+                     || no "(10) tagged-and-moved cut gave exit ${rct}, expected SKIP 3"
+    grep -q 'is tagged, so its cut.env is history' "$d/tagged.out" \
+        && ok "(11) and the SKIP says why, in those words" \
+        || no "(11) SKIP printed no reason"
+    # THE TAG-TIME CHECK STILL RUNS. Cut v1.0.32 is tagged AT the ref with a
+    # stale pin: the tag must not be a way to switch the gate off at the one
+    # moment it matters (cut.yml runs on the tag push, with HEAD == the tag).
+    ( cd "$HOME_REPO" && git checkout -q -- cuts/v1.0.31/cut.env 2>/dev/null
+      mkdir -p cuts/v1.0.32 && printf 'CM051=%s\n' "$(git rev-parse HEAD~2)" > cuts/v1.0.32/cut.env
+      git add cuts/v1.0.32/cut.env && git -c user.email=t@t -c user.name=t commit -qm "cut v1.0.32 pinned at a stale tree"
+      git tag v1.0.32 HEAD ) >/dev/null 2>&1
+    ( run_gate "$HOME_REPO" "v1.0.32" "HEAD" ) > "$d/tagbuild.out" 2>&1; rcb=$?
+    [ "$rcb" -eq 1 ] && ok "(13) TAG-TIME: a cut TAGGED AT the ref with a stale pin is still RED (exit 1), not SKIP" \
+                     || no "(13) tag-time stale pin gave exit ${rcb}, expected 1 -- tagging would switch the gate off"
+    grep -q 'STALE PIN' "$d/tagbuild.out" && ok "(13b) and it names the stale pin" || no "(13b) no STALE PIN at tag time"
+    # TAG ABSENT: a cut that is not tagged compares, and a stale pin is red.
+    ( cd "$HOME_REPO" && mkdir -p cuts/v1.0.33 && printf 'CM051=%s\n' "$(git rev-parse HEAD~2)" > cuts/v1.0.33/cut.env
+      git add cuts/v1.0.33/cut.env && git -c user.email=t@t -c user.name=t commit -qm "cut v1.0.33, untagged, stale" ) >/dev/null 2>&1
+    ( run_gate "$HOME_REPO" "v1.0.33" "HEAD" ) > "$d/untagged.out" 2>&1; rcu=$?
+    [ "$rcu" -eq 1 ] && ok "(14) TAG ABSENT: an untagged cut with a stale pin is still RED (exit 1)" \
+                     || no "(14) untagged stale pin gave exit ${rcu}, expected 1"
+    # TAGS UNREADABLE: a shallow clone cannot prove a tag is absent. CANNOT-RUN, never SKIP.
+    rm -rf "$d/shallow"; git clone -q --depth 1 "file://${HOME_REPO}" "$d/shallow" >/dev/null 2>&1
+    ( run_gate "$d/shallow" "v1.0.31" "HEAD" ) > "$d/shallow.out" 2>&1; rcs=$?
+    [ "$rcs" -eq 2 ] && ok "(15) TAGS UNREADABLE (shallow clone): CANNOT-RUN (exit 2), not SKIP, not PASS" \
+                     || no "(15) shallow clone gave exit ${rcs}, expected CANNOT-RUN 2"
+    grep -q 'shallow clone' "$d/shallow.out" && ok "(15b) and it names the shallow clone as the reason" \
+                                             || no "(15b) CANNOT-RUN printed no reason"
 
     ( run_gate "$HOME_REPO" "v9.9.9" "HEAD" ) >/dev/null 2>&1
     [ $? -eq 2 ] && ok "(7) CANNOT-RUN on a missing cut record (exit 2, not a pass)" \
                  || no "(7) a missing cut record did not produce CANNOT-RUN"
-    ( cd "$HOME_REPO" && printf 'CM051=deadbeefdeadbeef\n' > cuts/v1.0.31/cut.env )
-    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" ) >/dev/null 2>&1
+    # Untagged cut v1.0.34 for arms (8) and (9): v1.0.31 is tagged by now and
+    # would SKIP before the pin is ever read, which is correct but proves nothing here.
+    ( cd "$HOME_REPO" && mkdir -p cuts/v1.0.34 && printf 'CM051=deadbeefdeadbeef\n' > cuts/v1.0.34/cut.env )
+    ( run_gate "$HOME_REPO" "v1.0.34" "HEAD" ) >/dev/null 2>&1
     [ $? -eq 2 ] && ok "(8) CANNOT-RUN on an unresolvable pin (exit 2, not a pass)" \
                  || no "(8) an unresolvable pin did not produce CANNOT-RUN"
-    ( cd "$HOME_REPO" && : > cuts/v1.0.31/cut.env )
-    ( run_gate "$HOME_REPO" "v1.0.31" "HEAD" ) >/dev/null 2>&1
+    ( cd "$HOME_REPO" && : > cuts/v1.0.34/cut.env )
+    ( run_gate "$HOME_REPO" "v1.0.34" "HEAD" ) >/dev/null 2>&1
     [ $? -eq 2 ] && ok "(9) CANNOT-RUN when cut.env declares no CM051 pin" \
                  || no "(9) a pin-less cut.env did not produce CANNOT-RUN"
 
@@ -339,9 +376,6 @@ fi
 # ===========================================================================
 REPO="${REPO_ARG:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REF="${REF_ARG:-${OSTLER_CUT_REF:-HEAD}}"
-# Did the CALLER choose this ref, or did it fall through to the default?
-# Only a defaulted ref may be redirected to a cut tag (see #600).
-if [ -n "${REF_ARG:-}" ] || [ -n "${OSTLER_CUT_REF:-}" ]; then REF_WAS_DEFAULT=0; else REF_WAS_DEFAULT=1; fi
 CUT="${CUT_ARG:-${OSTLER_CUT_VERSION:-${GITHUB_REF_NAME:-}}}"
 # A branch name is not a cut tag. Only take GITHUB_REF_NAME when it looks like one.
 case "$CUT" in
@@ -349,5 +383,5 @@ case "$CUT" in
     *) CUT="" ;;
 esac
 
-run_gate "$REPO" "$CUT" "$REF" "$REF_WAS_DEFAULT"
+run_gate "$REPO" "$CUT" "$REF"
 exit $?

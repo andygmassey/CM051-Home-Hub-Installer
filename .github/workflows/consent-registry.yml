@@ -33,11 +33,16 @@ on:
       # other two.
       - 'tests/test_the_licence_acknowledgement_reaches_the_customer.sh'
       - 'tests/test_the_licence_screen_says_what_we_hash.sh'
+      - 'tests/test_consent_records_survive_the_promote.sh'
       - 'install.sh.strings.en-GB.sh'
       - 'vendor/legal/consent_strings.py'
       - 'vendor/doctor/agent/dashboard_components.py'
       - 'vendor/legal/__init__.py'
       - '.github/workflows/consent-registry.yml'
+      - 'lib/ostler_consent_display.py'
+      - 'tests/test_consent_display_record.py'
+      - 'vendor/ostler_security/consent.py'
+      - 'tests/test_consent_wording_hashes_published.py'
   push:
     branches: [main]
 
@@ -108,6 +113,10 @@ jobs:
       # each APPLIED to a copy and asserted present in the mutated text before
       # being driven: the terms back inside the SKIP_PHASE2 guard, an unknown
       # record upgraded to accepted, and the drift map reverted to five names.
+      - name: the consent log records the language and reviewed wording shown (owner ruling 2026-10-24)
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_display_record.py
+
       - name: the licence acknowledgement reaches the customer, end to end
         if: always()
         run: bash tests/test_the_licence_acknowledgement_reaches_the_customer.sh
@@ -122,6 +131,12 @@ jobs:
         # the consent registry. A record naming wording the person never saw is
         # worse than no record, because it looks like evidence.
         run: bash tests/test_the_licence_screen_says_what_we_hash.sh
+      - name: the installed wording hashes match the wording the app is gated on
+        # CM042 RemoteCapture refuses capture unless its consent record carries
+        # the hash in posture/consent_wording_hashes.json. This drives publish-wording
+        # for real and checks the published hash is the SHA-256 of the screen text.
+        if: always()
+        run: PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 tests/test_consent_wording_hashes_published.py
       - name: Customer copy says the app, not the repository (#1008)
         if: always()
         # MEASURED on main 2026-09-18: the strings file the installer PRINTS
@@ -131,3 +146,9 @@ jobs:
         # thing they cannot find in the App Store. The rule was locked and
         # nothing was checking it.
         run: python3 tests/test_customer_copy_says_ios_app_not_companion.py
+      - name: Consent records survive the staging promote (v1.0.116 loss)
+        if: always()
+        # Runs the REAL 3.6b persist block and the REAL promote against the real
+        # vendored ostler_security, both trees holding posture/. Needs the
+        # cryptography install from the step above; CANNOT-RUN exits non-zero.
+        run: bash tests/test_consent_records_survive_the_promote.sh

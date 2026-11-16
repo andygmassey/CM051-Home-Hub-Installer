@@ -1,8 +1,26 @@
-diff --git a/brief.py b/brief.py
-index 3f1dcd8a..388abe4d 100644
 --- a/brief.py
 +++ b/brief.py
-@@ -59,6 +59,22 @@ from meeting_syncer.calendar_client import fetch_events
+@@ -49,19 +49,6 @@
+ if _PARENT_DIR not in sys.path:
+     sys.path.insert(0, _PARENT_DIR)
+ 
+-# BELOW the sys.path insert, not above it, and this file is run as a script:
+-# `python meeting_syncer/brief.py` puts meeting_syncer/ on sys.path, not the
+-# repo root, so a repo-root import placed with the third-party ones raises
+-# ModuleNotFoundError before main() is reached. Every test still passed when
+-# it was up there, because pytest runs from the repo root and never uses the
+-# entry point. test_brief_reads_the_graph_cm048_writes_to.py now RUNS the
+-# script so that cannot happen quietly again.
+-#
+-# read_across_graphs is the ONE definition of "read the default graph and the
+-# named ones too" -- see identity_resolver/compartment.py for the measured
+-# evidence and the compartment exclusion.
+-from identity_resolver.compartment import read_across_graphs
+-
+ from meeting_syncer import config
+ from meeting_syncer.calendar_client import fetch_events
+ 
+@@ -72,6 +59,22 @@
  # with it.
  import pwg_privacy
  
@@ -25,7 +43,7 @@ index 3f1dcd8a..388abe4d 100644
  logger = logging.getLogger(__name__)
  logging.basicConfig(level=logging.INFO, format="%(message)s")
  
-@@ -173,6 +189,12 @@ def _days_overdue(deadline: str, *, today: Optional[Any] = None) -> Optional[int
+@@ -186,6 +189,12 @@
  
  
  def _sparql_query(oxigraph_url, sparql):
@@ -38,20 +56,221 @@ index 3f1dcd8a..388abe4d 100644
      resp = httpx.post(
          oxigraph_url.rstrip("/") + "/query",
          content=sparql,
-@@ -181,7 +203,7 @@ def _sparql_query(oxigraph_url, sparql):
-             "Accept": "application/sparql-results+json",
-         },
-         timeout=30.0,
+@@ -304,19 +313,28 @@
+ def _get_meeting_history(oxigraph_url, person_uri):
+     """Get past meetings with this person, most recent first."""
+     sparql = """
+-    PREFIX pwg: <{}>
+-    SELECT ?summary ?date ?id WHERE {{
++    PREFIX pwg: <{0}>
++    SELECT ?summary ?date ?id ?mpriv ?ownerPriv WHERE {{
+       ?meeting a pwg:Meeting ;
+-               pwg:meetingAttendee <{}> ;
++               pwg:meetingAttendee <{1}> ;
+                pwg:meetingSummary ?summary .
+       OPTIONAL {{ ?meeting pwg:meetingDate ?date }}
+       OPTIONAL {{ ?meeting pwg:meetingId ?id }}
++      OPTIONAL {{ ?meeting pwg:privacyLevel ?mpriv }}
++      OPTIONAL {{ <{1}> pwg:privacyLevel ?ownerPriv }}
+     }}
+     ORDER BY DESC(?date)
+     """.format(PWG, person_uri)
+     result = _sparql_query(oxigraph_url, sparql)
+     meetings = []
+     for b in result.get("results", {}).get("bindings", []):
++        # Outbound (brief) path: same fail-closed L3 filter as
++        # _get_person_facts. The meeting's own level and the attendee's
++        # level are both read, most-restrictive wins, and a meeting with
++        # no parseable level on either axis is dropped.
++        if pwg_privacy.is_l3({"privacy_level": b.get("mpriv", {}).get("value")},
++                             owner_level=b.get("ownerPriv", {}).get("value")):
++            continue
+         meetings.append({
+             "summary": b["summary"]["value"],
+             "date": b.get("date", {}).get("value", ""),
+@@ -338,26 +356,48 @@
+     in the graph from a contact-sync without any conversation having
+     been ingested yet).
+     """
+-    # CM048 writes these facts into a per-user NAMED graph, so this query
+-    # returned 0 rows as shipped on a box holding 1,353 of them. See
+-    # read_across_graphs for the measurement and why it is a UNION.
+-    body = """
++    sparql = """
++    PREFIX pwg: <urn:ostler:>
++    SELECT ?conv ?date ?fpriv WHERE {{
+       ?fact <urn:ostler:about> <{person}> ;
+             <urn:ostler:fromConversation> ?conv .
+       OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
++      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}
++    }}
++    ORDER BY DESC(?date)
+     """.format(person=person_uri)
+-    sparql = (
+-        "PREFIX pwg: <urn:ostler:>\n"
+-        "SELECT DISTINCT ?conv ?date WHERE {\n"
+-        + read_across_graphs(body)
+-        + "\n}\nORDER BY DESC(?date)\nLIMIT 1"
 -    )
-+     trust_env=False)
-     resp.raise_for_status()
-     return resp.json()
+     try:
+         result = _sparql_query(oxigraph_url, sparql)
+     except Exception as exc:
+         logger.warning("last-conversation query failed for %s: %s", person_uri, exc)
+         return ""
+-    bindings = result.get("results", {}).get("bindings", [])
++    # No LIMIT in the query: the L3 filter must run BEFORE the "most recent"
++    # pick, or an L3 fact's conversation would hide a visible one. Same
++    # fail-closed rule as _get_person_facts: the fact's level and the
++    # person's level, most-restrictive wins, nothing parseable -> dropped.
++    # The person's level is a separate read because the person node and the
++    # CM048 fact can sit in different graphs; a failed read leaves it
++    # unknown, which only ever hides more.
++    owner_level = None
++    try:
++        owner_rows = _sparql_query(
++            oxigraph_url,
++            "SELECT ?l WHERE {{ <{p}> <{pwg}privacyLevel> ?l }}".format(
++                p=person_uri, pwg=PWG))
++        levels = [r.get("l", {}).get("value") for r in
++                  owner_rows.get("results", {}).get("bindings", [])]
++        if any(pwg_privacy.parse_privacy_level(v) == "L3" for v in levels):
++            owner_level = "L3"
++        elif levels:
++            owner_level = levels[0]
++    except Exception as exc:
++        logger.warning("person-level query failed for %s: %s", person_uri, exc)
++    bindings = [
++        b for b in result.get("results", {}).get("bindings", [])
++        if not pwg_privacy.is_l3(
++            {"privacy_level": b.get("fpriv", {}).get("value")},
++            owner_level=owner_level)
++    ]
+     if not bindings:
+         return ""
+     conv_uri = bindings[0].get("conv", {}).get("value", "")
+@@ -380,12 +420,21 @@
+     Returns a list of dicts shaped for direct inclusion in the brief
+     payload. Status filter is ``open`` so closed-out todos do not
+     clutter the brief once v1.0.1 wires the closure pass.
++
++    L3 (most private) todos are excluded, and so is any todo whose
++    ``privacyLevel`` is not exactly L0, L1 or L2 (trim and case
++    insensitive): an unparseable or unexpected value fails closed, the
++    same as the commitments API. CM048's writer already skips L3
++    conversations and writes a plain "L0".."L3" literal; this filter is
++    belt and braces, because the brief is emailed. A todo with NO
++    ``privacyLevel`` (legacy, written before CM048 tagged todos) is KEPT
++    and behaves as it did before. The filter
++    is in the query so ``LIMIT`` applies to the rows that survive it.
+     """
+-    # Same named-graph problem as the conversation query above: 0 rows as
+-    # shipped on a box holding 76 outstanding todos, which is why the brief's
+-    # todo list has always been empty. DISTINCT collapses a todo that matches
+-    # in both arms of the UNION.
+-    body = """
++    sparql = """
++    PREFIX pwg: <urn:ostler:>
++    SELECT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority
++           ?status ?sourceDate ?createdAt ?plevel WHERE {{
+       ?todo a <urn:ostler:OutstandingTodo> ;
+             <urn:ostler:aboutPerson> <{person}> ;
+             <urn:ostler:todoText> ?text ;
+@@ -396,16 +445,13 @@
+       OPTIONAL {{ ?todo <urn:ostler:priority> ?priority }}
+       OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
+       OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
++      OPTIONAL {{ ?todo <urn:ostler:privacyLevel> ?plevel }}
+       FILTER (?status = "open")
+-    """.format(person=person_uri)
+-    sparql = (
+-        "PREFIX pwg: <urn:ostler:>\n"
+-        "SELECT DISTINCT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority\n"
+-        "       ?status ?sourceDate ?createdAt WHERE {\n"
+-        + read_across_graphs(body)
+-        + "\n}\nORDER BY DESC(?createdAt)\n"
+-        + "LIMIT {:d}".format(_MAX_TODOS_PER_ATTENDEE)
+-    )
++      FILTER (!BOUND(?plevel) || REGEX(STR(?plevel), "^[ \\t]*[Ll][0-2][ \\t]*$"))
++    }}
++    ORDER BY DESC(?createdAt)
++    LIMIT {limit}
++    """.format(person=person_uri, limit=_MAX_TODOS_PER_ATTENDEE)
+     try:
+         result = _sparql_query(oxigraph_url, sparql)
+     except Exception as exc:
+@@ -432,7 +478,19 @@
+     return todos
  
-diff --git a/calendar_client.py b/calendar_client.py
-index 7d312e50..aba4cff1 100644
+ 
+-def pre_meeting_brief(days=1, events_provider=None):
++def _owner_declined(attendees, owner_emails):
++    """True when an owner address is listed on the event with PARTSTAT /
++    responseStatus DECLINED. Both calendar paths expose that as ``status``
++    (ical-server.py _parse_attendee, query_google_calendar)."""
++    owners = {e.lower() for e in owner_emails}
++    return any(
++        (a.get("email") or "").lower() in owners
++        and str(a.get("status") or "").upper() == "DECLINED"
++        for a in attendees
++    )
++
++
++def pre_meeting_brief(days=1, events_provider=None, report=None):
+     """Generate pre-meeting briefs for upcoming meetings with attendees.
+ 
+     See ``SCHEMA.md`` for the wire shape this function returns. The
+@@ -441,16 +499,26 @@
+     ``attendees`` top-level shape, where each attendee has
+     ``name`` / ``wiki_url`` / ``facts`` / ``times_met`` /
+     ``last_met`` / ``last_discussion_url`` / ``outstanding_todos``.
++
++    A timed event with no attendees is kept with ``attendees: []``: the
++    sender sends it as a one-line nudge. An all-day event with no attendees
++    is dropped (it has no time to nudge about), and so is a solo event the
++    owner DECLINED. Free/transparent is not dropped: no calendar path exposes it. ``report``, when given, is
++    filled with ``considered`` (events read) and ``filtered`` (``{uid,
++    reason}`` for each event dropped here), so the sender can log why.
+     """
+     owner_emails = set(config.OWNER_EMAILS)
+     oxigraph_url = config.OXIGRAPH_URL
+ 
+     if events_provider is None:
+-        events = fetch_events(config.CALENDAR_API_URL, days)
++        events = fetch_events(config.CALENDAR_API_URL, days, require_attendees=False)
+     else:
+         events = fetch_events(
+-            config.CALENDAR_API_URL, days, events_provider=events_provider
++            config.CALENDAR_API_URL, days, events_provider=events_provider,
++            require_attendees=False,
+         )
++    if report is not None:
++        report.update(considered=len(events or []), filtered=[])
+     if not events:
+         return []
+ 
+@@ -461,7 +529,18 @@
+             a for a in attendees
+             if a.get("email", "").lower() not in owner_emails
+         ]
+-        if not other_attendees:
++        if not other_attendees and (
++            event.get("all_day") or not event.get("start")
++            or _owner_declined(attendees, owner_emails)
++        ):
++            if report is not None:
++                if event.get("all_day"):
++                    reason = "all_day_no_attendees"
++                elif not event.get("start"):
++                    reason = "no_start"
++                else:
++                    reason = "declined"
++                report["filtered"].append({"uid": event.get("uid", ""), "reason": reason})
+             continue
+ 
+         location = event.get("location", "")
 --- a/calendar_client.py
 +++ b/calendar_client.py
-@@ -2,9 +2,24 @@ from __future__ import annotations
+@@ -2,14 +2,31 @@
  
  from typing import List, Optional
  
@@ -60,6 +279,7 @@ index 7d312e50..aba4cff1 100644
  import httpx
  
  
+-def fetch_events(api_url, days=30, events_provider=None):
 +def _service_token():
 +    """Loopback service token the ical-server requires on every non-public route."""
 +    tok = (os.environ.get("PWG_SERVICE_TOKEN") or os.environ.get("OSTLER_SERVICE_TOKEN") or "").strip()
@@ -73,14 +293,26 @@ index 7d312e50..aba4cff1 100644
 +        return ""
 +
 +
- def fetch_events(api_url, days=30):
++def fetch_events(api_url, days=30, events_provider=None, require_attendees=True):
      """Fetch calendar events from the unified calendar API.
  
-@@ -12,7 +27,18 @@ def fetch_events(api_url, days=30):
-     one attendee are included.
+-    Returns list of event dicts. Only events with both a UID and at least
+-    one attendee are included.
++    Returns list of event dicts. Only events with a UID are included, and,
++    unless ``require_attendees`` is False, at least one attendee.
++    The pre-meeting brief passes False so attendee-less timed events reach
++    the sender, which nudges about them; the sync path keeps the old filter.
+ 
+     ``events_provider`` (``days -> list of event dicts``) reads the calendar
+     in-process instead of over HTTP. The Hub passes it when the brief runs
+@@ -18,11 +35,22 @@
      """
+     if events_provider is not None:
+         events = events_provider(days)
+-        return [e for e in events if e.get("attendees") and e.get("uid")]
++        return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]
      url = api_url.rstrip("/") + "/calendar"
--    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0)
+-    resp = httpx.get(url, params={"days": str(days)}, timeout=30.0, trust_env=False)
 +    headers = {}
 +    token = _service_token()
 +    if token:
@@ -96,11 +328,13 @@ index 7d312e50..aba4cff1 100644
      resp.raise_for_status()
      data = resp.json()
      events = data.get("events", [])
-diff --git a/config.py b/config.py
-index 85a25bd7..55fcaddd 100644
+-    # Filter to events with attendees and a UID
+-    return [e for e in events if e.get("attendees") and e.get("uid")]
++    # Filter to events with a UID (and attendees, unless the caller opts out)
++    return [e for e in events if (e.get("attendees") or not require_attendees) and e.get("uid")]
 --- a/config.py
 +++ b/config.py
-@@ -26,7 +26,10 @@ _config_dir = os.path.dirname(os.path.abspath(__file__))
+@@ -26,7 +26,10 @@
  _load_dotenv(os.path.join(_config_dir, ".env"))
  _load_dotenv(".env")
  
@@ -112,59 +346,70 @@ index 85a25bd7..55fcaddd 100644
  QDRANT_URL = os.environ.get("QDRANT_URL", "")
  QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
  OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
-diff --git a/decision_extractor.py b/decision_extractor.py
-index bcdcecb2..b442591d 100644
---- a/decision_extractor.py
-+++ b/decision_extractor.py
-@@ -212,7 +212,7 @@ def _sparql_query(oxigraph_url: str, sparql: str) -> dict:
-             "Accept": "application/sparql-results+json",
-         },
-         timeout=30.0,
--    )
-+     trust_env=False)
-     resp.raise_for_status()
-     return resp.json()
- 
-@@ -223,7 +223,7 @@ def _sparql_update(oxigraph_url: str, sparql: str) -> None:
-         content=sparql,
-         headers={"Content-Type": "application/sparql-update"},
-         timeout=30.0,
--    )
-+     trust_env=False)
-     resp.raise_for_status()
- 
- 
-diff --git a/syncer.py b/syncer.py
-index fb776946..17032830 100644
 --- a/syncer.py
 +++ b/syncer.py
-@@ -104,7 +104,7 @@ class MeetingSyncer:
-                 "Accept": "application/sparql-results+json",
-             },
-             timeout=30.0,
--        )
-+         trust_env=False)
-         resp.raise_for_status()
-         return resp.json()
+@@ -252,7 +252,12 @@
+                         points=[point.id],
+                     )
+             except Exception as e:
+-                logger.warning("Failed to update Qdrant lastContact for %s: %s", person_uri, e)
++                # Neither the person URI nor the exception text (S8, 118). Some
++                # writers mint the URI from a hash of the display name
++                # (contact_syncer/linkedin_career.py _deterministic_id), which a
++                # known name confirms, and a hash of the URI would confirm just
++                # the same. The exception text can echo the request payload.
++                logger.warning("Failed to update Qdrant lastContact: %s", type(e).__name__)
  
-@@ -114,7 +114,7 @@ class MeetingSyncer:
-             content=sparql,
-             headers={"Content-Type": "application/sparql-update"},
-             timeout=30.0,
--        )
-+         trust_env=False)
-         resp.raise_for_status()
+     # Local parts of attendee emails that indicate system/event accounts,
+     # not humans. Used to skip creating phantom "person" nodes for event
+@@ -372,9 +377,11 @@
+             return None
  
-     def _create_meeting(self, event):
-@@ -390,6 +390,11 @@ class MeetingSyncer:
-         # fuzzy-merging into the wrong existing one.
-         match = self.resolver.resolve(identity, use_fuzzy=False)
+         if self._looks_non_human(name, email):
++            # Never the name or address (S8, 118): logs leave the box in
++            # diagnostics bundles. Which fields were present is enough.
+             logger.info(
+-                "  Skipping non-human attendee: %s <%s>",
+-                name or "(no name)", email or "(no email)",
++                "  Skipping a non-human attendee (name=%s, email=%s)",
++                "yes" if name else "no", "yes" if email else "no",
+             )
+             return None
  
-+        # A forgotten (tombstoned) attendee is neither linked nor re-created;
-+        # the caller skips a None. The meeting itself is shared, so it stays.
-+        if match.match_type == "forgotten":
-+            return None
-+
-         if match.person_uri:
-             return match.person_uri
+@@ -402,7 +409,9 @@
  
+         # Create new person
+         person_uri = self.resolver.create_person(identity, config.USER_ID)
+-        logger.info("  Created person: %s (%s)", name or email, person_uri)
++        # No name, email or URI (S8, 118): the URI is not always opaque (see
++        # the lastContact warning above). The run summary carries the counts.
++        logger.info("  Created a person")
+         return person_uri
+ 
+     def sync(self, days=30, dry_run=False):
+@@ -448,7 +457,6 @@
+                 skipped += 1
+                 continue
+ 
+-            summary = event.get("summary", "(no title)")
+             meeting_date = _parse_event_datetime(event.get("start"))
+             attendees = event.get("attendees", [])
+ 
+@@ -462,11 +470,14 @@
+                 processed.add(uid)
+                 continue
+ 
+-            logger.info("  Meeting: %s (%s) — %d attendees", summary, meeting_date or "?", len(other_attendees))
++            # The meeting's hashed id, never its title: a title often carries a
++            # person's name ("Lunch with ...") (S8, 118).
++            logger.info("  Meeting %s (%s): %d attendees",
++                        _meeting_uri(uid), meeting_date or "?", len(other_attendees))
+ 
+             if dry_run:
+-                for a in other_attendees:
+-                    logger.info("    [DRY RUN] %s <%s>", a.get("name", ""), a.get("email", ""))
++                # A count, never each attendee's name or address (S8, 118).
++                logger.info("    [DRY RUN] would link %d attendees", len(other_attendees))
+                 processed.add(uid)
+                 meetings_created += 1
+                 continue

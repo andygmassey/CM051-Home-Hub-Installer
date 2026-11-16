@@ -22,6 +22,8 @@
 #       isolation;
 #   (e) the database file is not openable as plain SQLite without any key.
 #
+# WALK_WRITES: bootstraps then boots out one throwaway LaunchAgent (com.ostler.walkprobe.dbkey-posture, cloned from the installed email-bundle plist) that imports src.ingest, which rewrites ~/.ostler/security-posture/cm048-ingest.json; seeds and forgets one synthetic coach-db row
+#
 # The seed, the read-back and the cleanup all happen inside this one probe
 # run; nothing is left on the box unless OSTLER_DB_KEY_PROBE_KEEP=1, and the
 # delete prints the row count before and after so a delete that matched
@@ -30,17 +32,26 @@ set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
 PROBE_NAME="db_key_reaches_every_service"
-PROBE_QUESTION="does the installed database key reach ical-server and the CM048 ingest pipeline, do both end up using the SAME key, and is the store they open genuinely encrypted rather than a posture marker saying so over a plaintext file?"
+PROBE_QUESTION="a process in the shipped email-bundle launch context resolves the DB key"
 
 _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 self_test() {
     if python3 "${_HERE}/lib/db_key_probe.py" --self-test; then
-        probe_examined 5 "mutated db-key facts"
-        probe_fail "negative control behaved: each mutant (disabled posture, a seed that did not increase the count, a cross-process read-back that found nothing, a database that opened unkeyed, and a missing posture marker) was caught by its own assertion"
+        probe_examined 11 "mutated db-key facts"
+        probe_fail "negative control behaved: each mutant (disabled posture, a seed that did not increase the count, a cross-process read-back that found nothing, a database that opened unkeyed, a missing posture marker, an ssh-written marker that predates the kickstart, a kickstart that failed, a stale marker and an unparseable timestamp) was caught by its own assertion"
     fi
-    probe_examined 5 "mutated db-key facts"
+    probe_examined 11 "mutated db-key facts"
     probe_pass "SELF-TEST BROKEN: the db-key judge let a known-bad fixture through"
+}
+
+# Boots the throwaway job out and deletes its plist and log. Safe to call twice
+# and from a trap: it never exits, so it cannot change the probe's exit code.
+_dbk_cleanup() {
+    [ "${_DBK_ARMED:-0}" = "1" ] || return 0
+    _DBK_ARMED=0
+    box_run 'D="${OSTLER_DIR:-$HOME/.ostler}"; /bin/launchctl bootout "gui/$(id -u)/'"${_DBK_LABEL}"'" >/dev/null 2>&1; rm -f "$D/walkprobe-dbkey-posture.plist" "$D/walkprobe-dbkey-posture.log"' >/dev/null 2>&1
+    return 0
 }
 
 run_probe() {
@@ -64,7 +75,48 @@ run_probe() {
     # ical-server's base comes from the harness variable every other ical-server
     # caller here already reads (README env table), not a literal: walk #11 hit
     # :8089 (the Doctor), which refuses the service token.
-    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}'" > "${facts}" 2>/dev/null
+    # POSTURE ATTRIBUTION. The CONVERSATION SEED (and anything else run over
+    # ssh) writes cm048-ingest.json as disabled/keychain_unavailable, because an
+    # ssh process cannot read the login Keychain. So this probe does not rely on
+    # walk ordering and does not trust what is on disk. No shipped LaunchAgent
+    # imports src.ingest (the marker writer, ingest.py:70-90) on every run, so it
+    # bootstraps ONE throwaway LaunchAgent whose launch context is CLONED from
+    # the INSTALLED com.creativemachines.ostler.email-bundle.plist (env, UserName,
+    # WorkingDirectory, ProcessType copied verbatim; only Label, ProgramArguments
+    # = CM048 venv python -c 'import src.ingest', schedule and log paths differ).
+    # Key names and sha256 prefixes of both are printed and must be identical, or
+    # the probe is CANNOT-RUN. The box half then waits (bounded, printed) for the
+    # marker to be rewritten after the bootstrap and grades it at once. No marker
+    # after a successful bootstrap is a FAIL. Wait: OSTLER_DB_KEY_POSTURE_WAIT_S.
+    local kick_label kick_wait kick_out kick_epoch kick_args clone_out clone_json
+    kick_label="com.ostler.walkprobe.dbkey-posture"
+    kick_wait="${OSTLER_DB_KEY_POSTURE_WAIT_S:-120}"
+    case "${kick_wait}" in ''|*[!0-9]*) probe_cannot_run "unsafe wait value" ;; esac
+    # Armed BEFORE anything is written on the box; runs on every exit path
+    # (verdict, probe_cannot_run, TERM/INT) and is idempotent.
+    _DBK_LABEL="${kick_label}"
+    _DBK_ARMED=1
+    trap '_dbk_cleanup' EXIT
+    trap 'exit 143' TERM INT
+    clone_out="$(box_run 'D="${OSTLER_DIR:-$HOME/.ostler}"; '"'${venv_py}' ${remote} clone --label ${kick_label} --out \"\$D/walkprobe-dbkey-posture.plist\" --log \"\$D/walkprobe-dbkey-posture.log\"")"
+    printf '%s\n' "${clone_out}" | grep '^  parity:'
+    clone_json="$(printf '%s\n' "${clone_out}" | sed -n 's/^RESULT //p' | tail -1)"
+    [ -n "${clone_json}" ] || probe_cannot_run "the shipped-job clone step returned no result; the launch context could not be copied from the installed email-bundle plist"
+    if [ "$(printf '%s' "${clone_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok") is True)' 2>/dev/null)" != "True" ]; then
+        probe_cannot_run "the launch context could not be cloned from the installed email-bundle plist: $(printf '%s' "${clone_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","no reason given"))' 2>/dev/null)"
+    fi
+    kick_out="$(box_run 'D="${OSTLER_DIR:-$HOME/.ostler}"; L='"${kick_label}"'; P="$D/walkprobe-dbkey-posture.plist"; U=$(id -u)
+/bin/launchctl bootout "gui/$U/$L" >/dev/null 2>&1; rm -f "$D/walkprobe-dbkey-posture.log"
+E=$(date +%s); /bin/launchctl bootstrap "gui/$U" "$P" 2>&1; echo KICKRC=$? EPOCH=$E')"
+    kick_epoch="$(printf '%s\n' "${kick_out}" | sed -n 's/.*KICKRC=0 EPOCH=\([0-9]*\).*/\1/p' | tail -1)"
+    if [ -n "${kick_epoch}" ]; then
+        probe_note "bootstrapped ${kick_label}, a clone of the installed email-bundle launch context, at epoch ${kick_epoch} (imports src.ingest, writes no data); waiting up to ${kick_wait}s for a rewritten cm048-ingest marker"
+        kick_args="--kick-epoch '${kick_epoch}' --kick-wait '${kick_wait}' --kick-label '${kick_label}'"
+    else
+        probe_note "bootstrap of ${kick_label} did not succeed: $(printf '%s' "${kick_out}" | tr '\n' ' ' | cut -c1-160)"
+        kick_args="--kick-error 'bootstrap rc!=0'"
+    fi
+    box_run "'${venv_py}' ${remote} box --token '${token}' --service-token '${svc_token}' --api-base '${OSTLER_PROBE_API_BASE:-http://127.0.0.1:8090}' ${kick_args}" > "${facts}" 2>/dev/null
 
     # Cleanup runs regardless of the verdict: a left-behind synthetic row is a
     # tidiness bug, not a measurement, so it is removed before this function
@@ -75,6 +127,7 @@ run_probe() {
     else
         probe_note "kept on the box (OSTLER_DB_KEY_PROBE_KEEP=1): ${token}"
     fi
+    _dbk_cleanup
     box_run "rm -f ${remote}" >/dev/null 2>&1
 
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${facts}" 2>/dev/null \

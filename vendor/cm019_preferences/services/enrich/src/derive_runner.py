@@ -1,0 +1,369 @@
+"""One-shot box runner for the preference-derivation engine ("What you like").
+
+Upstream (personal-world-graph) ships the engine as a library with no box
+entrypoint: ``DerivationEngine.run_result(user_id)`` is the whole API. Its own
+CLI script is not vendored (its user-id default names the operator, and this
+repository is public). This module is the CM051 entrypoint, run by the
+``com.ostler.derive-preferences`` LaunchAgent from the installed tree:
+
+    cd ~/.ostler/services/cm019
+    .venv/bin/python -m services.enrich.src.derive_runner --user-id <slug>
+
+What one run does:
+
+1. Builds the engine from the vendored registry (readers.yaml, dimensions.yaml)
+   against the box's own Oxigraph + Qdrant ``preferences`` collection.
+2. Runs every reader. ANY reader failure means nothing is written: the prior
+   derived graph stays exactly as it was. This is stricter than upstream's CLI,
+   which writes a partial set when some readers fail and so silently drops the
+   dimensions whose reader was down.
+3. Otherwise hands the nodes to the upstream writer, which builds a temp graph,
+   SHACL-validates it and swaps it in atomically, then mirrors to the separate
+   ``derived_preferences`` Qdrant collection.
+4. Counts ``pwg:DerivedPreference`` nodes actually present in the named graph
+   afterwards. That count, not the presence of the graph, is the readiness
+   signal: an empty run still leaves a present graph (the run marker).
+5. Writes a counts-only status file for the Doctor. No preference value, title
+   or label is ever written to it or to the log.
+
+Local only. It reads and writes the box's own stores and calls nothing else.
+
+Exit codes: 0 written (including a proven-empty run), 1 not written (reader
+failure, SHACL failure, store unreachable), 2 could not start (engine missing
+a dependency).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import threading
+import time
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+_TREE_ROOT = Path(__file__).resolve().parents[3]
+_COMMON = _TREE_ROOT / "services" / "common"
+
+DERIVED_NODE_COUNT_QUERY = (
+    "SELECT (COUNT(DISTINCT ?n) AS ?c) WHERE { GRAPH <%s> { "
+    "?n a <https://schema.ostler.ai/ontology#DerivedPreference> } }"
+)
+
+STATUS_SCHEMA = 1
+
+# A reader can run for hours on a big real-data box, and the Doctor and the
+# assistant call a pass stale once updated_at is 3h old. While a reader runs,
+# a background thread restamps updated_at every HEARTBEAT_S seconds (at most
+# once a minute), so a live pass is never read as killed. 0 turns it off; the
+# test uses that as its red control.
+HEARTBEAT_S = 60
+
+
+def _default_status_path() -> Path:
+    root = Path(os.environ.get("OSTLER_DIR") or (Path.home() / ".ostler"))
+    return root / "state" / "derived-preferences.json"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _write_status(path: Path, status: dict) -> None:
+    """Atomic write, so the Doctor never reads half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _no_proxy_opener() -> None:
+    """Local stores must never be reached through HTTP(S)_PROXY.
+
+    Same defect personal-world-graph #409 fixed for the httpx clients: a
+    customer with a system proxy would send loopback store traffic (and its
+    store credential) to the proxy. The store-auth shim wraps
+    ``urllib.request.urlopen`` and calls through to the opener installed here,
+    so the credential is still attached.
+    """
+    urllib.request.install_opener(
+        urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    )
+
+
+class _Progress:
+    """Counts-only progress, rewritten to the status file as each reader ends.
+
+    A first pass takes tens of minutes on a fresh box; before this the file
+    said nothing until the whole pass finished. Names are reader dimensions
+    and counts; no item, label or title is ever recorded.
+    """
+
+    def __init__(self, status: dict, path: Path, total: int):
+        self.status, self.path, self.total = status, path, total
+        self.done = 0
+        self.items = 0
+        # The heartbeat thread and the reader-finished path both rewrite the
+        # status dict; one lock keeps the JSON dump from seeing a half update.
+        self._lock = threading.RLock()
+        # Stamps the Doctor and the derived API read to tell a pass that is
+        # moving from one that was killed (see derived_preferences_status).
+        self.started_at = status.get("last_run_at") or _now_iso()
+        status["reader_timings"] = []
+        self._sync()
+
+    def _sync(self) -> None:
+        with self._lock:
+            self.status["progress"] = {
+                "readers_done": self.done,
+                "readers_total": self.total,
+                "items_so_far": self.items,
+                "started_at": self.started_at,
+                "updated_at": _now_iso(),
+            }
+            try:
+                _write_status(self.path, self.status)
+            except OSError as exc:  # progress is decoration; the pass goes on
+                print(f"derive: progress not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+    def heartbeat(self) -> None:
+        """Restamp updated_at while one reader is still working (no counts move)."""
+        with self._lock:
+            self._sync()
+
+    def reader_finished(self, name: str, seconds: float, items: int, ok: bool) -> None:
+        with self._lock:
+            self.done += 1
+            self.items += items if ok else 0
+            self.status["reader_timings"].append(
+                {"name": name, "seconds": round(seconds, 2), "items": items, "ok": ok})
+            print(f"derive: reader {self.done}/{self.total} {name}: "
+                  f"{'ok' if ok else 'FAILED'} in {seconds:.1f}s, {items} item(s)", flush=True)
+            self._sync()
+
+
+class _Heartbeat:
+    """Context manager: while open, calls progress.heartbeat() every HEARTBEAT_S
+    seconds from a daemon thread. Read HEARTBEAT_S at entry, so a test can set it.
+    Stops and joins on exit, so no stamp lands after the reader has finished."""
+
+    def __init__(self, progress: _Progress):
+        self._progress = progress
+        self._stop = threading.Event()
+        self._thread = None
+        self._every = HEARTBEAT_S
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._every):
+            try:
+                self._progress.heartbeat()
+            except Exception as exc:  # noqa: BLE001 - a missed stamp is not a failed pass
+                print(f"derive: heartbeat not written: {type(exc).__name__}", file=sys.stderr, flush=True)
+
+    def __enter__(self):
+        if self._every and self._every > 0:
+            self._thread = threading.Thread(target=self._run, name="derive-heartbeat", daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join()
+        return False
+
+
+class _TimedReader:
+    """Wraps one reader to time its read and report it. Adds no behaviour: the
+    same items come back, and a failure is re-raised for the engine to record
+    exactly as before."""
+
+    def __init__(self, inner, progress: _Progress):
+        self._inner = inner
+        self._progress = progress
+        self.dimension = getattr(inner, "dimension", inner.__class__.__name__)
+
+    def read(self, user_id):
+        t0 = time.monotonic()
+        try:
+            with _Heartbeat(self._progress):
+                items = list(self._inner.read(user_id))
+        except Exception:
+            self._progress.reader_finished(self.dimension, time.monotonic() - t0, 0, False)
+            raise
+        self._progress.reader_finished(self.dimension, time.monotonic() - t0, len(items), True)
+        return items
+
+
+def count_derived_nodes(store, graph_iri: str) -> int:
+    rows = store._select(DERIVED_NODE_COUNT_QUERY % graph_iri)
+    return int(rows[0]["c"]["value"]) if rows else 0
+
+
+def run(
+    user_id: str,
+    gateway,
+    store,
+    validator,
+    mirror,
+    status_path: Path,
+    now: datetime | None = None,
+) -> int:
+    """One derivation pass. Store-facing objects are injected so a test can
+    drive the real engine and writer against an in-memory graph."""
+    from derive.config import build_readers, load_dimensions
+    from derive.engine import Aggregator, DerivationEngine
+    from derive.model import DERIVED_GRAPH
+    from derive.patterns import default_derivers
+    from derive.writer import DerivedGraphWriter
+
+    status = {
+        "schema": STATUS_SCHEMA,
+        "last_run_at": _now_iso(),
+        "derived_graph": DERIVED_GRAPH,
+        "outcome": "failed",
+        "readers_total": 0,
+        "readers_failed": 0,
+        "nodes_derived": 0,
+        "graph_node_count": None,
+        "derivation_version": None,
+        "reason": "",
+    }
+
+    try:
+        readers = build_readers(gateway)
+        dimensions = load_dimensions()
+        aggregator = Aggregator(dimensions)
+        status["derivation_version"] = aggregator._version
+        status["outcome"] = "in_progress"
+        progress = _Progress(status, status_path, len(readers))
+        readers = [_TimedReader(r, progress) for r in readers]
+        # Trend, say-vs-do contradiction, time-of-day context: annotate the
+        # aggregated nodes. A deriver that raises is reported below; the base
+        # nodes still stand.
+        engine = DerivationEngine(readers=readers, aggregator=aggregator,
+                                  derivers=default_derivers(dimensions))
+        result = engine.run_result(user_id, now=now)
+    except Exception as exc:  # noqa: BLE001 - recorded, never silent
+        status["outcome"] = "failed"
+        status["reason"] = f"engine did not start: {type(exc).__name__}"
+        _write_status(status_path, status)
+        print(f"derive: {status['reason']}: {exc}", file=sys.stderr, flush=True)
+        return 1
+
+    status["readers_total"] = result.readers_total
+    status["readers_failed"] = len(result.failed_readers)
+    status["nodes_derived"] = len(result.nodes)
+    print(
+        f"derive: {result.readers_total} reader(s), "
+        f"{len(result.failed_readers)} failed, {len(result.nodes)} node(s) derived",
+        flush=True,
+    )
+
+    n_up = sum(1 for n in result.nodes if n.trend == "rising")
+    n_down = sum(1 for n in result.nodes if n.trend == "falling")
+    print(
+        f"derive: patterns trend rising={n_up} falling={n_down} "
+        f"contradictions={sum(1 for n in result.nodes if n.contradiction)} "
+        f"context={sum(1 for n in result.nodes if n.context)}",
+        flush=True,
+    )
+    for f in result.failed_derivers:
+        # Deriver name and exception type only; the base nodes were kept.
+        print(f"derive: pattern deriver FAILED: {f.split(':', 2)[0]}: {f.split(':', 2)[1].strip()}",
+              file=sys.stderr, flush=True)
+
+    if result.failed_readers:
+        # Reader names and exception types only. A reader's message can carry
+        # a SPARQL fragment, never preference content, but the type is enough.
+        for f in result.failed_readers:
+            print(f"derive: reader FAILED: {f.split(':', 2)[0]}: {f.split(':', 2)[1].strip()}",
+                  file=sys.stderr, flush=True)
+        status["outcome"] = "not_written"
+        status["reason"] = "a reader failed; the previous derived graph was kept"
+        try:
+            status["graph_node_count"] = count_derived_nodes(store, DERIVED_GRAPH)
+        except Exception:  # noqa: BLE001 - the count is best-effort here
+            status["graph_node_count"] = None
+        _write_status(status_path, status)
+        return 1
+
+    writer = DerivedGraphWriter(store, validator, mirror=mirror)
+    try:
+        written = writer.write(
+            result.nodes, proven_empty=result.proven_empty, user_id=user_id, now=now
+        )
+        status["graph_node_count"] = count_derived_nodes(store, DERIVED_GRAPH)
+    except Exception as exc:  # noqa: BLE001 - recorded, never silent
+        status["outcome"] = "not_written"
+        status["reason"] = f"write refused or failed: {type(exc).__name__}"
+        _write_status(status_path, status)
+        print(f"derive: {status['reason']}", file=sys.stderr, flush=True)
+        return 1
+
+    if not written.literals_untouched:
+        # The writer only ever touches its own named graph, so this means
+        # something else wrote to the default graph during the run (ingest,
+        # enrich). Not an error of ours, but worth a line.
+        print("derive: default-graph triple count moved during the run "
+              "(another writer was active)", flush=True)
+
+    status["outcome"] = "written" if result.nodes else "empty"
+    status["reason"] = ""
+    _write_status(status_path, status)
+    print(
+        f"derive: wrote {written.node_count} node(s); "
+        f"{status['graph_node_count']} pwg:DerivedPreference node(s) now in the graph",
+        flush=True,
+    )
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Derive preferences once (local only).")
+    ap.add_argument("--user-id", default=os.environ.get("OSTLER_DERIVE_USER") or "ostler")
+    ap.add_argument("--oxigraph-url", default=os.environ.get("OXIGRAPH_URL", "http://localhost:7878"))
+    ap.add_argument("--qdrant-url", default=os.environ.get("QDRANT_URL", "http://localhost:6333"))
+    ap.add_argument("--collection", default=os.environ.get("QDRANT_COLLECTION", "preferences"))
+    ap.add_argument("--status-file", type=Path, default=_default_status_path())
+    args = ap.parse_args(argv)
+
+    sys.path.insert(0, str(_COMMON))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    _no_proxy_opener()
+
+    try:
+        from derive.readers import HttpStoreGateway
+        from derive.shacl import PyShaclValidator
+        from derive.writer import HttpGraphStore, QdrantDerivedMirror
+        import pyshacl  # noqa: F401 - fail here, not after the reads
+    except Exception as exc:  # noqa: BLE001
+        status = {
+            "schema": STATUS_SCHEMA,
+            "last_run_at": _now_iso(),
+            "outcome": "cannot_start",
+            "reason": f"missing dependency: {type(exc).__name__}: {exc}",
+        }
+        _write_status(args.status_file, status)
+        print(f"derive: {status['reason']}", file=sys.stderr, flush=True)
+        return 2
+
+    return run(
+        user_id=args.user_id,
+        gateway=HttpStoreGateway(
+            oxigraph_url=args.oxigraph_url,
+            qdrant_url=args.qdrant_url,
+            collection=args.collection,
+        ),
+        store=HttpGraphStore(oxigraph_url=args.oxigraph_url),
+        validator=PyShaclValidator(),
+        mirror=QdrantDerivedMirror(qdrant_url=args.qdrant_url),
+        status_path=args.status_file,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

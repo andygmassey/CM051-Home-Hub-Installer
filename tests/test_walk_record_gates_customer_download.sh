@@ -39,6 +39,8 @@ FIXTURE_SHA="$(shasum -a 256 "${TMP}/fixture-artefact.bin" | awk '{print $1}')"
 FIXTURE_SHA_SOURCE="measured(shasum -a 256 of the fixture artefact)"
 FIXTURE_VERSION_SOURCE="measured(CFBundleShortVersionString, matches argument)"
 
+FIXTURE_COLD='PROVEN(synthetic: .ostler:5->0 Ostler:0->0)'
+
 write_record() {
     # write_record <file> <version> <verdict> <pass> <fail> <cannot> <broken>
     #              [artefact_sha] [artefact_sha_source] [version_source]
@@ -69,6 +71,7 @@ write_record() {
       printf 'broken\t%s\n'     "$7"
       printf 'verdict\t%s\n'    "$3"
       printf 'qa_exit\t0\n'
+      [[ "${COLD_ROW-$FIXTURE_COLD}" != "omit" ]] && printf 'cold\t%s\n' "${COLD_ROW-$FIXTURE_COLD}"
     } > "${TMP}/$1"
 }
 
@@ -273,6 +276,7 @@ write_record_qa() {
       printf 'pass\t14\nfail\t0\ncannot_run\t0\nbroken\t0\n'
       printf 'verdict\t%s\n' "$1"
       [[ "$2" != "omit" ]] && printf 'qa_exit\t%s\n' "$2"
+      printf 'cold\t%s\n' "$FIXTURE_COLD"
     } > "${TMP}/v1.0.42.tsv"
 }
 
@@ -583,6 +587,33 @@ done
 n="$(grep -cF 'measured(shasum -a 256' "$QA")"
 [[ "$n" -ge 1 ]] && ok "931-11 ...and it can record a MEASURED source, not only an asserted one" \
                  || bad "931-11 the writer has no measured(...) path for the sha -- the gate could never pass"
+
+# ── COLD: a CLEAN record needs `cold PROVEN` (v1.0.129 walked on carried-over state) ──
+write_record "v1.0.70.tsv" "v1.0.70" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.70)"
+[[ "$rc" == "0" ]] && ok "COLD CONTROL: CLEAN with cold PROVEN is ACCEPTED (rc=0)" \
+                   || bad "COLD CONTROL: CLEAN with cold PROVEN returned rc=${rc}; the arms below prove nothing"
+COLD_ROW='NOT_COLD(files survive outside the allowlist: .ostler:123775->123775)' write_record "v1.0.71.tsv" "v1.0.71" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.71)"
+[[ "$rc" == "1" ]] && ok "COLD: CLEAN with cold NOT_COLD is REFUSED (rc=1)" \
+                   || bad "COLD: CLEAN with cold NOT_COLD returned rc=${rc}, expected 1"
+COLD_ROW=omit write_record "v1.0.72.tsv" "v1.0.72" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.72)"
+[[ "$rc" == "2" ]] && ok "COLD: CLEAN with NO cold row is CANNOT-RUN (rc=2)" \
+                   || bad "COLD: CLEAN with no cold row returned rc=${rc}, expected 2"
+COLD_ROW='YES' write_record "v1.0.73.tsv" "v1.0.73" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.73)"
+[[ "$rc" == "2" ]] && ok "COLD: CLEAN with an unrecognised cold value is refused (rc=2), not read as cold" \
+                   || bad "COLD: unrecognised cold value returned rc=${rc}, expected 2"
+COLD_ROW='NOT_RECORDED(record predates the cold proof)' write_record "v1.0.74.tsv" "v1.0.74" "CLEAN" 14 0 0 0
+rc="$(run_gate v1.0.74)"
+[[ "$rc" == "2" ]] && ok "COLD: a pre-cold-era record (cold NOT_RECORDED) is refused for promotion (rc=2), not called malformed" \
+                   || bad "COLD: NOT_RECORDED returned rc=${rc}, expected 2"
+"$GATE" v1.0.74 "$FIXTURE_SHA" 2> "${TMP}/nr.err" >/dev/null
+grep -q 'Not malformed' "${TMP}/nr.err" && ok "COLD: and the message says it is not malformed" || bad "COLD: NOT_RECORDED message wrong: $(head -2 "${TMP}/nr.err")"
+n="$(sed 's/[[:space:]]*#.*$//' "$QA" | grep -cF "printf 'cold\t")"
+[[ "$n" -ge 1 ]] && ok "COLD: post_walk_qa.sh writes the cold row (${n} site)" \
+                 || bad "COLD: post_walk_qa.sh never writes a cold row; the gate would refuse every CLEAN record"
 
 echo
 echo "${PASS} passed, ${FAIL} failed"

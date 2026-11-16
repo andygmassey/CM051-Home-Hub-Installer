@@ -4,7 +4,7 @@
 #
 # FIX 3 (v1.0.10 security lockdown -- at-rest exposure).
 #
-# The plaintext personal graph (~/Documents/Ostler wiki + vault +
+# The plaintext personal graph (~/Ostler wiki + vault +
 # transcripts) and the secrets/config under ~/.ostler must be kept
 # out of the Spotlight index and out of Time Machine (which frequently
 # copies to an off-site NAS). Also: FileVault, if declined, must be a
@@ -31,7 +31,7 @@ grep -q '_ostler_harden_at_rest()' "$INSTALL_SCRIPT" \
 grep -q '_ostler_harden_at_rest "\$OSTLER_DIR"' "$INSTALL_SCRIPT" \
     || fail "at-rest hardening not applied to \$OSTLER_DIR (~/.ostler)"
 grep -q '_ostler_harden_at_rest "\$USER_FACING_ROOT"' "$INSTALL_SCRIPT" \
-    || fail "at-rest hardening not applied to \$USER_FACING_ROOT (~/Documents/Ostler)"
+    || fail "at-rest hardening not applied to \$USER_FACING_ROOT (~/Ostler)"
 
 # 3. FileVault decline is a recorded acknowledgement, not a silent skip.
 grep -q 'filevault_ack.txt' "$INSTALL_SCRIPT" \

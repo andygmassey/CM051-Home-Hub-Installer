@@ -1,7 +1,12 @@
 # Egress inventory: what leaves the Mac, and why
 
+> **[not for publication until the measured run]** Delta revision 2026-10-21,
+> read from source at CM051 origin/main 6c936e74 and ostler-assistant
+> origin/main bb43a2db. Nothing in the 2026-10-21 sections was sampled on a box.
+> Every claim there is tagged SOURCE (read, not measured) or says CANNOT-RUN.
+
 > **STATUS: NOT PUBLISHED, and the reason changed on 2026-08-17.**
-> Andy approved publication conditional on the inventory being complete. It is
+> The owner approved publication conditional on the inventory being complete. It is
 > now materially more complete than the first draft (9 declared destinations to
 > 45) and it is not finishable as a document, because the section on
 > public-data enrichment needs a MEASURED run before we put a number on it.
@@ -15,8 +20,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 49
-digest: 721aa8a98ebfbf104f49202e610bb01475d1372250817be2d0a2bdb93fe9b85c
+hosts: 60
+digest: a504f05fdb25de6cfc45e360b706dc2d9ede441e667ed840bc003b33810b7848
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -88,6 +93,32 @@ the ledger; this is the shape.
 | Tailscale control plane, DERP relays | while the tailnet is up | yes, per feature | no, relayed payloads are end-to-end encrypted |
 | WhatsApp Web | only with the connector on | yes, off by default | it IS the customer's WhatsApp session |
 | public-data enrichment (~20 hosts) | during and after ingest | no, and see below | **yes** |
+| web search (ostler-vane: DuckDuckGo, Brave, Wikipedia) | only when the owner asks a web search | yes, per web-search use | the search query |
+
+## Web search (ostler-vane): three engines, nothing idle
+
+`ostler-vane` bundles SearXNG. The installer writes its own settings
+(`vane-searxng-settings.yml`, mounted read-only over `/etc/searxng/settings.yml`)
+instead of the image's, which loaded every default engine and Google
+autocomplete. Now: three engines (`duckduckgo` to `html.duckduckgo.com`, `brave`
+to `search.brave.com`, `wikipedia` to `en.wikipedia.org`, or `<lang>.wikipedia.org`
+for a non-English owner's locale, declared as the glob row `*.wikipedia.org`), and autocomplete,
+the favicon resolver, the image proxy, metrics and the tor-exit-list plugin are
+off. Each engine host is a ledger row. SearXNG and Vane run no timer or
+startup network check of their own with these engines (read from Vane v1.12.2
+and SearXNG source; not measured on a box). `tests/test_vane_searxng_has_no_idle_egress.py`
+fails if a feature is switched back on or an engine is added without a row.
+
+What the assistant can send: `web_search_tool` is in the egress gate's tool list
+(ostler-assistant `crates/zeroclaw-runtime/src/agent/egress_gate.rs:55`) and
+`requires_owner_approval` (`:77-80`, merged in #602, c23e22ca) lets it run
+unasked only when every word of the query is a word the owner typed this turn;
+an empty query, a non-owner turn or a forwarded message is denied.
+
+Not covered by the above: Vane's own browser UI (reached on `:3000` behind the
+credential) fetches a weather lookup, an IP-location lookup and favicons from
+the owner's browser when the owner opens it. That is the browser, not the
+container, and it is not an assistant path.
 
 ## The WhatsApp connector: settled, and the consent wording is wrong
 
@@ -130,7 +161,8 @@ its object, Creative Machines, and that bound holds.
 
 ## The family that puts the claim under real pressure
 
-`install.sh:13217` runs `services.enrich.src.cli enrich --all`. Roughly twenty
+`install.sh:24246` (ostler-enrich-tick) and `install.sh:22271` (ostler-import) run
+`services.enrich.src.cli enrich` (was `install.sh:13217` when this was written). Roughly twenty
 public-data clients ship under
 `vendor/cm019_preferences/services/enrich/src/clients/`, sharing an
 `httpx.AsyncClient` built in `clients/base.py:141`.
@@ -161,12 +193,128 @@ it is not finished.** Before publication we owe:
    real preference set, and what the query strings contain. Reading the source
    tells us what CAN happen. It is the same distinction that made the first
    draft of this document wrong.
-2. a decision, which is Andy's and not an engineering call: enrichment on by
+2. a decision, which is the owner's and not an engineering call: enrichment on by
    default, opt-in, or on with the destination list on screen at the moment of
    consent.
 3. whatever (2) decides, the copy has to match it exactly.
 
 Tracked as #742.
+
+## Delta since 2026-09-18 and 2026-10-15 (SOURCE-read, not measured)
+
+Verbs: ADDS a destination, GATES one that already exists, REMOVES, or NONE.
+
+| change | state | effect on egress |
+|---|---|---|
+| CM051 #2912 `_public_lookups_agreed` (`install.sh:24153`), enrich CLI backstop `cli.py:69,562,1121` | merged 2026-10-15 | GATES Wikidata, MusicBrainz, OpenLibrary and the bookmark fetcher on a recorded `OSTLER_CONSENT_ENRICHMENT_DECISION=accepted`; question defaults to no (`install.sh:12754`). Still ungated: `enrich normalize` (no `require_public_lookup_consent` call between `cli.py:562` and `:1121`; 0 shipped callers) |
+| consent copy names the set (`install.sh:1330-1346`, `:12793-12799`, `install.sh.strings.en-GB.sh:1340`) | merged | NONE; it makes the first run-section copy requirement checkable |
+| oa #594 read-only tool allowlist for scheduled jobs | merged | GATES: cron agent runs cannot call network tools outside the list (`crates/zeroclaw-runtime/src/cron/tool_policy.rs`) |
+| oa #597 `web_fetch` only on an owner-typed URL, `http_request` always asks | merged | GATES the two any-host tools (`egress_gate.rs:49-65`). Does NOT cover `weather` (below) |
+| oa #599 app chat gets the same gate | merged | GATES the app-chat path (`crates/zeroclaw-gateway/src/ws.rs`) |
+| oa #602 gate `web_search_tool` and `browser*` by owner text | OPEN, approved | GATES the search path (`egress_gate.rs:55`, tool name `web_search_tool` matches `web_search_tool.rs:592`). Stock search is the local Vane container; its public-engine fan-out is NOT INSTRUMENTED (engine list not read) |
+| CM059 #32, #33, #34 | merged | GATES: watched and listened titles are never L1 and external scouts check `OSTLER_CONSENT_ENRICHMENT_DECISION` (`compiler/scouts.py:78-110`). ADDS nothing: the scouts ship no HTTP client (`compiler/scout_external.py:10`, `fetcher=None`). `vendor/cm059_editor` in CM051 is STALE: `grep public_lookups_agreed` returns 0 there (control: `scout` matches), so this gate is not in any CM051 artefact yet |
+| HR015 #1177 / CM051 #3058 streaming_history | OPEN | ADDS no host. It reads local browser history; it widens the SUBJECTS that can reach the already-declared enrichment hosts (film, show and artist titles), which is why CM059 #32 matters. No urlopen or host literal in the PR |
+| CM051 #2977 Ollama pinned from the official release | merged | github.com (declared). The release redirect target host was NOT MEASURED; `github-releases.githubusercontent.com` and `objects.githubusercontent.com` are declared, a newer GitHub asset host would show as UNATTRIBUTED |
+| Tailscale sign-in (CM051 `6deba3ca`) | merged | NONE: `login.tailscale.com` already declared |
+| call history, Spotify live | NOT FOUND | no open or merged PR, and no `api.spotify.com` or `accounts.spotify.com` in this tree (grep, rc 1; control: grep for `api.themoviedb.org` hits). If it exists on a branch, it ADDS Spotify hosts and needs a row |
+
+## The assistant daemon: the 2026-10-15 gap, closed from source
+
+`ostler-assistant` is now READ, from ostler-ai/ostler-assistant origin/main
+bb43a2db (paths relative to that repo; 805 Rust files, 111 of them mention
+`reqwest`). Source reading says what CAN happen on a stock
+install. It does not say what DID, and no daemon socket was sampled.
+
+**SURPRISING, undeclared until this revision:**
+
+- `wttr.in`: the `weather` tool is registered unconditionally
+  (`crates/zeroclaw-runtime/src/tools/mod.rs:392`) and builds
+  `https://wttr.in/<location>` from a model-chosen string
+  (`crates/zeroclaw-tools/src/weather_tool.rs:14,142-145`). It IS gated: `weather`
+  is in `EGRESS_TOOLS` (`egress_gate.rs:61`) with a `requires_owner_approval` consent arm
+  (`egress_gate.rs:112`). The location string chosen by the model goes to a third party in the URL path when the owner approves.
+
+- `appcast.ostler.ai`: named in code (`crates/zeroclaw-gateway/src/invites_proxy.rs:39`)
+  and the installer but the ledger held only `ostler.ai`.
+- `api.github.com` for `zeroclaw-labs/zeroclaw` (`src/commands/update.rs:8-10`):
+  the UPSTREAM project, manual `update` subcommand only (`src/main.rs:2608,2619`).
+
+| destination | where | stock install | status |
+|---|---|---|---|
+| any host (`web_fetch`, `http_request`) | `schema.rs:3014-3015`, `2891-2892`; tools registered `tools/mod.rs:491,501` | enabled, `allowed_domains = ["*"]` | gated by #597 |
+| local Vane, then public engines | `web_search_tool.rs:639`, `schema.rs:3307`, `install.sh:17598` | on, loopback to the container | engines NOT INSTRUMENTED; #602 open |
+| `wttr.in` | above | on | gated (egress_gate.rs:61/:112) |
+| `appcast.ostler.ai` | `invites_proxy.rs:39` | on | now declared |
+| `api.github.com` | `update.rs:8` | manual command | now declared |
+| `api.open-meteo.com`, `ipapi.co` | `brief/weather.rs:291,196` | library only | DEAD CODE: `resolve_location` and `fetch_weather` have no caller outside `weather.rs` |
+| `browser`, `browser_open` | `schema.rs:2847` enabled | chat excludes them (`install.sh:17808`); CLI does not | #602 gates |
+| brave, duckduckgo, searxng search | `web_search_tool.rs:637-639` | no (provider is vane) | config-gated |
+| firecrawl | `schema.rs:2991` | no | config-gated |
+| notion, jira, linkedin, image_gen, microsoft365, composio | `schema.rs:9528,9594,3749,4112,2713,2643` | no | all `enabled = false` |
+| WhatsApp | `whatsapp_web.rs` | opt-in | declared above |
+| other chat connectors (telegram, slack, discord, matrix, bluesky, ...) | compiled in | installer writes only imessage, email, apple_mail, whatsapp (`install.sh:17256-17397`) | unreachable without config |
+| model providers | `install.sh` provider block | localhost:11434 | none |
+
+Not read: `crates/zeroclaw-hardware`, `robot-kit`, `zeroclaw-plugins`, the TUI
+onboarding links, and the per-site default of `hooks.webhook_audit`
+(`webhook_audit.rs:316` posts to a configured URL; its default is unverified).
+
+## What "the measured run" requires, and whether it can be done now
+
+The doc above sets three owed items (the section on enrichment, items 1-3):
+
+1. a MEASURED run on a stock install with a real preference set: which clients
+   fire, and what the query strings contain;
+2. Andy's decision on default, opt-in, or on with the list on screen;
+3. copy that matches the decision exactly.
+
+State on 2026-10-21: (2) is implemented as opt-in, default no
+(`install.sh:12754`, `:24153`), pending Andy confirming that is the decision.
+(3) is checkable: the consent names Wikidata, MusicBrainz, OpenLibrary and
+bookmarks, which is the measured-LIVE set above. (1) is NOT done, and one half
+of it has no instrument: sockets name HOSTS, and a TLS socket never shows a
+query string. **Query content is NOT INSTRUMENTED** (command that would show it:
+a TLS-terminating proxy on the enrich process only, or a client-side request
+log; neither exists in `tools/egress`).
+
+It can now be done for hosts, because the gate exists to give a clean decline
+baseline. It cannot be done for content without building that instrument. It
+also needs a build containing 7d211203; whether any cut contains it was not
+checked.
+
+### Plan (NOT run)
+
+On a cold walk box, Mini only, never a customer or the Studio:
+
+1. Record `df -h /`, the build version, and `git log` SHA of the DMG's vendor tree.
+   Confirm the gate is present: `grep -c public_lookups_agreed` on the installed
+   `ostler-import` (must be at least 1; 0 means stop).
+2. Fixture: synthetic exports only (a music history, a reading list, a film
+   list, a places list, three bookmarks to a host we run). Run
+   `tools/egress/cats.py` to record the category histogram.
+3. Run A, DECLINE: install answering no to `consent_enrichment`. Assert
+   `OSTLER_CONSENT_ENRICHMENT_DECISION` is not `accepted`, `com.ostler.enrich` is not
+   installed, and that no `ostler-import` run contacts an enrichment host. Sample with
+   `no_unexpected_egress.sh` for the whole import. Control: the same probe, same
+   box, with one `curl https://www.wikidata.org` fired by hand, MUST report it.
+4. Run B, ACCEPT: re-run the installer answering yes. Drop the fixture, run one
+   enrich tick. Sample with the probe at its shortest interval for the whole run.
+   Record every declared enrichment host that appears and every one that does not.
+5. Compare with the constructed set (Brand, Event, Foursquare, MusicBrainz,
+   OpenLibrary, Places, PodcastIndex, TMDB, URLFetcher, Wikidata, YouTube). Any host
+   outside the ledger is an UNATTRIBUTED finding and blocks.
+6. Content: build or choose the instrument first (see above). Without it, state
+   "query content NOT INSTRUMENTED" in the run record rather than a number.
+7. Run `tools/egress/enrichcheck.py` after B for what enrichment WROTE. This is
+   payloads written, not payloads sent, and is labelled as such.
+8. Daemon: with the stock config, ask the assistant for the weather and for a
+   search; sample `ostler-assistant` sockets with the probe. Expect `wttr.in`
+   until the exclusion fix lands, and the Vane fan-out for search.
+9. Update the `Measured on ... vX.Y.Z, DATE` line, flip each SOURCE tag to
+   MEASURED or CANNOT-RUN, and bump the binding block.
+
+Bounds that stay on the page: the probe misses connections that open and close
+between samples, UDP, DNS and proxied requests, and reads no content.
 
 ## The false positives, listed rather than dropped
 
@@ -220,14 +368,52 @@ and the instrument reports such a connection in its own bucket, headed OWNER
 ATTRIBUTED, SERVICE NOT, so a reader can see how much of the attribution rests
 on who owns an address rather than on which service answered.
 
-### Still unattributed
+### `limactl`'s destinations: attributed from the code, 2026-10-21
 
-1. `limactl`'s install-phase destinations, which change between samples.
+They were listed here as unattributed because they changed between samples.
+The cause is not mysterious and it is not one thing:
 
-Publishing an inventory with unexplained rows is better than publishing one
-that quietly drops them, and better again is going back and explaining one.
-This is still not finished, and the enrichment measurement above is the
-blocker, not this.
+* **`limactl` is carrying the VM's traffic, not its own.** colima starts the
+  VM with lima's `user-v2` network, which is a userspace network run by a
+  `limactl` process. A TCP connection opened by a container inside the VM
+  therefore shows on the Mac as a socket owned by `limactl`. What the probe
+  saw under `limactl` is what the containers were talking to.
+* **The image pulls are all `ghcr.io`.** Every compose image in the installer
+  is a `ghcr.io/...@sha256:` digest. Layers are served from a CDN, so the
+  addresses differ sample to sample. `ghcr.io` and
+  `pkg-containers.githubusercontent.com` were already declared.
+* **The Wikimedia address was a missing name.** `208.80.154.224` held by
+  `limactl` on 2026-08-17 is `text-lb.eqiad.wikimedia.org`, the front end that
+  `en.wikipedia.org` resolves to in some regions (a Hong Kong lookup returns
+  `103.102.166.224`, 2026-10-21). The wiki-compiler container looks artists
+  and organisations up on Wikipedia, MusicBrainz and OpenStreetMap, but only
+  when `OSTLER_PUBLIC_LOOKUPS=agreed`, which the launcher sets from the
+  customer's recorded yes. `en.wikipedia.org` and `overpass-api.de` were not
+  in the ledger. They are now, and the `musicbrainz.org` and
+  `nominatim.openstreetmap.org` rows now say the compiler path is live when
+  consented (the host-side enricher for Nominatim is still dead code).
+* **The VM image comes from GitHub.** colima's pinned image
+  (`abiosoft/colima-core`, sha512-checked) is fetched by colima's own curl
+  downloader, so it shows under `curl`, via a redirect to
+  `release-assets.githubusercontent.com`, now declared.
+
+What the VM does **not** fetch, read from the generated `lima.yaml` and
+colima's embedded image table: no containerd or nerdctl archive
+(`containerd.system` and `user` are false), no k3s (Kubernetes is off), no
+`apt` in any provision script (Docker is baked into the image), and no
+`docker.io` or `registry-1` pull.
+
+Because the probe joins by name resolved in the same loop as the socket read,
+none of this needs an IP range. A host that rotates addresses is matched by its
+name, so the fix for a `limactl` row is always to declare the name.
+
+**Not settled by reading, and not published as rows:** that a walk box really
+uses `user-v2` (the version read was colima 0.10.3; the installer does not pin
+colima, so `brew install colima` can change it), and whether the guest sends
+NTP over UDP, which a TCP probe cannot see. On a walk box mid-install, run
+`lsof -nP -iTCP -sTCP:ESTABLISHED -a -c limactl` and compare each remote's
+reverse name with the ledger; if a row there matches nothing declared, that is
+a new finding. `ps -ef | grep '[l]imactl usernet'` confirms the carrier.
 
 ## Verify it yourself
 
