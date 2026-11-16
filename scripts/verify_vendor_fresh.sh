@@ -466,6 +466,38 @@ EOF
     rm -rf "$tmp" "$tmp.diff"
 done < <(vlib_tree_names)
 
+# ---------------------------------------------------------------------------
+# CM019 health-compartment refusal (Archie ruling, 133).
+#
+# Upstream CM019 apple.py writes Apple Health as compartment_level=5, which the
+# 133 outbound rule (only L1, L2, untagged pass) cannot place. Refuse the shipped
+# vendored bytes, and a re-pin to an upstream revision, that carry it. The logic
+# and the exit contract live in scripts/verify_cm019_health_compartment.py:
+# 0 clean, 1 REFUSED (file:line named), 2 CANNOT-RUN (counted as unverifiable,
+# so STRICT turns it RED; never a pass). It only runs when the manifest names the
+# cm019_preferences tree and the scope (if any) includes it.
+_h_in_scope=1
+if [ -n "$SCOPE" ]; then
+    case "cm019_preferences" in "$SCOPE"*) ;; *) _h_in_scope=0 ;; esac
+fi
+if [ "$_h_in_scope" = "1" ] && vlib_tree_names | grep -qx 'cm019_preferences'; then
+    _h_helper="$VLIB_REPO_ROOT/scripts/verify_cm019_health_compartment.py"
+    if [ ! -f "$_h_helper" ]; then
+        echo "WARN  cm019_preferences -- health-compartment check CANNOT-RUN: $_h_helper is missing" >&2
+        warn=$((warn + 1))
+    else
+        _h_rc=0
+        python3 -I "$_h_helper" --manifest "$VLIB_MANIFEST" --repo-root "$VLIB_REPO_ROOT" || _h_rc=$?
+        case "$_h_rc" in
+            0) ;;
+            1) echo "FAIL  cm019_preferences -- Apple Health written as compartment_level=5 (see REFUSED lines above)" >&2
+               fail=$((fail + 1)) ;;
+            *) echo "WARN  cm019_preferences -- health-compartment check CANNOT-RUN (rc=$_h_rc); not a pass" >&2
+               warn=$((warn + 1)) ;;
+        esac
+    fi
+fi
+
 echo
 # The held count is APPENDED rather than spliced into the middle: the
 # denominator assertions in tests/test_vendor_src_placeholder_unset.sh parse
