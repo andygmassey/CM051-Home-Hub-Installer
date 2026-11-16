@@ -195,7 +195,13 @@ def main():
         "l3": _teardown(f"ostler-walk-l3-{stamp}", owner),
         "l2": _teardown(f"ostler-walk-l2-{stamp}", owner),
     }
-    # NOT YET: the L0 seed route and the timeline, brief (catchup) and reply-debt
+    # The brief path's derived route, the oa constant DERIVED_PATH (catchup.rs:60).
+BRIEF_DERIVED_PATH = "/api/v1/preferences/derived?limit=8&min_confidence=0.4"
+# The reply-debt snapshot field that carries the level: privacy_level
+# (vendor/cm048_pipeline/src/reply_debt.py:146). Seed THAT field, not a guess.
+REPLY_DEBT_LEVEL_FIELD = "privacy_level"
+
+# NOT YET: the L0 seed route and the timeline, brief (catchup) and reply-debt
     # captures are unverified (see the PR body). They are reported as not_yet, so
     # the judge returns CANNOT-RUN, never PASS, until each one is captured.
     paths = {name: {"status": "not_yet"} for name in ("timeline", "brief_catchup", "reply_debt")}
