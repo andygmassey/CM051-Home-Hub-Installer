@@ -470,3 +470,13 @@ Not in a patch: this tree has `divergence_patch = ""` and `verify = "skip"` (the
 - PWG #472 (f292561b, speakers_identify slug) and #470 (9145e3b5, AGENTS.md): NOT in this tree's file-set (no `services/gateway/`, no `AGENTS.md`), so they ship nothing here.
 
 Proof: `tests/test_cm019_pref_graph_qdrant_parity_vendored.py` (wired in `misclassified-things.yml`): 4 pass here; on the pre-port tree 2 FAIL (re-ingest keeps two subjects on one node; a refused Qdrant write leaves a typed node). Mutants: graph write back to `insert_triples` -> 1 red; early return removed -> 1 red. Four existing CM051 tests stubbed `insert_triples` and now also stub `replace_preference_triples`; `tests/test_a_store_refusal_is_not_an_empty_batch.py` arm 4 now asserts the #471 order (vectors refused -> graph not attempted, one error) and arm 3b asserts no graph write after a vector refusal.
+
+## 2026-11-16: derive max_privacy fails closed (personal-world-graph #528, UNMERGED upstream)
+
+`vendor/cm019_preferences/services/enrich/src/derive/model.py` is byte-identical to upstream@b40de91 (personal-world-graph branch fix/derive-l0-fail-closed, PR #528). It is recorded here, not in a patch, because the row's `divergence_patch` is empty and the file is a whole-file graft of an upstream commit.
+
+Why: on the PWG scale L0 is owner-private, and PRIVACY_ORDER ranked it lowest, so a derived node from owner-L0 plus L2 evidence came out L2 and the Hub served it. The fix: any L0, unparseable or unknown-scale level gives L3; unstated ("" / None) stays ignored.
+
+Proof: `tests/test_vendored_max_privacy_fails_closed.py` (wired in `.github/workflows/derived-preferences.yml`). Base: 7 FAIL. Mutant (L0 check removed): 3 FAIL. Fix: 0 FAIL.
+
+When #528 merges, the upstream SHA here must be the merge commit and the bytes must still match it.
