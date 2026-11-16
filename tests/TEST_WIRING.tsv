@@ -506,6 +506,7 @@ test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_grounding_reports_who_fetched.sh	WIRED	.github/workflows/every-probe-is-collected.yml
 test_group_followup_key_counts_silent_members.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_guard_prints_count_at_phase2.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_homebrew_bootstrap_is_pinned.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_homebrew_refusal_reaches_the_screen.py	WIRED	.github/workflows/cold-box-source-truth.yml

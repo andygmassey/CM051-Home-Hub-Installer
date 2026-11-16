@@ -232,6 +232,13 @@ run_probe() {
         _og_b64="$(printf '%s' "$_og_q" | base64 | tr -d '\n')"
         _og_raw="$(box_run "K=\$HOME/.ostler/secrets/store-curl.conf; printf %s '${_og_b64}' | base64 -d | curl -sS --noproxy '*' -m 20 -K \"\$K\" -H 'Content-Type: application/sparql-query' -H 'Accept: application/sparql-results+json' --data-binary @- http://127.0.0.1:7878/query" 2>/dev/null)"
         _og="$(printf '%s' "$_og_raw" | python3 "$_og_py" decide)"
+        # Archie's request: the count the guard saw at phase 2 start, on its own line, with the decision.
+        _og_n="$(printf '%s' "$_og_raw" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin)["results"]["bindings"][0]["n"]["value"])
+except Exception:
+    print("unreadable")')"
+        probe_note "guard at phase 2 start: linkedin_positions count=${_og_n} decision=${_og}"
         if [ "$_og" != "CLEAR" ]; then
             _PERSONA_LOADED=0
             probe_cannot_run "refusing to score: the owner-employer seed is $_og (a linkedin_positions fact for the seeded organisation is in the graph, or the graph did not answer). The score would measure the seed. Let the walk forget it, then score."

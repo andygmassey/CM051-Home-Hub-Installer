@@ -13,6 +13,7 @@ on:
       - 'tests/test_morning_brief_repeat_not_digits.py'
       - 'tests/test_owner_seed_cleanup_failure_is_an_error.py'
       - 'tests/test_owner_seed_removal_matches_the_guard.py'
+      - 'tests/test_guard_prints_count_at_phase2.py'
       - 'tests/test_walk_box_declares_only_walk_accounts.py'
       - 'tests/test_pair_state_device_layer_uses_live_signals.py'
       - 'tests/test_owner_knowledge_refuses_while_owner_seed_live.py'
@@ -87,3 +88,6 @@ jobs:
       - name: owner seed removal deletes what the guard counts
         if: always()
         run: python3 tests/test_owner_seed_removal_matches_the_guard.py
+      - name: the guard prints its count at phase 2 start, next to the decision
+        if: always()
+        run: python3 tests/test_guard_prints_count_at_phase2.py
