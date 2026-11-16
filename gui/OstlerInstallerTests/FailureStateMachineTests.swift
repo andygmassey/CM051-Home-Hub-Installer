@@ -224,4 +224,64 @@ final class FailureStateMachineTests: XCTestCase {
                           "Catalogue must contain hint_panel.watchdog_still_going")
         XCTAssertFalse(label.isEmpty)
     }
+
+    // MARK: - F010: watchdog silent while a prompt awaits its answer
+
+    private func watchdogNoise(_ coord: InstallerCoordinator) -> [InstallerCoordinator.LogLine] {
+        coord.logLines.filter { ($0.level == "warn" || $0.level == "error") && $0.text.contains("Watchdog") }
+    }
+
+    func testWatchdogLogsNothingWhileAPromptAwaitsItsAnswer() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests("#OSTLER\tPROMPT\tid=user_name\tkind=text\ttitle=Your name")
+        XCTAssertNotNil(coord.pendingPrompt)
+        for secs in [20.0, 45.0, 90.0, 200.0, 400.0] {
+            coord.simulateWatchdogSilenceForTests(elapsedSeconds: secs)
+        }
+        XCTAssertEqual(watchdogNoise(coord).count, 0,
+                       "No WARN/ERROR watchdog lines while a prompt is unanswered")
+    }
+
+    func testWatchdogStillFiresWhenNoPromptIsPending() {
+        // Control: the same silence with NO prompt must still be reported,
+        // else the test above passes because the watchdog is dead.
+        let coord = makeCoordinator()
+        XCTAssertNil(coord.pendingPrompt)
+        coord.simulateWatchdogSilenceForTests(elapsedSeconds: 400)
+        XCTAssertGreaterThan(watchdogNoise(coord).count, 0)
+        XCTAssertTrue(coord.logLines.contains { $0.level == "error" && $0.text.contains("Watchdog") })
+    }
+
+    func testWatchdogClockRestartsAfterPromptIsAnswered() {
+        let coord = makeCoordinator()
+        coord.simulateLineForTests("#OSTLER\tPROMPT\tid=user_name\tkind=text\ttitle=Your name")
+        coord.simulateWatchdogSilenceForTests(elapsedSeconds: 600)
+        coord.applyAnswerForTests(promptId: "user_name", answer: "x")
+        // Right after the answer the silence clock must not carry the 600s.
+        coord.simulateWatchdogSilenceForTests(elapsedSeconds: 0)
+        XCTAssertEqual(watchdogNoise(coord).count, 0)
+    }
+
+    // MARK: - F010: CLT wait marker + button
+
+    func testCltWaitMarkerDecodesAndDrivesState() {
+        XCTAssertEqual(ProgressDecoder.decode(line: "#OSTLER\tCLT_WAIT\tstate=timeout"), .cltWait(state: "timeout"))
+        let coord = makeCoordinator()
+        coord.simulateLineForTests("#OSTLER\tCLT_WAIT\tstate=waiting")
+        XCTAssertEqual(coord.cltWaitState, "waiting")
+        coord.simulateLineForTests("#OSTLER\tCLT_WAIT\tstate=timeout")
+        XCTAssertEqual(coord.cltWaitState, "timeout")
+        coord.simulateLineForTests("#OSTLER\tCLT_WAIT\tstate=done")
+        XCTAssertNil(coord.cltWaitState)
+    }
+
+    func testCltButtonRunsXcodeSelectInstallAndCopyIsInCatalogue() {
+        XCTAssertEqual(InstallerCoordinator.cltPopCommand.path, "/usr/bin/xcode-select")
+        XCTAssertEqual(InstallerCoordinator.cltPopCommand.args, ["--install"])
+        for key in ["clt_waiting", "clt_waiting_timeout", "clt_install_button"] {
+            let full = "hint_panel.\(key)"
+            XCTAssertNotEqual(ViewCopy.shared.string(for: full), full, "catalogue lacks \(full)")
+        }
+        XCTAssertTrue(ViewCopy.shared.string(for: "hint_panel.clt_waiting_timeout").contains("Still waiting"))
+    }
 }

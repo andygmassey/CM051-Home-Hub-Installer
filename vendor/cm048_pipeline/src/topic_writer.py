@@ -364,6 +364,16 @@ def build_topic_update(
 # ── Writer ──────────────────────────────────────────────────────────
 
 
+# The levels privacy.infer can return other than L3 (privacy._VALID_LEVELS).
+# A whitelist, not "!= L3": a missing or malformed level must not write.
+WRITABLE_PRIVACY_LEVELS = frozenset({"L0", "L1", "L2"})
+
+
+def is_writable_privacy_level(level: object) -> bool:
+    """True only for a known non-L3 level; anything else (incl. unhashable) is False."""
+    return isinstance(level, str) and level in WRITABLE_PRIVACY_LEVELS
+
+
 def write_topics(
     *,
     conversation_id: str,
@@ -384,10 +394,14 @@ def write_topics(
     """
     metadata = metadata or {}
 
-    # Defence in depth -- the call site gates these too.
-    if privacy_level == "L3":
+    # Fail closed, independently of the call site: write ONLY on a known
+    # non-L3 level. L3, None, "" and anything unparseable all refuse. The
+    # call site (processor step 09) carries the same rule; neither layer
+    # relies on the other.
+    if not is_writable_privacy_level(privacy_level):
         logger.debug(
-            "L3 conversation %s: skipping topic write", conversation_id
+            "Privacy level %r for %s is L3 or unknown: skipping topic write",
+            privacy_level, conversation_id,
         )
         return 0
     if metadata.get("non_relational"):

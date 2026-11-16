@@ -20,6 +20,7 @@ on:
       - 'tests/fda_dark_sources_baseline.tsv'
       - 'tests/test_every_default_source_is_requested.sh'
       - 'tests/test_the_picker_offers_every_preset_source.sh'
+      - 'tests/test_the_picker_persists_declined_sources.sh'
       - '.github/workflows/default-sources-requested.yml'
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - 'tests/fda_dark_sources_baseline.tsv'
       - 'tests/test_every_default_source_is_requested.sh'
       - 'tests/test_the_picker_offers_every_preset_source.sh'
+      - 'tests/test_the_picker_persists_declined_sources.sh'
       - '.github/workflows/default-sources-requested.yml'
 
 concurrency:
@@ -50,3 +52,6 @@ jobs:
       - name: Every preset source must also be tickable in Customise
         if: always()
         run: /bin/bash tests/test_the_picker_offers_every_preset_source.sh
+      - name: The picker must persist what the owner declined
+        if: always()
+        run: /bin/bash tests/test_the_picker_persists_declined_sources.sh

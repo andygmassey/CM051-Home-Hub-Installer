@@ -13,7 +13,7 @@
         pwg-email-ingest; this agent reads the same .emlx tree, threads
         it into conversation threads, and hands each new thread to
         CM048's pwg-convo processor, which emits the four artefacts
-        under ~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/.
+        under ~/Ostler/Conversations/<date>/<slug>-<short-id>/.
 
         Pieces:
           1. email_source/ is the reader + threader + dispatcher.

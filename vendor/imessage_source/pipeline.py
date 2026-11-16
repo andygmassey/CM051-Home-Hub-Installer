@@ -10,7 +10,7 @@ On each tick it:
   3. Renders the cleaned transcript + builds the CM048 metadata dict.
   4. Invokes ``pwg-convo process <transcript> <metadata>`` so CM048
      emits the four artefacts under
-     ``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+     ``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 CM048 owns classification, enrichment, the L3 short-circuit, and the
 four-artefact write. This module only produces transcript + metadata
@@ -577,6 +577,7 @@ def process_imessage(
             is_group=convo.is_group,
             display_name=convo.display_name,
             gap=session_gap,
+            members=convo.participants,
         )
         for session in sessions:
             session_max = max(m.rowid for m in session.messages)

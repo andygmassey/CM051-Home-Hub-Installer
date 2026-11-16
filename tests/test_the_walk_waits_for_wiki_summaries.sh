@@ -266,7 +266,7 @@ printf 'THE WALK WAITS FOR THE WIKI SUMMARY BACKFILL\n\n'
 printf -- '-- 1. it is wired into the runner, in the right order --\n'
 # ---------------------------------------------------------------------------
 src_line="$(grep -n 'lib/wiki_summaries_wait.sh' "$RUNNER" | head -1 | cut -d: -f1)"
-call_line="$(grep -n '^wiki_summaries_wait' "$RUNNER" | head -1 | cut -d: -f1)"
+call_line="$(grep -n '^OSTLER_WIKI_WAIT_MODE=kick wiki_summaries_wait' "$RUNNER" | head -1 | cut -d: -f1)"
 usage_line="$(grep -n '^usage_seed_apply' "$RUNNER" | head -1 | cut -d: -f1)"
 loop_line="$(grep -n '^    out="$(bash "$p" 2>&1)"' "$RUNNER" | head -1 | cut -d: -f1)"
 
@@ -797,6 +797,77 @@ JF0="$WORK/journalf0.jsonl"; : > "$JF0"
 outf0="$(run_wait "$LIB" "$BOXF0" "$JF0" STUB_TICK_MODE=floor OSTLER_WIKI_WAIT_BUDGET_S=20)"
 grep -q 'RC=1' <<< "$outf0" && grep -q 'STATE=finding' <<< "$outf0" && ! grep -q 'CONVERGED' <<< "$outf0"
 arm "MUST-FAIL: the floor line with 0 cm044 rows is a FINDING, never CONVERGED" $? "$outf0"
+
+
+# ---------------------------------------------------------------------------
+printf -- '\n-- 9b. WAITED ONCE: the early step only kicks, the late step waits, same predicate --\n'
+# ---------------------------------------------------------------------------
+# Before: a blocking wait right after the seeds (900 s) and, when it ended
+# cannot-run, a SECOND kickstart-and-wait (2700 s) before usage_journal_producers
+# (v1.0.129: 903 s then 2701 s, both cannot-run). Now: the runner calls the lib
+# twice, once with OSTLER_WIKI_WAIT_MODE=kick and once with =wait.
+n_kick="$(grep -c '^OSTLER_WIKI_WAIT_MODE=kick wiki_summaries_wait' "$RUNNER" || true)"
+n_wait="$(grep -c 'OSTLER_WIKI_WAIT_MODE=wait .*wiki_summaries_wait' "$RUNNER" || true)"
+n_bare="$(grep -cE '^[[:space:]]*wiki_summaries_wait( |$)' "$RUNNER" || true)"
+[ "$n_kick" = 1 ] && [ "$n_wait" = 1 ] && [ "$n_bare" = 0 ]
+arm "the runner has exactly one kick call, one wait call and no bare full-wait call" $? \
+    "kick=$n_kick wait=$n_wait bare=$n_bare"
+grep -q 'WAIT CHANGE vs before' "$RUNNER"
+arm "and the runner prints a WAIT CHANGE vs before line" $? "missing in run_box_walk.sh"
+
+run_kw() { # $1 = lib, $2 = box dir, $3 = journal, $4 = sequence (kick,wait | wait), rest = env
+    local lib="$1" box="$2" journal="$3" seq="$4"; shift 4
+    env -u OSTLER_WIKI_WAIT_SKIP \
+        OSTLER_BOX_HOST= PATH="$STUB_BIN:$PATH" OSTLER_DIR="$box" \
+        OSTLER_USAGE_JOURNAL="$journal" STUB_JOURNAL="$journal" STUB_PIDS="$PIDS" \
+        STUB_LAUNCHCTL_LOG="$box/launchctl.argv" OSTLER_WIKI_WAIT_INTERVAL_S=1 \
+        OSTLER_WIKI_WAIT_BUDGET_S=25 "$@" \
+        bash -c '
+            set -uo pipefail
+            . "$1"
+            for m in $(printf "%s" "$2" | tr "," " "); do
+                OSTLER_WIKI_WAIT_MODE=$m wiki_summaries_wait
+                printf "%s: RC=%s STATE=%s\n" "$m" "$?" "${WIKI_WAIT_STATE}"
+            done
+            printf "DELTA=%s\n" "${WIKI_WAIT_DELTA:-unset}"
+        ' _ "$lib" "$seq" 2>&1
+}
+
+reap
+BOXK="$WORK/boxk"; make_box "$BOXK"
+JK="$WORK/journalk.jsonl"; : > "$JK"
+outk="$(run_kw "$LIB" "$BOXK" "$JK" kick,wait STUB_BACKFILL_S=3 STUB_BACKFILL_ROWS=3 STUB_TICK_DELAY_S=1 STUB_BACKFILL_GROW=1 STUB_BACKFILL_LOGLINE=done)"
+grep -q '^kick: RC=0 STATE=kicked' <<< "$outk" && grep -q '^wait: RC=0 STATE=converged' <<< "$outk" && grep -q 'DELTA=3' <<< "$outk"
+arm "kick returns 0 'kicked' without waiting; the later wait reaches CONVERGED with the delta measured from the kick-time baseline" $? "$outk"
+nks="$(grep -c '^kickstart -k' "$BOXK/launchctl.argv" 2>/dev/null || true)"
+[ "$nks" = 1 ]
+arm "the recompile was kickstarted exactly ONCE across the two calls" $? "kickstarts=$nks; $(cat "$BOXK/launchctl.argv" 2>/dev/null)"
+kick_part="$(sed -n '1,/^kick: RC=/p' <<< "$outk")"
+! grep -q 'wrapper pid' <<< "$kick_part"
+arm "the kick call did no waiting (no backfill poll line before 'kick: RC')" $? "$kick_part"
+
+reap
+BOXK2="$WORK/boxk2"; make_box "$BOXK2"
+JK2="$WORK/journalk2.jsonl"; : > "$JK2"
+outk2="$(run_kw "$LIB" "$BOXK2" "$JK2" wait STUB_BACKFILL_S=1 STUB_BACKFILL_ROWS=3)"
+grep -q '^wait: RC=1 STATE=cannot-run' <<< "$outk2" && grep -q 'no successful kickstart earlier in this walk' <<< "$outk2"
+arm "MISSING-KICK ARM: a wait with no earlier kick is CANNOT-RUN, never converged" $? "$outk2"
+[ ! -s "$BOXK2/launchctl.argv" ]
+arm "and it kicked nothing itself" $? "$(cat "$BOXK2/launchctl.argv" 2>/dev/null)"
+
+reap
+BOXK3="$WORK/boxk3"; make_box "$BOXK3" notick
+JK3="$WORK/journalk3.jsonl"; : > "$JK3"
+outk3="$(run_kw "$LIB" "$BOXK3" "$JK3" kick,wait STUB_LABEL_RC=113)"
+grep -q '^kick: RC=1 STATE=cannot-run' <<< "$outk3" && grep -q '^wait: RC=1 STATE=cannot-run' <<< "$outk3" && grep -q 'early step: cannot-run' <<< "$outk3"
+arm "FAILED-KICK ARM: a kick that could not start the compile makes the later wait CANNOT-RUN too, quoting why" $? "$outk3"
+
+reap
+BOXK4="$WORK/boxk4"; make_box "$BOXK4"
+JK4="$WORK/journalk4.jsonl"; : > "$JK4"
+outk4="$(run_kw "$LIB" "$BOXK4" "$JK4" kick,wait STUB_BACKFILL_S=1 STUB_BACKFILL_ROWS=0 STUB_BACKFILL_LOGLINE=done)"
+grep -q '^wait: RC=1 STATE=finding' <<< "$outk4"
+arm "the predicate is unchanged: a completed backfill that wrote 0 rows is still the FINDING via kick+wait" $? "$outk4"
 
 # ---------------------------------------------------------------------------
 printf -- '\n-- 10. MUTATION: with the delta check disabled, arm 4 must fail --\n'

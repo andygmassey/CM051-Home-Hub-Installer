@@ -41,6 +41,7 @@ DECLARED = [
     "cleanup: the reminder the probe created is deleted and verified gone (residue syncs via iCloud into the next walk)",
     "people rules: a seeded 1:1 row is pending or pushed AND no row anywhere is flagged org_filter_unavailable (people_rules.py loaded on this box)",
     "ostler list: the daemon reports reminders_list present, id_stored, not removed, and holding the pushes (read over ssh from GET /api/status, no console)",
+    "reset: reminders a previous walk recorded are removed by identifier, and the MEASURED residue after reset is 0",
 ]
 
 
@@ -96,19 +97,43 @@ def judge(f):
         add(DECLARED[2], None, "NOT MEASURED: no pushed reminder exists to read back")
     elif rb.get("blocked_tcc"):
         add(DECLARED[2], None, "CANNOT-RUN: Automation permission (TCC) refused the AppleScript read of Reminders.app over this ssh session; only a console session can grant it")
+    elif rb.get("timed_out"):
+        add(DECLARED[2], None, "CANNOT-RUN: the read-back of Reminders.app timed out over ssh; the reminder was NOT seen and is not counted as found")
     elif not rb.get("attempted"):
         add(DECLARED[2], None, "NOT MEASURED: the read-back was never attempted ({})".format(rb.get("error", "no detail")))
     elif rb.get("found") is True:
-        add(DECLARED[2], True, "found 1 reminder matching the synthetic text")
+        add(DECLARED[2], True, "Reminders.app holds 1 reminder with the identifier the daemon recorded")
     elif rb.get("found") is False:
-        add(DECLARED[2], False, "EventKit confirmed the push, but the reminder is not visible in Reminders.app by its own text")
+        add(DECLARED[2], False, "EventKit confirmed the push, but no reminder with the recorded identifier is visible in Reminders.app")
     else:
         add(DECLARED[2], None, "NOT MEASURED: the read-back gave no clear answer ({})".format(rb.get("error", "no detail")))
 
     _cleanup(f, out)
     _judge_people_rules(f, out, add)
     _judge_ostler_list(f, out, add, status)
+    _judge_reset(f, add)
     return _finish(out)
+
+
+def _judge_reset(f, add):
+    """Residue from earlier walks. A residue the walk cannot remove (delete
+    timed out, TCC refused) is CANNOT-RUN with the count named, never a pass."""
+    r = (f.get("reset") or {}).get("reset") if f.get("reset") else None
+    if not r:
+        add(DECLARED[6], None, "CANNOT-RUN: the reset step returned nothing; residue from earlier walks is unmeasured")
+        return
+    if r.get("error"):
+        add(DECLARED[6], None, "CANNOT-RUN: the reset state could not be read ({})".format(r["error"]))
+        return
+    left = r.get("residue_after")
+    if left is None:
+        add(DECLARED[6], None, "NOT MEASURED: no residue count came back from reset")
+    elif left == 0:
+        add(DECLARED[6], True, "reset removed {} of {} earlier reminder(s); measured residue 0 (states: {})".format(
+            r.get("removed"), r.get("before"), ", ".join(sorted(set(r.get("states") or []))) or "none recorded"))
+    else:
+        add(DECLARED[6], None, "CANNOT-RUN: {} reminder(s) from an earlier walk remain after reset (states: {}); delete them at the console, the walk cannot remove them over ssh".format(
+            left, ", ".join(sorted(set(r.get("states") or [])))))
 
 
 def _cleanup(f, out):
@@ -129,16 +154,22 @@ def _cleanup(f, out):
         who = "{} reminder id={} titled '{}...'".format(label, part.get("calendar_item_identifier"), cl.get("expected_title", "Follow up"))
         if st in ("deleted", "none_to_delete"):
             ok_states.append(st)
-        elif st == "blocked_tcc":
+        elif st in ("blocked_tcc", "timed_out"):
             blocked.append(who)
         else:
             failed.append("{} (delete failed: {})".format(who, r.get("error", "no detail")))
+    # The MEASURED count of walk-created reminders still recorded after this
+    # walk's cleanup (state file length). Reported on every verdict, so the
+    # record carries the number and not only the words.
+    res = cl.get("residue") or {}
+    rcount = res.get("count")
+    tail = "" if rcount is None else "; walk-created reminders still recorded after cleanup: {}".format(rcount)
     if failed:
-        out.append((name, False, "LEFT BEHIND: " + "; ".join(failed + blocked)))
+        out.append((name, False, "LEFT BEHIND: " + "; ".join(failed + blocked) + tail))
     elif blocked:
-        out.append((name, None, "CANNOT-RUN: Automation permission (TCC) refused the delete over ssh; LEFT BEHIND, delete by hand at the console: " + "; ".join(blocked)))
+        out.append((name, None, "CANNOT-RUN: the delete over ssh was refused or timed out, so it is not verified gone; LEFT BEHIND, delete by hand at the console: " + "; ".join(blocked) + tail))
     else:
-        out.append((name, True, ", ".join(ok_states)))
+        out.append((name, True, ", ".join(ok_states) + tail))
 
 
 def _judge_people_rules(f, out, add):
@@ -212,6 +243,7 @@ def _good():
         "org_filter_flagged_rows": 0,
         "reminders_list": {"read": True, "present_in_status": True, "available": True, "measured": True,
                            "present": True, "id_stored": True, "pushed_in_list": 2, "removed": False},
+        "reset": {"reset": {"before": 0, "removed": 0, "residue_after": 0, "states": []}},
     }
 
 
@@ -229,10 +261,10 @@ def self_test():
     print("  ok    good fixture: every assertion passes")
 
     dry = {"write": {"attempted": False, "error": "no settings.yaml user_id"}}
-    if any(row(dry, i) != [None] for i in range(6)):
-        fails.append("a failed write should cascade CANNOT-RUN to all six: {}".format([row(dry, i) for i in range(6)]))
+    if any(row(dry, i) != [None] for i in range(len(DECLARED) - 1)):
+        fails.append("a failed write should cascade CANNOT-RUN to all six write-dependent assertions: {}".format([row(dry, i) for i in range(len(DECLARED) - 1)]))
     else:
-        print("  ok    a failed write cascades CANNOT-RUN to all six assertions, never a pass")
+        print("  ok    a failed write cascades CANNOT-RUN to the six write-dependent assertions, never a pass")
 
     stuck = copy.deepcopy(g); stuck["push"] = {"status": "pending", "waited_s": 120}
     if row(stuck, 1) != [False]:
@@ -283,6 +315,11 @@ def self_test():
             fails.append("unmeasured list with TCC {} should be {} (f): {}".format(state, want, row(u, 5)))
         else:
             print("  ok    unmeasured Ostler list, TCC {}: {}".format(state, "CANNOT-RUN" if want is None else "FAIL"))
+    to = copy.deepcopy(g); to["readback"] = {"attempted": True, "blocked_tcc": False, "timed_out": True}
+    if row(to, 2) != [None]:
+        fails.append("a timed-out read-back must be CANNOT-RUN (c), never a pass or a not-found FAIL: {}".format(row(to, 2)))
+    else:
+        print("  ok    mutant caught: a timed-out read-back is CANNOT-RUN, not 'not visible'")
     tcc = copy.deepcopy(g); tcc["readback"] = {"attempted": True, "blocked_tcc": True}
     if row(tcc, 2) != [None]:
         fails.append("a TCC-blocked read-back should be CANNOT-RUN (c), got {}".format(row(tcc, 2)))
@@ -299,6 +336,7 @@ def self_test():
             ("delete refused by TCC", {"calendar_item_identifier": "ek-1", "reminder": {"state": "blocked_tcc"}}, None),
             ("delete failed", {"calendar_item_identifier": "ek-1", "reminder": {"state": "failed", "error": "boom"}}, False),
             ("reminder_deleted=false in the old shape", {"reminder_deleted": False, "db_deleted": True}, False),
+            ("delete timed out (osascript 60 s, twice)", {"calendar_item_identifier": "ek-1", "reminder": {"state": "timed_out"}}, None),
             ("forget returned nothing", None, None)):
         c = copy.deepcopy(g); c["cleanup"] = cl
         if row(c, 3) != [want]:
@@ -367,6 +405,19 @@ def self_test():
         else:
             print("  ok    mutant caught (ostler list): {}".format(label))
 
+    for label, rs, want in (
+            ("reset removed everything, residue 0", {"before": 2, "removed": 2, "residue_after": 0, "states": ["deleted", "none_to_delete"]}, True),
+            ("reset left one behind (TCC or timeout at the console)", {"before": 2, "removed": 1, "residue_after": 1, "states": ["deleted", "timed_out"]}, None),
+            ("reset state unreadable", {"before": 0, "error": "state file unreadable: JSONDecodeError"}, None),
+            ("reset returned nothing", None, None)):
+        t = copy.deepcopy(g)
+        t["reset"] = {"reset": rs} if rs is not None else None
+        if rs is None:
+            t.pop("reset")
+        if row(t, 6) != [want]:
+            fails.append("reset {} should be {}: {}".format(label, want, row(t, 6)))
+        else:
+            print("  ok    mutant caught (reset): {}".format(label))
     if [ok for n, ok, _ in judge({}) if n in DECLARED and ok is True]:
         fails.append("an empty collection reads as a pass")
     if fails:

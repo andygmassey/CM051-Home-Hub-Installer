@@ -116,7 +116,7 @@ jobs:
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet pytest rdflib pydantic-settings \
-            nameparser httpx phonenumbers pyyaml
+            "nameparser>=2.1.0,<3.0" httpx phonenumbers pyyaml
           python -m pip install --quiet ./vendor/ostler_security
 
       # ANTI-VACUITY AND THE RUN ARE ONE STEP ON PURPOSE.

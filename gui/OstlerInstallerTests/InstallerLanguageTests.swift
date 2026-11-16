@@ -1,0 +1,115 @@
+// InstallerLanguageTests.swift
+//
+// The installer's language choice drives three catalogues at once
+// (ViewCopy, HintCopy, install.sh strings). These pin the choice and the
+// English fallback, which is what keeps a partial or broken translation
+// from showing a customer dotted keys or an empty screen.
+
+import XCTest
+@testable import OstlerInstaller
+
+final class InstallerLanguageTests: XCTestCase {
+
+    func testFirstShippedPreferenceWins() {
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE", "en-GB"], override: nil), "de")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["sv-SE", "fr-FR"], override: nil), "fr")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["ja-JP"], override: nil), "ja")
+    }
+
+    func testEnglishAbovePreferredTranslationMeansEnglish() {
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB", "de-DE"], override: nil), "en-GB")
+    }
+
+    func testNothingShippedMeansEnglish() {
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["sv-SE", "fi-FI"], override: nil), "en-GB")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: [], override: nil), "en-GB")
+    }
+
+    func testChineseScriptAndRegion() {
+        XCTAssertEqual(InstallerLanguage.map("zh-Hans-CN"), "zh-Hans")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant-HK"), "zh-HK")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant-TW"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-TW"), "zh-Hant")
+        XCTAssertEqual(InstallerLanguage.map("zh-Hant-MO"), "zh-HK")
+        XCTAssertEqual(InstallerLanguage.map("zh-HK"), "zh-HK")
+        XCTAssertEqual(InstallerLanguage.map("zh-CN"), "zh-Hans")
+    }
+
+    func testPortugueseAndRegionStripping() {
+        XCTAssertEqual(InstallerLanguage.map("pt-PT"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("pt_PT"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("pt-AO"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("pt-BR"), "pt-BR")
+        XCTAssertEqual(InstallerLanguage.map("pt"), "pt-BR")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["pt-PT"], override: nil), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB"], override: "pt-PT"), "pt-PT")
+        XCTAssertEqual(InstallerLanguage.map("nl-BE"), "nl")
+        XCTAssertEqual(InstallerLanguage.map("es-419"), "es")
+        XCTAssertEqual(InstallerLanguage.map("ar-SA"), "ar")
+        XCTAssertNil(InstallerLanguage.map("sv-SE"))
+    }
+
+    func testUSEnglishIsAVariantAndOtherEnglishStaysBritish() {
+        XCTAssertEqual(InstallerLanguage.map("en-US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en_US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en", region: "US"), "en-US")
+        XCTAssertEqual(InstallerLanguage.map("en"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en-GB", region: "US"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en-AU"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.map("en", region: "GB"), "en-GB")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-US", "de-DE"], override: nil), "en-US")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["en-GB"], override: "en-US"), "en-US")
+    }
+
+    func testOverrideOnlyAcceptsShippedValues() {
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE"], override: "ko"), "ko")
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE"], override: "en-GB"), "en-GB")
+        // An unknown override must not strand the installer on a file that
+        // does not exist; it is ignored and the Mac's languages decide.
+        XCTAssertEqual(InstallerLanguage.resolve(preferred: ["de-DE"], override: "xx"), "de")
+    }
+
+    func testBaseLanguageHasNoSuffixedResource() {
+        XCTAssertNil(InstallerLanguage.resourceName("ViewCopy", lang: "en-GB"))
+        XCTAssertEqual(InstallerLanguage.resourceName("ViewCopy", lang: "de"), "ViewCopy.de")
+    }
+
+    func testViewCopyPrefersTranslationAndFallsBackPerKey() {
+        let copy = ViewCopy(
+            root: ["footer": ["quit_button": "Quit", "done_button": "Done"]],
+            localized: ["footer": ["quit_button": "Beenden"]]
+        )
+        XCTAssertEqual(copy.string(for: "footer.quit_button"), "Beenden")
+        XCTAssertEqual(copy.string(for: "footer.done_button"), "Done")
+        XCTAssertEqual(copy.string(for: "footer.unknown"), "footer.unknown")
+    }
+
+    func testStepOverlayReplacesOnlyKnownIds() {
+        let base = ["a": StepMeta(id: "a", title: "checking", subtitle: nil, why: nil,
+                                  durationEstimateSeconds: 5, longRunningThresholdSeconds: nil,
+                                  longRunningCopy: nil, illustration: nil, needsFDA: false)]
+        let loc = ["a": StepMeta(id: "a", title: "wird geprüft", subtitle: nil, why: nil,
+                                 durationEstimateSeconds: 5, longRunningThresholdSeconds: nil,
+                                 longRunningCopy: nil, illustration: nil, needsFDA: false),
+                   "ghost": StepMeta(id: "ghost", title: "x", subtitle: nil, why: nil,
+                                     durationEstimateSeconds: nil, longRunningThresholdSeconds: nil,
+                                     longRunningCopy: nil, illustration: nil, needsFDA: nil)]
+        let out = StepCatalog.overlay(base: base, localized: loc)
+        XCTAssertEqual(out["a"]?.title, "wird geprüft")
+        XCTAssertNil(out["ghost"])
+    }
+
+    /// Every shipped language has all three catalogues in the source tree
+    /// (bundling is asserted by tests/test_install_strings_translations.sh).
+    func testEveryTranslatedLanguageHasItsFiles() throws {
+        for lang in InstallerLanguage.translated {
+            for rel in ["install.sh.strings.\(lang).sh",
+                        "gui/OstlerInstaller/Resources/ViewCopy.\(lang).json",
+                        "gui/OstlerInstaller/Resources/HintCopy.\(lang).json"] {
+                let url = try StringsCatalogueEmDashTest.repoFile(relative: rel)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "missing \(rel)")
+            }
+        }
+    }
+}

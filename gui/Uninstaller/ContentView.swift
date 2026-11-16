@@ -25,6 +25,10 @@ struct UninstallerRootView: View {
 
 private func quit() { NSApplication.shared.terminate(nil) }
 
+/// Customer copy, from the installer's catalogue (Resources/ViewCopy*.json,
+/// bundled into this app) in the Mac's language (InstallerLanguage).
+private func copy(_ key: String) -> String { ViewCopy.shared.string(for: "uninstaller." + key) }
+
 // MARK: - Confirm
 
 struct ConfirmView: View {
@@ -32,19 +36,15 @@ struct ConfirmView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Uninstall Ostler")
+            Text(copy("heading"))
                 .font(.title).bold()
 
-            Text("This removes the Ostler app, its background services, its "
-                 + "Docker data stores, and the Ostler folder in your home "
-                 + "directory. Your generated content in Documents/Ostler is "
-                 + "kept.")
+            Text(copy("intro"))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if !coordinator.uninstallerPresent {
-                Label("The Ostler uninstaller was not found. Ostler may already "
-                      + "be uninstalled.", systemImage: "exclamationmark.triangle")
+                Label(copy("not_found"), systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -53,10 +53,8 @@ struct ConfirmView: View {
 
             Toggle(isOn: $coordinator.options.removeColima) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Also delete the shared Docker VM (about 30 GB)")
-                    Text("Only if Ostler was the only thing using Docker on "
-                         + "this Mac. This is the shared colima ‘default’ VM and "
-                         + "may hold Docker data unrelated to Ostler.")
+                    Text(copy("remove_colima"))
+                    Text(copy("remove_colima_help"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -65,10 +63,8 @@ struct ConfirmView: View {
 
             Toggle(isOn: $coordinator.options.purgeKnowledgeData) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Also delete my imported knowledge data")
-                    Text("Wipes the knowledge-staging cache (imported notes and "
-                         + "images). Left in place by default so a reinstall can "
-                         + "reuse it.")
+                    Text(copy("purge_knowledge"))
+                    Text(copy("purge_knowledge_help"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -78,10 +74,10 @@ struct ConfirmView: View {
             Spacer(minLength: 0)
 
             HStack {
-                Button("Cancel") { quit() }
+                Button(copy("cancel")) { quit() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Uninstall Ostler") { coordinator.start() }
+                Button(copy("uninstall_button")) { coordinator.start() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!coordinator.uninstallerPresent)
             }
@@ -96,11 +92,11 @@ struct RunningView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Uninstalling…").font(.title2).bold()
+            Text(copy("running")).font(.title2).bold()
 
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text(coordinator.currentPhase.isEmpty ? "Working" : coordinator.currentPhase)
+                Text(coordinator.currentPhase.isEmpty ? copy("working") : coordinator.currentPhase)
                     .foregroundStyle(.secondary)
             }
 
@@ -127,9 +123,9 @@ struct DoneView: View {
     @EnvironmentObject var coordinator: UninstallerCoordinator
 
     private var headline: String {
-        if !coordinator.succeeded { return "Uninstall did not finish" }
-        return coordinator.storesRemoved ? "Ostler has been removed"
-                                         : "Ostler removed, but your data stores were NOT"
+        if !coordinator.succeeded { return copy("done_failed") }
+        return coordinator.storesRemoved ? copy("done_removed")
+                                         : copy("done_stores_kept")
     }
 
     private var headlineColor: Color {
@@ -152,11 +148,11 @@ struct DoneView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                summaryRow("Data stores",
-                           coordinator.storesRemoved ? "removed"
-                           : "NOT removed. Start Docker and run: cd ~/.ostler && docker compose down -v")
-                summaryRow("Shared colima VM", colimaSummary)
-                summaryRow("Knowledge data", knowledgeSummary)
+                summaryRow(copy("row_stores"),
+                           coordinator.storesRemoved ? copy("stores_removed")
+                           : copy("stores_not_removed"))
+                summaryRow(copy("row_colima"), colimaSummary)
+                summaryRow(copy("row_knowledge"), knowledgeSummary)
             }
             .font(.callout)
 
@@ -164,7 +160,7 @@ struct DoneView: View {
 
             HStack {
                 Spacer()
-                Button("Quit") { quit() }
+                Button(copy("quit")) { quit() }
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -181,23 +177,23 @@ struct DoneView: View {
 
     private var colimaSummary: String {
         switch coordinator.colimaResult {
-        case "removed":           return "deleted"
-        case "kept":              return "kept (still on disk)"
-        case "absent":            return "none present"
-        case "delete_failed":     return "delete failed. Remove manually with: colima delete default"
-        case "skipped_no_binary": return "not deleted (colima not found)"
-        case "":                  return "kept"
+        case "removed":           return copy("colima_removed")
+        case "kept":              return copy("colima_kept")
+        case "absent":            return copy("colima_absent")
+        case "delete_failed":     return copy("colima_delete_failed")
+        case "skipped_no_binary": return copy("colima_no_binary")
+        case "":                  return copy("colima_default")
         default:                  return coordinator.colimaResult
         }
     }
 
     private var knowledgeSummary: String {
         switch coordinator.knowledgeStaging {
-        case "preserved":       return "kept for a reinstall"
-        case "purged":          return "deleted"
-        case "absent":          return "none present"
-        case "preserve_failed": return "removed (could not be set aside)"
-        case "":                return "kept"
+        case "preserved":       return copy("knowledge_preserved")
+        case "purged":          return copy("knowledge_purged")
+        case "absent":          return copy("knowledge_absent")
+        case "preserve_failed": return copy("knowledge_preserve_failed")
+        case "":                return copy("knowledge_default")
         default:                return coordinator.knowledgeStaging
         }
     }

@@ -76,10 +76,26 @@ die()  { echo -e "${RED}FAIL${NC}  $*" >&2; exit "${2:-1}"; }
 CM051_SOURCES=(
     "install.sh"
     "install.sh.strings.en-GB.sh"
+    "install.sh.strings.de.sh"
+    "install.sh.strings.fr.sh"
+    "install.sh.strings.es.sh"
+    "install.sh.strings.it.sh"
+    "install.sh.strings.nl.sh"
+    "install.sh.strings.pt-BR.sh"
+    "install.sh.strings.pt-PT.sh"
+    "install.sh.strings.en-US.sh"
+    "install.sh.strings.ja.sh"
+    "install.sh.strings.ko.sh"
+    "install.sh.strings.zh-Hans.sh"
+    "install.sh.strings.zh-HK.sh"
+    "install.sh.strings.ar.sh"
+    "install.sh.strings.zh-Hant.sh"
     "lib"
     "scripts"
     "assistant-agent"
     "wiki-recompile"
+    "uninstall"
+    "care"
 )
 
 # Files / dirs sourced from HR015. Format: src_relpath

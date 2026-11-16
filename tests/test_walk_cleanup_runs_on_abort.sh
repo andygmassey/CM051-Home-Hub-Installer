@@ -19,7 +19,7 @@ if [ -z "$BLOCK" ]; then
     bad "run_box_walk.sh has no walk_cleanup block run from a trap"
     echo "  $pass passed, $fail failed"; exit 1
 fi
-FORGETS="grounding_seed_forget preference_seed_forget conversation_seed_forget usage_seed_forget owner_employer_seed_forget conversation_capture_seed_forget scale_fixture_forget companion_walk_unpair"
+FORGETS="grounding_seed_forget preference_seed_forget conversation_seed_forget usage_seed_forget owner_employer_seed_forget conversation_capture_seed_forget scale_fixture_forget contact_cards_forget companion_walk_unpair"
 
 # The normal path calls the same forgets flush left (other tests pin those
 # lines) and then marks the cleanup done; the two lists must match.

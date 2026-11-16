@@ -18,10 +18,10 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `cc0d1fb8b0263f30ab4eccec78f8ae1a6980a969db90be1155d1293ccf22af14` (post-graft, this repo, after item 11) |
+| Current SHA-256 | `eb1b4edbda7fba3536c18e06fcee9690840e4013a9fe89db249372037e7b51ea` (post-graft, this repo, after item 14 size cap keeps Preferences AND item 13 / outbound-L3 fail-closed read in _meeting_rows; recomputed on the merged file) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
-| Last divergence | 2026-10-18 (people ranked from per-channel last-contact dates, walk #31, item 11). NOT upstream. |
+| Last divergence | 2026-11-02 (size cap trims lines not blocks and keeps Preferences, walk 121, item 14). Earlier: item 13 (2026-10-31, derived preferences) and item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
 
 ## Local divergence (grafted on top of `f441f09f`)
 
@@ -205,6 +205,51 @@ the kind of blanket claim that goes stale one item at a time:
    The recency arm is an addition: if its read fails the counted ranking
    still renders (the failure stays recorded). Pinned by
    `test_green_a_failed_recency_read_keeps_the_counted_ranking`.
+
+12. **The owner brief** (2026-10-07, Lane 7). NOT upstream. Four sections
+   added to the digest, each read from a shipped source: `Routines and
+   priorities` (`pwg:Meeting` timing + `GET /api/v1/commitments`), `Tastes`
+   (`GET /api/v1/preferences`, Food / Music / Film & TV, the profile's own
+   score), `Autonomy calibration` (asserted + corrected counts, and only the
+   `[autonomy]` table of `assistant-config/config.toml`) and `Channel style`
+   (`pwg:userMessages` / `pwg:otherMessages` counts, no text). Also: the digest
+   now drops whole low-priority sections to meet `MAX_CHARS` and declares them
+   ("Left out to fit the size cap"), and `_user_asserted_section` now SELECTs
+   `?level` (it filtered on a variable the query never returned, so an L3
+   asserted fact reached the digest). Guarded by
+   `tests/test_owner_brief.py`. A re-vendor from upstream drops all of it.
+
+13. **Derived preferences ("What you like") reach the digest** (2026-10-31,
+   v1.0.121 trial box). NOT upstream. The derive job writes the derived named
+   graph and `GET /api/v1/preferences/derived` serves it, but the Preferences
+   section read only `GET /api/v1/preferences` (the CM059 interest profile),
+   so the walk probe `derived_preferences_reach_digest_and_tool` failed its
+   digest arm. `_preferences_section` now also reads the derived route
+   (`tier=all`, the tier the probe reads) and renders two labelled lines,
+   "What you like (derived from your history)" and "Not keen on (derived from
+   your history)" (negative strength), ABOVE the interest-profile lines, which
+   are kept unchanged (`_profile_preferences_lines`). Privacy: L3, "private"
+   and any level outside L0 to L2 are withheld (fail closed) even though the
+   route already filters. A degraded 200 (`degraded` + `cannot_check`) is said
+   inline when the section has other content, else on the section's gap line
+   (`_SECTION_NOTES`), and does not move the exit code; a refused read is
+   recorded by `_get_json` and reads COULD NOT BE READ. Guarded by
+   `context-refresh/tests/test_digest_reads_derived_preferences.py` (payload
+   built by the vendored producer, RED pinned to the trial-tree SHA). A
+   re-vendor from upstream drops it.
+
+14. **The size cap trims lines, and Preferences outlives Channel style**
+   (2026-11-02, walk 121). NOT upstream. Over the cap the digest dropped whole
+   blocks, and Preferences (carrying the derived "What you like" lines of item
+   13) went before the counts-only Channel style. `Channel style` is now the
+   LAST block, so it is the first dropped, and the cap shrinks a block a LINE
+   at a time (`_trim_calendar_one`: past events oldest first, then undated,
+   then upcoming furthest first, so the nearest upcoming event goes last)
+   before it drops any block whole. Trimmed blocks are said under "What is not
+   in this digest" ("Shortened to fit the size cap"), never silently.
+   Guarded by `context-refresh/tests/test_digest_size_cap_keeps_preferences.py`
+   and `test_digest_cap_trims_lines_not_blocks.py`. A re-vendor from upstream
+   drops it.
 
 ## Why vendored rather than shipped in the assistant release
 

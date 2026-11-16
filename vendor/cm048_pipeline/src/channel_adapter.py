@@ -266,8 +266,17 @@ def _imessage_adapter(
         transcript=transcript or "",
         todos=_build_todos(conversation_id, extraction),
         extra_metadata=extra,
-        participant_handles=_counterpart_handles(metadata),
+        participant_handles=_thread_basis_handles(metadata),
     )
+
+
+def _thread_basis_handles(metadata: dict) -> tuple[str, ...]:
+    """The handles the follow-up thread key is built from: EVERY chat member
+    (the source's ``chat_handles``, chat.db chat_handle_join) when supplied,
+    so a silent group member still counts as the daemon counts them; else the
+    speakers' handles."""
+    members = tuple(h.strip() for h in (metadata.get("chat_handles") or []) if isinstance(h, str) and h.strip())
+    return members or _counterpart_handles(metadata)
 
 
 def _counterpart_handles(metadata: dict) -> tuple[str, ...]:
@@ -637,6 +646,12 @@ def _whatsapp_resolve_privacy(
     explicit_meta = metadata.get("privacy_level")
     if isinstance(explicit_meta, str) and explicit_meta:
         return _privacy.normalise(explicit_meta)
+
+    # No verdict: fail toward the HIGHER level, never the lower. A missing
+    # classification, or one without a sensitivity level, is unavailable.
+    if classification is None or classification.sensitivity is None \
+            or classification.sensitivity.level is None:
+        return "L3"
 
     sensitivity = (
         classification.sensitivity.level
