@@ -781,6 +781,7 @@ test_provenance_gate_marker_read_is_not_piped.sh	WIRED	.github/workflows/cut-gat
 test_provenance_gate_refuses_when_it_examined_nothing.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_provenance_survives_the_filter_under_execution.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_provisional_phone_twins_merge.py	WIRED	.github/workflows/dedupe-merge-rule-2.yml
+test_public_lookups_withdraw.py	WIRED	.github/workflows/ingest-slot.yml
 test_push_cut_tag_refuses_a_pr_crossing_48h_soon.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_push_cut_tag_refuses_a_red_checklist.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_pwg_convo_bin_owner_side_first.py	WIRED	.github/workflows/cold-box-source-truth.yml

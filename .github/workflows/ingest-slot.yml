@@ -51,6 +51,9 @@ on:
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
+      - 'tests/test_public_lookups_withdraw.py'
+      - 'lib/ostler_consent_enrichment.py'
+      - 'vendor/cm019_preferences/services/enrich/src/consent.py'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
   push:
@@ -70,6 +73,9 @@ on:
       - 'vendor/imessage_source/reader.py'
       - 'wiki-recompile/bin/wiki-recompile-tick.sh'
       - 'tests/test_wiki_compile_honours_public_lookup_consent.sh'
+      - 'tests/test_public_lookups_withdraw.py'
+      - 'lib/ostler_consent_enrichment.py'
+      - 'vendor/cm019_preferences/services/enrich/src/consent.py'
       - 'install.sh'
       - '.github/workflows/ingest-slot.yml'
 
@@ -151,6 +157,19 @@ jobs:
       - name: Every wiki compile hands the compiler the recorded public look-up answer (Ostler #30)
         if: success() || failure()
         run: bash tests/test_wiki_compile_honours_public_lookup_consent.sh
+
+      # GDPR Art.7(3): withdrawing the public-lookups consent must stop the next
+      # request. Drives the real writer (lib/ostler_consent_enrichment.py), the
+      # shipped tick flag and the CM019 gate, and counts requests at a local
+      # recording proxy. Exits 2 (CANNOT-RUN) rather than passing if any input
+      # is missing. Sandboxed HOME inside the test; no real Keychain.
+      - name: Withdrawing public look-up consent stops the next request (134, Art.7(3))
+        if: success() || failure()
+        env:
+          HOME: ${{ runner.temp }}/withdraw-home
+        run: |
+          mkdir -p "$HOME"
+          python3 tests/test_public_lookups_withdraw.py
 
       - name: Install pytest for the wiki-recompile-tick behaviour suite
         if: success() || failure()
