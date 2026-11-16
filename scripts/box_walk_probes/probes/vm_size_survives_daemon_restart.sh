@@ -74,11 +74,24 @@ read_record() {
     box_run "awk -F= '/^cpus=/{c=\$2} /^memory_gib=/{m=\$2} END{ if (c != \"\" && m != \"\") print c, m }' \"\$HOME/.ostler/state/vm_size\" 2>/dev/null"
 }
 
+box_path_prefix() {
+    # The walked box's non-login shell has a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin
+    # on the MBP), and colima lives in Homebrew's bin. Name the dirs the installer
+    # itself uses; every box command that calls colima carries this prefix.
+    printf 'export PATH="%s:$PATH"; ' "${OSTLER_BOX_COLIMA_DIRS:-/opt/homebrew/bin:/usr/local/bin}"
+}
+
+colima_on_box() {
+    # Prints HAVE or NONE. Asked BEFORE anything is stopped, so a missing colima
+    # is named as such and never read as a restart that never finished.
+    box_run "$(box_path_prefix)command -v colima >/dev/null 2>&1 && echo HAVE || echo NONE"
+}
+
 force_restart_and_measure() {
-    # Stops colima, kickstarts the daemon, then waits for the default VM and
-    # prints "STATUS CPUS MEM_GIB". Bounded by VM_WAIT_S. Prints the last
-    # reading it saw, so a VM that never came up is named, not hidden.
-    box_run "colima stop >/dev/null 2>&1; launchctl kickstart -k \"gui/\$(id -u)/${DAEMON_LABEL}\" >/dev/null 2>&1; \
+    # Stops colima, kickstarts the daemon, then waits for the default VM. Its own
+    # calls keep their output (STOP_RC, KICK_RC lines), so a failure is visible.
+    # The final line is "VM <status> <cpus> <mem_gib>" or "VM NONE".
+    box_run "$(box_path_prefix)colima stop 2>&1; echo STOP_RC=\$?; launchctl kickstart -k \"gui/\$(id -u)/${DAEMON_LABEL}\" 2>&1; echo KICK_RC=\$?; \
 i=0; last=''; while [ \$i -lt $((VM_WAIT_S / 5)) ]; do \
 last=\$(colima list --json 2>/dev/null </dev/null | python3 -c 'import json,sys
 row=\"\"
@@ -88,7 +101,8 @@ for l in sys.stdin:
     if d.get(\"name\")==\"default\":
         m=int(d.get(\"memory\",0)); row=\"%s %s %s\" % (d.get(\"status\",\"\"), d.get(\"cpus\",\"\"), (m + 536870912) // 1073741824)
 print(row)' 2>/dev/null); \
-case \"\$last\" in Running*) break ;; esac; i=\$((i+1)); sleep 5; done; echo \"\${last:-NONE}\""
+case \"\$last\" in Running*) break ;; esac; i=\$((i+1)); sleep 5; done; \
+echo \"VM \${last:-NONE}\"; if [ -z \"\$last\" ] || [ \"\$last\" = NONE ]; then colima list 2>&1 | head -3 | sed 's/^/COLIMA_LIST: /'; fi"
 }
 
 host_tier_expected() {
@@ -138,10 +152,17 @@ run_probe() {
     rec_m="${rec##* }"
     probe_note "expected size from ${rec_src}: ${rec_c} CPU / ${rec_m} GiB"
 
+    if [ "$(colima_on_box)" != "HAVE" ]; then
+        probe_examined 1 "colima on the walked box's PATH (checked the installer's dirs before stopping anything)"
+        probe_cannot_run "colima is NOT on the walked box's PATH (looked in ${OSTLER_BOX_COLIMA_DIRS:-/opt/homebrew/bin:/usr/local/bin}). Nothing was stopped and nothing was measured, so the VM size is unknown. This is not a restart that failed."
+    fi
+
     reading="$(force_restart_and_measure)"
-    probe_note "after forced colima stop + daemon kickstart : ${reading}"
+    probe_note "after forced colima stop + daemon kickstart:"
+    printf '%s\n' "$reading" | sed 's/^/  /' | while IFS= read -r _l; do probe_note "$_l"; done
+    vm_line="$(printf '%s\n' "$reading" | sed -n 's/^VM //p' | tail -1)"
     # shellcheck disable=SC2086
-    set -- $reading
+    set -- $vm_line
     status="${1:-NONE}"; cpus="${2:-}"; mem="${3:-}"
     [ "$status" = "NONE" ] && status=""
 
@@ -166,7 +187,7 @@ self_test() {
     # NEGATIVE CONTROL on the adjudication. The live restart needs a box, so the
     # control drives _vm_size_classify with readings known to be right or wrong.
     PROBE_SELF_TEST=1
-    probe_examined 9 "synthetic reading sets and host-tier expectations (negative control)"
+    probe_examined 10 "synthetic reading sets, host-tier expectations and the absent-colima run (negative control)"
 
     # 1. Sizes equal -> PASS. Anything else and the probe reds a healthy VM.
     if [ "$(_vm_size_classify 3 6 Running 3 6)" != "PASS" ]; then
@@ -210,7 +231,15 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable host produced an expectation."
     fi
 
-    probe_fail "negative control behaved correctly on all 9 reading sets (equal passes; a shrink, a mismatch, a stopped VM, a missing record and an unreadable measurement each get their own verdict)."
+    # 10. colima absent from the box's PATH. A real run of this probe, with the
+    #     installer's dirs pointed at nothing and a bare PATH, must stop at once:
+    #     rc 78, CANNOT-RUN, naming the PATH. Never a wait for the VM to report Running.
+    _absent_out="$(OSTLER_BOX_COLIMA_DIRS=/nonexistent-colima-dir PATH=/usr/bin:/bin bash "$0" 2>&1)"; _absent_rc=$?
+    if [ "$_absent_rc" != 78 ] || ! printf '%s' "$_absent_out" | grep -q "NOT on the walked box's PATH"; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: colima absent from PATH gave rc=${_absent_rc}, not CANNOT-RUN (78) naming the PATH."
+    fi
+
+    probe_fail "negative control behaved correctly on all 10 reading sets (equal passes; a shrink, a mismatch, a stopped VM, a missing record and an unreadable measurement each get their own verdict)."
 }
 
 probe_main "$@"
