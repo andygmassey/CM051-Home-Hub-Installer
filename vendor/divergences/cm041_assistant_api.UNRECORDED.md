@@ -2202,3 +2202,23 @@ Same file, same tree (cm041/assistant_api). Three edits to `commitments_list`, m
 - An untagged row keeps the default `"L2"` label, as before (`test_vendored_cm041_revendor_07a22b4c_routes.py::test_commitments_carry_a_per_row_privacy_level`). It is still counted under `legacy_untagged`, so it is not claimed as tagged.
 - `hub_contract.yaml` regenerated from `ostler-ai/ostler-assistant @ hub-v0.5.42` (837650cf): the commitments top level drops `privacy_level` and gains `withheld` and `legacy_untagged`. The `contract-is-current` gate was STALE on this.
 - `tests/fixtures/meeting_brief_real_hub/commitments.user.json` regenerated (the top level changes as above). `rich.timeline.json` also changes: a last-email-contact marker, which origin/main ALSO drifts on (control: `capture --check` on origin/main 35f485a8 reports `rich.timeline.json` drift), and the conversation event's `privacy_level` L1 from the timeline emit.
+
+## Re-graft check: CM041 8a3b83249c71 (2026-11-16)
+
+Source: andygmassey/CM041-People-Graph fix/133-outbound-l0-l3 @ 8a3b832 (merge of origin/main into the 133 branch; PR #278, accepted head).
+
+sha256, first 16 hex, vendored vs source 8a3b832:
+- pwg_privacy.py: ead5a597c229d79f on both. IDENTICAL.
+- assistant_api/derived_preferences.py: b063172e7cd46871 on both. IDENTICAL.
+- assistant_api/tests/test_133_outbound_levels.py: fadea7f0d893c306 on both. IDENTICAL.
+- assistant_api/tests/test_provenance_verdict_states.py: ba0a8e605bff3cd6 on both. IDENTICAL.
+- assistant_api/ical-server.py: vendored 270bfe4734cfdc14, source f3e9e7221e8337b8. NOT byte-identical.
+
+Why ical-server cannot be byte-identical without a re-pin: `diff` of the two files is 6028 changed lines. The vendored tree sits at pin 688463bb, and 8a3b832 merges all of origin/main, so the difference is the whole upstream file since the pin, not 133 alone. Making it byte-identical means replacing the file with upstream, which is a re-pin (the 134 row). Not done here.
+
+What IS in the vendored file, byte-for-byte with the 133 hunks of 8a3b832 (checked by grep, count 1 each on both sides):
+- timeline emit: "Owner-local timeline EMITS the row's own level" and the conversation event's `privacy_level` from `pwg_privacy.parse_privacy_level(r.get("plevel"))`.
+- untagged commitments label: `or "L2"`, with the explicit L0/L3/unparseable gate `plevel in ("L0", "L3") or`.
+- pin-text lines still differing inside the 133 functions: commitments_list 4, _person_timeline_body 2 (the read_across_graphs import absent at the pin), people_search 24, api_reply_debt 25. None of them is a 133 line.
+
+Contract: `gen_hub_contract.py --gateway-src <hub-v0.5.42 clone> --check` rc=0 ("hub_contract.yaml is current (281 routes)"). Pin kept at 0.5.42 per Archie.
