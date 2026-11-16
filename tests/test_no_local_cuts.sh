@@ -40,10 +40,10 @@ if [ "$rc" -ne 0 ]; then pass "make ship exits non-zero outside CI (rc=$rc)"
 else fail "make ship SUCCEEDED outside CI -- local cutting is still possible"; fi
 
 # 2. It must say why, not just die. A refusal nobody understands gets patched out.
-if printf '%s' "$out" | grep -q 'v1018-D027'; then
+if grep -q 'v1018-D027' <<< "$out"; then
 	pass "refusal cites the ledger ID"
 else fail "refusal does not cite v1018-D027 -- operator cannot trace it"; text_missing=1; fi
-if printf '%s' "$out" | grep -qi 'git tag'; then
+if grep -qi 'git tag' <<< "$out"; then
 	pass "refusal tells the operator how to cut properly"
 else fail "refusal gives no route forward -- invites working around it"; text_missing=1; fi
 

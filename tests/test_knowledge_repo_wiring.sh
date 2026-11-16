@@ -109,7 +109,7 @@ fi
 # `ln -sf` unprivileged (after AuthorizationHelper chowned the dir),
 # the CLI path still runs `sudo ln -sf`. As long as one of them is
 # present the symlink will get created.
-if ! grep -qE '(sudo )?ln -sf "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT"; then
+if ! grep -qE '((sudo )?ln -sf|_ostler_link_cli) "\$KNOWLEDGE_BIN" "\$KNOWLEDGE_SYMLINK"' "$INSTALL_SCRIPT"; then
     echo "FAIL [symlink-cmd]: 'ln -sf \$KNOWLEDGE_BIN \$KNOWLEDGE_SYMLINK' missing (sudo or non-sudo)" >&2
     exit 1
 fi

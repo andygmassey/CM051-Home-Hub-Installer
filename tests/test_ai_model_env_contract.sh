@@ -70,7 +70,7 @@ HEREDOC_LINE="$(grep -nF 'docker-compose.yml' "$INSTALL_SH" | grep -F '<<' | hea
 if [[ -z "$HEREDOC_LINE" ]]; then
     bad "could not find the heredoc that writes docker-compose.yml -- the
        structure changed and link 3 is unverified. NOT a pass."
-elif printf '%s' "$HEREDOC_LINE" | grep -qE "<<'[A-Za-z_]+'"; then
+elif grep -qE "<<'[A-Za-z_]+'" <<< "$HEREDOC_LINE"; then
     ok "heredoc is QUOTED, so \${AI_MODEL:-...} reaches the compose file intact"
 else
     bad "heredoc is UNQUOTED: $HEREDOC_LINE

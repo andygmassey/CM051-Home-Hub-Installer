@@ -61,7 +61,7 @@ run() { ( unset OSTLER_REMOTECAPTURE_SHA256
 [ "$(run - "$T/good.tgz" "$T/good.sha" 9.9.9)" = 3 ] && ok "5 unpinned version refused (fail closed)" || bad "5 unpinned version accepted"
 
 ROW="$( ( eval "$FN1"; _ostler_remotecapture_pinned_sha "$VER" ) )"
-if printf '%s' "$ROW" | grep -Eq '^[0-9a-f]{64}$'; then ok "6a default version ${VER} has a 64-hex row"; else bad "6a default version ${VER} has NO pin row (version moved without its sha)"; fi
+if grep -Eq '^[0-9a-f]{64}$' <<< "$ROW"; then ok "6a default version ${VER} has a 64-hex row"; else bad "6a default version ${VER} has NO pin row (version moved without its sha)"; fi
 [ "$(run - "$T/evil.tgz" "$T/evil.sha" "$VER")" = 1 ] && ok "6b tampered bytes + matching sidecar fail the REAL table for ${VER}" || bad "6b real table did not refuse tampered bytes"
 
 if grep -Fq -- '-o "${REMOTECAPTURE_TMPDIR}/${REMOTECAPTURE_ARCHIVE_NAME}.sha256"' "$INSTALL_SH"; then ok "install.sh still requires the sidecar download (chained with the tarball curl)"; else bad "sidecar download no longer present"; fi

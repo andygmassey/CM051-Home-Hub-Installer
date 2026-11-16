@@ -138,7 +138,7 @@ functions `_timeline_from_graph`, `_timeline_conversations`, `api_timeline`,
 the `/api/v1/timeline` handler, and new helpers `_safe_iso_day`,
 `_conversation_title`, `_CHANNEL_LABELS`.
 
-Why: on Andy's v1.0.105 walk the Timeline opened a year ahead and ended part
+Why: on the owner's v1.0.105 walk the Timeline opened a year ahead and ended part
 way through today (the graph query had no upper date bound and sorted
 newest-first, so future all-day entries filled the 200-row cap), labelled every
 row MEETING (the entries mapper collapsed every non-meeting kind to
@@ -203,7 +203,7 @@ Two changes, both inside `api_hydration_status`:
   is ignored).
 - A new top-level `wiki_ready` boolean in the returned dict: `all(s == "done"
   for s in gating)`, reusing the `gating` list (contacts/graph/ai_summaries)
-  the function already computes for `overall_state`. Andy's decision: one
+  the function already computes for `overall_state`. The owner's decision: one
   failed phase must never hide the whole wiki. `overall_state` reads
   "needs_attention" the instant conversations has any failure (MEASURED on
   the same walk box: 10 of 17 dispatched), with the wiki itself fully built
@@ -274,7 +274,7 @@ helpers (`_looks_like_bare_email_or_phone`, `_SERVICE_NAME_SUFFIX_WORDS` +
 `_is_automated_or_service_name`, `_load_people_list_self_uris`). Shape:
 exclusion/relabelling only, nothing deleted.
 
-Andy's screen read of the People page on macmini16-walk found the top 10
+The owner's screen read of the People page on macmini16-walk found the top 10
 "recent" rows mostly wrong, in three ways (synthetic shapes standing in
 for the real rows, never quoted): (1) 6 of 10 were non-people -- a carrier
 notification sender, a marketplace, an email SUBJECT LINE, an all-caps
@@ -1181,7 +1181,7 @@ extends), or the next re-sync of this tree reverts it.
 `ical-server.py`: People list and search rows carry `provisional_name: true`
 when the name is the phone number.
 
-Why: Andy's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
+Why: the owner's display-name ruling 2026-08-10 (tier 0 phone, tier 1 email, tier 2
 human; shown provisional, never dropped). Studio #29 showed 42 of 51 stored
 people; the 9 missing were phone-only. CM041 upstream and CM044
 `compiler/nameless.py` (and CM031 `PersonNameFilter`) carry the same
@@ -1208,7 +1208,7 @@ Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/people_rules.py`.
 - `_address_is_automated`: the brand-mailbox test also accepts the domain's affix and short-TLD spellings (local part "brightwell" at `brightwell-mail.example.com`);
 - `_is_non_human_person`: for an UNCARDED record, a one-word name equal to the domain of one of its own email addresses is hidden (reason `name_is_sender_domain`, or `automated_address` when the address alone already says so), unless a given/family name exists that was not echoed from that address. A Contacts card still always wins.
 
-WHY: Andy's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
+WHY: the owner's console walk listed organisations as people ("Glimmer" writing from an "events" mailbox at `glimmer.example.com` is the invented shape). Shape rule, no company list; same as CM044 #344 and ostler_fda `organisation_reason`. CM041 upstream needs the same change, or the next re-sync of this tree reverts it. Guarded by `tests/test_organisation_senders_are_not_people.py` and the existing `tests/test_people_have_human_evidence.py` (20 passed).
 ## Reply debt: never the all-clear when the source is unreadable (CM051 #30, studio29), tree cm041/assistant_api
 
 Tree `cm041/assistant_api`, file `vendor/cm041/assistant_api/ical-server.py`,
@@ -1362,3 +1362,435 @@ down graph no longer blanks the answer when conversations can speak.
 `_decision_facts_from_conversations` and the two edits in `decisions_list`.
 Guarded by `vendor/cm041/assistant_api/tests/test_decisions_one_source_of_truth.py`
 (3 of 6 arms fail against main's ical-server). Retire by re-pinning.
+
+## coach_recent tolerates an uninitialised coach db (CM051, 2026-10-18, walk #31)
+
+Tree `cm041/assistant_api`. Files: `vendor/cm041/assistant_api/ical-server.py`,
+function `coach_recent` only, and its test
+`vendor/cm041/assistant_api/tests/test_coach_reader_matches_writer.py`,
+`test_zero_byte_decoy_never_masks_the_real_db` only.
+
+Walk #31 (v1.0.108): a 0-byte file at the writer's path turned
+`GET /api/v1/coach/recent` into a 500 ("no such table: observations"), and
+context-refresh then exited 3 on every tick. The graft returns a DECLARED
+empty, HTTP 200, for two more states beside the existing `db_state: "absent"`:
+a 0-byte file (`db_state: "empty"`) and a keyed db with no observations table
+(`db_state: "no_table"`). Every other read failure (wrong key, corruption,
+missing key against an encrypted file) still raises `CoachDbError` and 500s.
+The decoy test now asserts the declared `db_state` rather than a raise; the
+path-drift it was written for stays held by `test_reader_path_equals_writer_path`.
+
+- Proof: `tests/test_install_creates_the_coach_db_keyed.py` drives the real
+  ical-server; 3 of its reader cases fail on the pre-graft file with 500.
+- Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
+
+## A stale local store says so, and one event is one row (CM051, 2026-10-19, the Mini16 morning brief)
+
+Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 main has no local-store calendar path to carry it. `build_calendar_response` and `fetch_recent_emails` already reported `local_store_age_seconds` and nothing acted on it: on 2026-10-19 the Hub served a 45-hour-old calendar (163617s) as a 200 with `degraded` unset, and the brief presented it as today's. Both now mark the body `degraded: true` and `stale: true`, with a one-line reason in `errors`, once the store is older than three writer intervals (`local_store_stale_after_s()`, three times `OSTLER_FDA_RERUN_INTERVAL_S`, default 3 hours). The events are still served; the reader decides. Dedup moved from the `(summary, start)` set to `collapse_duplicate_events`, which also folds two rows with the same start, end and calendar whose titles are two spellings of one event (a shared 4+ character token carrying a digit, or the shorter title's significant words all in the longer), keeping the longer title: one flight with two titles reached the brief as "a related event at the same time".
+
+### What a future sync must preserve
+
+`_writer_interval_s`, `local_store_stale_after_s`, `_stale_detail`, `_same_calendar_event`, `collapse_duplicate_events`, their use in `build_calendar_response` and `fetch_recent_emails`. Guarded by `vendor/cm041/assistant_api/tests/test_brief_reads_local_stores.py` (five tests under "Staleness" and "Duplicates"; four fail against the pre-change server, the fresh-store one is the negative control). Retire by landing the local-store path in CM041 (`CM041 #220` covers the dedup) and re-pinning.
+
+## 2026-10-19 v1.0.111: conversation/process takes CM052's shape; privacy_level proven intact (CM041 #221, 2615d915)
+
+Tree: `cm041/assistant_api`. Pin HELD; 2615d915 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: both hunks of upstream 2615d915 for this file. `_participant_slug_label` (CM052 sends participants as dicts; `str.replace` on a dict was a 500, so no CM052 conversation with participants reached CM048), and `api_conversation_process` keeping a producer's stable `conversation_id` (a changed re-post updates the bundle instead of writing a second one beside it).
+- Method: patch(1) at fuzz 0 failed the second hunk on line offset only, so both were applied by exact string replacement. Measured: the sorted multiset of changed lines equals upstream #221's (31 lines).
+- Recorded HERE, not in the patch: `regenerate_divergence_patch.sh --write` refuses this tree because upstream still carries a phone-shaped value the vendored copy has scrubbed (minus side). Recording the patch would publish it.
+- Proof: `tests/test_cm041_conversation_process_privacy_passthrough_vendored.py` (6), ported from #221's own test with three named vendored differences (the subscription gate, the `pwg-convo --help` probe, the `PWG_CONVO_BIN` argv) and the CM051 synthetic cast. 6 pass on the graft; 5 of 6 fail on the pre-graft vendor.
+- Retire: re-pin `cm041/assistant_api` past 2615d915.
+
+## 2026-10-19 v1.0.112: conversation routes refuse path traversal (CM041 #225, e2dffc09)
+
+Tree: `cm041/assistant_api`. Pin HELD; e2dffc09 added to `hold_ack_shas` (grafted, pin held).
+
+- `vendor/cm041/assistant_api/ical-server.py`: all eight upstream hunks of e2dffc09 for this file: `_id_token`, `_SAFE_CONVERSATION_ID_RE`, `_valid_conversation_id`, the stricter `_safe_conversation_dir` (single segment, no symlink, not the root), its use in `_conversation_process_background`, `_resolve_fallback_conversation_id` and `api_conversation_status`, and the 400 on an invalid id in `api_conversation_process`.
+- Method: patch(1) at fuzz 0 failed 2 of 8 hunks on layout (the vendored file orders these functions differently), so all were applied by exact string replacement, each asserted to occur once. Diffstat +54/-14, equal to upstream's for this file.
+- Recorded HERE, not in the patch, for the same reason as the #221 entry above: `regenerate_divergence_patch.sh --write` refuses this tree on an upstream phone-shaped value.
+- Proof: `tests/test_cm041_conversation_path_safety_vendored.py` (16 tests; 34 failures on the pre-graft file, 0 after) and `tests/test_cm041_conversation_path_safety_mutants_vendored.py` (8 of 8 mutants killed, unmutated control green). Ported from #225's tests with three vendored differences: an ostler_security stub when the package is absent, the Pro subscription gate held open, and the pwg-convo `--help` probe answered as installed. Wired in walk6-people-list-correctness-guard.yml.
+- Retire: re-pin `cm041/assistant_api` past e2dffc09.
+
+## 2026-10-23 118: hub_contract.yaml carries the four under-18 Doctor proxy rows
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry (the under-18 routes graft is a separate PR).
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.23>` adds four Doctor rows because install.sh DOCTOR_PROXY_PATHS gained `/api/v1/minors`, `/api/v1/minors/suggestions`, `/api/v1/people/{slug}/minor` and `/api/v1/people/{slug}/minor-suggestion/dismiss`. They are marked `upstream_missing: true`, which is the truth until the graft lands.
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.23> --check` reports current (284 routes).
+- Retire: the graft PR regenerates this file again with the ical routes present.
+
+## 2026-10-23 118: the under-18 setter, suggestion and dismissal routes (CM041 #236)
+
+Tree: `cm041/assistant_api`. Pin HELD. Source: CM041 #236 head 6249d1fe5ccea7d44deabfbca19c4bcc21ffe256.
+
+- `ical-server.py`: `_personal_identifiers_for` factored out of `api_people_suppress_suggestions`; the minors block (`MinorsRegistryUnreadable` through `api_minors_dismiss`, placed after `api_people_forget` so the forget tests that slice from `_forget_audit_has` do not pick it up); GET `/api/v1/minors` and `/api/v1/minors/suggestions`; POST `/api/v1/people/{slug}/minor` and `.../minor-suggestion/dismiss`. Applied with patch(1) at fuzz 0, 0 rejected hunks. `API.md` likewise.
+- `tests/test_minors_setter.py` copied verbatim (27 tests). It needs the real `ostler_security`, so the workflow installs `./vendor/ostler_security` first.
+- `hub_contract.yaml` regenerated against hub-v0.5.23; the four Doctor rows now resolve to `ical` rows instead of `upstream_missing`.
+- Proof: 27 passed in a clean venv with only pytest, httpx, fastapi, rapidfuzz and `./vendor/ostler_security` installed. Wired in minors-registry-row.yml.
+- Retire: re-pin `cm041/assistant_api` past the CM041 #236 squash.
+## 2026-10-22: re-vendor to CM041 main 07a22b4c (pin 6c2912fe -> 07a22b4c)
+
+Measured per upstream commit: every commit in 6c2912fe..07a22b4c except three
+was already grafted into ical-server.py. The three were 3-way cherry-picked onto
+the vendored file:
+- #215 (07a22b4c) GET /api/v1/preferences/derived, plus derived_preferences.py
+  and contract/derived_preferences_response.example.json (byte-identical to
+  upstream). hub_contract.yaml regenerated (265 routes). Supersedes CM051 #2956's
+  vendoring of the same route.
+- #232 (e33abeb) per-row privacy_level on /api/v1/commitments, applied to the
+  vendored allow-list scope (no read_across_graphs; see
+  tests/test_no_vendored_caller_of_read_across_graphs.py).
+- #231 (42d7310) the meeting brief reads the calendar in-process. CM051 ADAPTS
+  it: upstream's calendar_payload (iCloud script plus Google only) is NOT taken;
+  `_calendar_events_in_process` reads build_calendar_response (local store
+  first) and RAISES on a non-200, so /meeting/upcoming says degraded instead of
+  an empty 200.
+
+KEPT: everything recorded above in this file. browsing_enrich.py is the vendored
+copy unchanged. API.md keeps the vendored text (it drops upstream's
+/meeting/upcoming example section).
+
+WHY THE PATCH IS NOT REGENERATED: regenerate_divergence_patch.sh refuses (a
+US-format example number in the API.md section the vendored copy drops would
+land on the MINUS side). The checked-in patch is stale against the new pin;
+the content gate reads RED for this tree, as on main before this change.
+
+Guarded by tests/test_vendored_cm041_revendor_07a22b4c_routes.py (5 pass here,
+5 fail on the pre-re-vendor tree).
+
+## 2026-10-23: round 2, pin 07a22b4c -> f2ef7891 (CM041 #233, #234, #235)
+
+All three commits touch only assistant_api. derived_preferences.py is byte-identical
+to upstream at f2ef7891 (#235: L3 and unparseable levels never served, privacy_level emitted) (it was byte-identical at 07a22b4c too). ical-server.py
+takes #234 (the ?tier= parameter, 400 on an unknown tier, tier passed to the
+builder) by 3-way merge, clean, 14 of 14 added lines present. hub_contract.yaml
+regenerated. No new divergence. Guarded by
+tests/test_vendored_cm041_revendor_07a22b4c_routes.py (4 tier/round-robin
+arms red on the 07a22b4c tree) and, for #225 already grafted in v1.0.112,
+tests/test_vendored_conversation_routes_refuse_path_traversal.py.
+
+## 2026-10-23 P13: a short code is up to 8 digits with no country code (cm041/assistant_api people_rules.py)
+
+Tree `cm041/assistant_api`, file `people_rules.py` (CM051-only, see the 2026-10-12
+move above; no upstream copy). v1.0.117 walk: a 7-digit SMS short code was
+listed as a person. `_is_short_code` / `_is_sender_id_handle` treated only 6
+digits or fewer as a short code. Now `_is_short_code_shape`: 6 or fewer whatever
+the punctuation, or 7 to 8 with no leading "+"; `_is_provisional_phone_name`
+excludes that shape. Same rule as CM044 `compiler/nameless.py` and CM031
+`PersonNameFilter` (their P13 PRs). `tests/fixtures/people_rules_golden.json`:
+11 rows flipped, every one a 7-digit no-"+" value (`(555) 0100`, `1234567`),
+measured by recomputing the table and checking each delta's input. Pinned by
+`tests/test_people_rules_short_codes_up_to_8_digits.py`.
+
+## 2026-10-23: vendored test_people_list_endpoint.py agrees with P13 (people-list-correctness)
+
+Tree `cm041/assistant_api`, file `tests/test_people_list_endpoint.py`. After the
+re-vendor met main's P13 rule (CM051 #3143, `people_rules.py`: a 7 to 8 digit
+sender with no leading "+" is a short code), the upstream test still asserted
+the 7-digit sender 4477009 appears in `names` (line 337), so people-list-correctness
+failed on Python 3.11, 3.12 and 3.13. The rule is unchanged; the test now asserts
+that sender is EXCLUDED (`assertNotIn`) and its docstring states the P13 shape.
+57 tests pass in the file. UPSTREAM OWES THE SAME TEST FIX in CM041, otherwise the
+next re-vendor brings the clash back. Retire: when CM041 carries the P13 rule and
+this assertion, and the re-vendor makes the file byte-identical.
+
+## 2026-10-24: strip tracking params at the extension POST and Save to Knowledge (CM051 #3043; upstream CM041 #227, OPEN)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Grafted ahead of the upstream merge.
+Upstream head at graft: CM041 #227 b1374d25.
+
+- `url_clean.py`: NEW file, byte-identical to `assistant_api/url_clean.py` at b1374d25
+  (diff -q against the upstream blob: identical, 106 lines) and to
+  `vendor/ostler_fda/url_clean.py` (parity checked by `tests/test_url_clean.py`).
+- `ical-server.py`: new helper `_strip_tracking_url(url)` (imports `url_clean` from the
+  file's own directory), and `api_safari_ingest` and `api_safari_save` wrap the
+  posted url in it before it is stored or keyed. Two call sites, one helper.
+- `tests/test_url_clean_ingest.py`: NEW, drives both handlers.
+- Proof: `vendor/cm041/assistant_api/tests/test_url_clean_ingest.py` (4), wired in
+  `url-clean.yml`.
+- Retire: when CM041 #227 merges, re-pin past it.
+
+## 2026-10-25: owner name re-worded to a role in one comment (CM051 #3154)
+
+Tree `cm041/assistant_api`. Pin NOT moved. Comment-only, no behaviour change.
+
+- `ical-server.py`, the section comment above the under-18 registry (about line 3746):
+  "(Andy 2026-10-19, 118)" is now "(the owner 2026-10-19, 118)". One line. The merge of
+  main into #3154 carried the re-word; this entry records it so the divergence gate
+  sees it described.
+- Retire: when CM041 carries the same re-word and a re-vendor makes the file
+  byte-identical.
+
+## 2026-10-28: person_enrichment and the person timeline withhold L3 meetings (upstream CM041 #240 fe3290d7, MERGED; re-vendor for 119)
+
+Tree `cm041/assistant_api`. Pin NOT moved (688463bb). A mechanical re-vendor is refused by
+`sync_vendor.sh` (the vendored tree is ahead of upstream, v1018-D684), so the one upstream
+change was grafted.
+
+- `ical-server.py`: the `git diff 688463bb fe3290d7 -- assistant_api/ical-server.py` hunks, applied
+  with `git apply` and no conflict (34 added, 6 removed). Meetings served by person_enrichment
+  and the person timeline use the stricter of meeting and person level, withhold L3 and any
+  unparseable level, carry `privacy_level`, and the limit applies to visible rows.
+- `tests/test_meeting_routes_privacy.py`: ported from upstream with one named difference, SLUG is
+  `jane-doe` because the vendored `tests/test_person_context_meetings_privacy.py` helper uses
+  a different synthetic person name from upstream. The other two upstream test edits
+  (`test_person_enrichment_endpoint.py`, `test_person_timeline_endpoint.py`) are not vendored.
+- Proof: 8 pass on the graft, 8 fail on the pre-graft ical-server, 6 fail with the L3 filter
+  mutated out (pyoxigraph/rdflib/cryptography venv, `PYTHONPATH=vendor`).
+- Retire: re-pin past fe3290d7.
+## 2026-10-24: I22, a past meeting keeps its time and the calendar's all-day flag (graft of CM041 #238)
+
+Tree `cm041/assistant_api`. Location and shape only:
+
+- `ical-server.py`: two new functions, `_graph_all_day` and `_timeline_row_time`, directly
+  before `# Google Calendar via gws CLI`.
+- `_timeline_from_graph`: the SELECT adds `(SAMPLE(?allDay) AS ?allDay)` and an OPTIONAL
+  `pwg:meetingAllDay` clause. Each row gains `start` (the full `meetingDate`) and `all_day`.
+- `api_timeline`: live-calendar items carry the parser's `all_day`. The entries loop takes
+  `(timestamp, all_day)` from `_timeline_row_time(start or date, all_day)`, and the entry's
+  `all_day` is that value. Before, it was a regex over the date already cut to 10 characters,
+  so it was true for every graph meeting. The unused `raw_s` local is gone.
+- New file `tests/test_timeline_keeps_meeting_time.py`, the same file as upstream #238.
+  It is tree-agnostic, so it runs unchanged here.
+
+The writer half is `vendor/ostler_fda/pwg_ingest.py` (see `ostler_fda.UNRECORDED.md`, same date).
+Regeneration was not attempted: this tree's refusal is standing (sections above).
+Retire when CM041 #238 merges and a re-vendor brings the tree byte-identical; its squash sha
+then goes into hold_ack_shas.
+
+## 2026-10-28 119: hub_contract.yaml regenerated against hub-v0.5.29
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: GENERATED, not hand-edited. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.29 = 9c6c2b55>` re-derives the gateway rows for the re-pinned daemon (CM051 #3192; contract-is-current was RED against the new pin).
+- Proof: `python3 scripts/gen_hub_contract.py --gateway-src <hub-v0.5.29> --check` reports current (279 routes).
+- Retire: the next hub re-pin regenerates this file again.
+
+## 2026-10-28 119: hub_contract.yaml checked against hub-v0.5.30, no regeneration needed
+
+Tree: `cm041/assistant_api`. Pin HELD. No `ical-server.py` change in this entry.
+
+- `vendor/cm041/assistant_api/hub_contract.yaml`: UNCHANGED by this re-pin. `scripts/gen_hub_contract.py --gateway-src <ostler-assistant @ hub-v0.5.30 = 610b0c5c> --check` reports current (279 routes): hub-v0.5.29..hub-v0.5.30 touches no gateway route (oa #642 security re-land, #643 version bump).
+- Control: the same check against a copy of that source with one route path renamed reports STALE, rc 1.
+- Retire: the next hub re-pin regenerates or re-checks this file again; the 0.5.29 entry above still describes the file's contents.
+
+## 2026-10-29 NEW-119 row 2471a: /api/v1/preferences never returns an Art. 9 topic
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `api_preferences`: after reading the CM059 interest-profile artefact, it drops any record whose `subject`, `name`, `label` or `title` falls in a GDPR Art. 9(1) class. It uses the same list the Front Page uses. If that list cannot load, the route returns an empty list with `degraded: true` and a reason, so it fails closed. The profile itself is unchanged; only the read-out withholds.
+- NEW `sensitive_topics.py`: GENERATED by `scripts/gen_assistant_api_sensitive_topics.py` from `vendor/cm059_editor/compiler/sensitive_topics.py`. It is a fixed header plus the source bytes, never a second hand-written list. It is needed because the Assistant API installs as its own directory (`install.sh` copies `assistant_api/.` into `services/ical-server`) and cannot import the Editor at run time. Declared in `vendor/VENDOR_ONLY.tsv`.
+- Proof: `tests/test_api_preferences_never_returns_a_special_category_topic.py` (wired in `memory-assert-answers-under-load.yml`). It drives the real server as a subprocess over a synthetic profile, FAILS on origin/main and passes here. It also runs the generator's `--check`, so a stale copy is RED.
+- Upstream owed: CM041 `assistant_api/ical-server.py` needs the same filter and the list. Retire this section when a re-pin brings both in.
+
+## 2026-10-30, v1.0.121: one definition of a person for counting
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `people_rules.py` | new `is_countable_person(display_name, given, family, emails, phones, has_card, merged)`: named (SHARED RULE B then `_is_nameless_name`) and not merged away. The block above it is the definition, and names both consumers. |
+| `ical-server.py` | imports it; `_wiki_people_count()` (the Doctor's contacts count in `api_hydration_status`) scrolls the Qdrant `people` collection and counts the points that pass it, instead of returning the raw `points_count`. Qdrant only; it never reads the graph. |
+
+Why: the walk probe people_count_agreement counts the graph with the same
+definition; the raw Qdrant number counted points for unnamed or nameless
+records, a designed difference graded as a disagreement. The probe's cap is
+unchanged.
+
+Guarded by `tests/test_people_count_one_definition.py` (wired in
+`.github/workflows/people-have-human-evidence.yml`).
+
+UPSTREAM ROW (owed to CM041): canonical CM041 has no `assistant_api/people_rules.py`
+(vendor-only extraction), so there is nothing to port it to alone.
+
+## 2026-10-30 v1.0.121 second batch: the commitments reader drops L3 todos
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `commitments_list`: in the row loop, a row whose `plevel` resolves to L3 (tagged L3, or tagged but unparseable, which fails closed) is skipped. A row with no privacyLevel (legacy) is kept at the default level, as before. The comment block above the query, which claimed ZERO todos carry a privacyLevel, is rewritten: the writer tags every todo at `vendor/cm048_pipeline/src/ingest.py` (privacyLevel line of the todo block) and skips L3 conversations at its guards.
+- Why: the brief is emailed, and L3 safety rested on the CM048 writer alone.
+- Proof: `tests/cm048_vendored_sweep/test_l3_todo_readers_defence.py` mutates the three writer guards off in a private copy of the vendored pipeline, so an L3 todo reaches a real pyoxigraph store, and asserts `commitments_list` and the brief reader return the L1 control and the untagged legacy todo and not the L3 one. It FAILS on the base commit.
+- Upstream owed: canonical CM041 `origin/main` `commitments_list` (assistant_api/ical-server.py:6346) has the same loop and the stale comment. No canonical PR now. Retire this section when a re-pin brings the filter in.
+
+## 2026-10-31, v1.0.121 batch-2: slow-request log line (instrumentation only)
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `ical-server.py` | new helpers above `class Handler` (`_instrumented`, `_store_urlopen`, `_route_template`, an in-flight counter); `do_GET`, `do_POST`, `do_OPTIONS` carry `@_instrumented`; `Handler.send_response` records the status; 14 Qdrant/Oxigraph/embed `urllib.request.urlopen(` call sites became `_store_urlopen(` (identical behaviour, plus per-request timing). |
+
+Why: pwg_people hit its 15s timeout to ical-server on 5 of 10 chat openings on
+the trial walk and the access log is suppressed, so the cause was not
+instrumented. A request over `OSTLER_ICAL_SLOW_REQUEST_S` (default 2.0) writes one
+line to stdout (launchd: ical-server.log): route template, duration, in-flight
+count at start and end, qdrant/oxigraph/embed seconds. Fast requests write
+nothing. No query string, body or identifier is logged.
+
+Guarded by `vendor/cm041/assistant_api/tests/test_ical_slow_request_log.py`
+(wired in `.github/workflows/ical-slow-request-log.yml`).
+
+UPSTREAM ROW (owed to CM041): the same instrumentation belongs in CM041
+`assistant_api/ical-server.py`. Retire this section when a re-pin brings it in.
+
+## 2026-11-02, v1.0.122 candidate (walk 121): service-name vocabulary gains verification and order
+
+Tree: cm041/assistant_api (vendor/cm041/assistant_api). Location and shape only.
+
+| file | change |
+|---|---|
+| `people_rules.py` | `_SERVICE_NAME_SUFFIX_WORDS` gains `verification`, `verify`, `order`, `orders` (one comment line plus one set line). |
+
+Why: walk 121 `hub_screens_customer_read` found two uncarded People rows
+("<App> Verification", "order review") that `_is_automated_or_service_name`
+kept because the vocabulary lacked those words.
+
+Guarded by `tests/test_verification_and_order_senders_are_not_people.py`
+(wired in `.github/workflows/hub-screens-and-106c.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/241
+makes the same change in `assistant_api/ical-server.py`, where canonical CM041
+keeps the set (people_rules.py is a CM051 extraction and does not exist
+upstream). Retire this section when a re-pin brings #241 in.
+
+## 2026-11-03, v1.0.122 fix wave: derived dislikes ride alongside the capped list
+
+Tree: cm041/assistant_api. File: `vendor/cm041/assistant_api/derived_preferences.py` only (whole-file copy of the CM041 PR branch; no `ical-server.py` change).
+
+| symbol | change |
+|---|---|
+| `NEGATIVES_LIMIT` (new) | 100 |
+| `DerivedGraphReader.get_derived_preferences` | new `negative_only` flag: adds `FILTER(?strength < 0)` and orders by `ASC(?strength * ?confidence)`; same privacy filters and row guard |
+| `DerivedGraphReader.get_negative_preferences` (new) | negatives above `min_confidence`, any tier, bounded at 100, `exclude` drops keys already served |
+| `_view_key` (new), `build_derived_preferences_response` | appends the negatives after the capped list, not counted against `limit`, no duplicates |
+
+Why: on the v1.0.121 Mini16 walk a seeded dislike ranked 186th of 312 derived nodes, and the route cuts to `limit` after the category round-robin, so a `limit=8` consumer never saw it (probes `derived_preferences_dislike`, `dislike_respected_in_brief`).
+
+Guarded by `tests/test_vendored_derived_negatives_survive_cap.py` (wired in `.github/workflows/derived-preferences.yml`).
+
+UPSTREAM: CM041 PR https://github.com/andygmassey/CM041-People-Graph/pull/242, MERGED as aa11cba1 (upstream landing). Retire this section when a re-pin brings it in.
+
+## 2026-11-03 v1.0.122 (fix122_l3out): the outbound employer path withholds L3 career facts
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_query_operator_career_facts(outbound=False)`: selects each fact's `pwg:privacyLevel` and the operator node's; with `outbound=True` drops rows `pwg_privacy.is_l3` hides (most-restrictive; nothing parseable is hidden, as in the brief's `_get_person_facts`). `_select_current_employer` and `_current_employer_safe` pass `outbound` through.
+- `GET /api/v1/employer` (read by context-refresh `generate_pwg_context.py:885`) passes `outbound=True`. The Memory tab (`api_memory_list`) and `person_context` / `person_enrichment` / people-card overlays keep the default `False`: on-box Hub screens still show every level.
+- Timeline: see the next section (closed in the same wave).
+- Proof: `tests/test_vendored_employer_outbound_l3.py` (mutant with the filter off: 5 fail, 2 pass).
+- UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)
+
+## 2026-11-03 v1.0.122 (fix122_timeline): `/api/v1/timeline?outbound=1` withholds L3
+
+Tree `cm041/assistant_api`. Pin HELD.
+
+- `ical-server.py` `_timeline_from_graph(outbound=False)`, `_timeline_conversations(outbound=False)`, `api_timeline(outbound=False)`: with `outbound=True` each meeting's own `pwg:privacyLevel` and EACH attendee's are read (one SPARQL row per meeting, levels GROUP_CONCATed; an attendee with no level is carried as "unknown", not skipped) and `pwg_privacy.is_l3` hides it (most-restrictive; a missing meeting level inherits the attendee's, never L1; unparseable or nothing parseable is hidden; one L3 attendee hides the meeting). Conversation rows are tested on their payload level (untagged hidden). The live-calendar strip is omitted outbound (no level exists to clear it by).
+- Route: `GET /api/v1/timeline?outbound=1` (also `true`/`yes`) sets it. No param = the on-box hub timeline, unchanged (every level). The flag is opt-in, so an on-box client is unaffected and an outbound consumer must ask.
+- Consumer: `context-refresh/bin/generate_pwg_context.py` `_meetings_section` now requests `?days=7&outbound=1` (CM051-native, no CM041 counterpart).
+- NOT covered: the digest's second source `_meeting_rows` reads `pwg:Meeting` directly and uses the digest's own `_is_withheld` (explicit L3 only; an untagged meeting is KEPT, and the attendee level is not read). Not changed here. Any other client of `/api/v1/timeline` (oa, Companion) that forwards it off the box must pass `outbound=1`: not audited.
+- Proof: `tests/test_vendored_timeline_outbound_l3.py`, `tests/test_digest_timeline_outbound_l3.py` (digest text, real generator, real SPARQL engine), `tests/test_every_outbound_graph_reader_filters_l3.py` (`_timeline_from_graph` now OUTBOUND, KNOWN_GAP empty).
+- UPSTREAM: CM041 #244 MERGED as 5b535c73 (upstream landing; vendored differs, see hold_ack)
+
+## 2026-11-04 v1.0.123 (walk122 customer_read): a bare digit run over 15 digits is nameless
+
+Tree `cm041/assistant_api`. Pin HELD. Regeneration REFUSED, measured
+2026-11-04: `bash scripts/regenerate_divergence_patch.sh cm041/assistant_api --write`
+printed "could not verify cm041/assistant_api: source repo not found ()" and
+"CANNOT RUN -- source repo for cm041/assistant_api is not available".
+
+- `people_rules.py`: new `_E164_MAX_DIGITS = 15` and `_is_overlong_digit_id(s)`
+  after `_is_provisional_phone_name`; `_is_provisional_phone_name` now requires
+  7 <= digits <= 15; `_is_nameless_name` gains rule 5 (an overlong digit id is
+  nameless), between the short-code rule and the sender-id-handle rule.
+- Why: walk v1.0.122 diag on Mini16, 1 of 8553 People rows named by an
+  18-digit iMessage handle. `ical-server.py` `_displayable_phone` already rules
+  that over 15 digits is never a phone, so the phone column dropped it while the
+  name kept the same digits.
+- Same rule in CM044 `compiler/nameless.py` (CM044 #416) so the wiki and Hub
+  counts stay equal; iOS PersonNameFilter is a tracked follow-up.
+- Proof: `tests/test_people_rules_overlong_digit_id.py`,
+  `tests/test_nameless_filter_applies_to_the_hub_people_count.py` (18-digit case).
+- Upstream: CM041 `assistant_api/people_rules.py`. Retire this section when a
+  re-pin brings it in.
+
+## 2026-11-04 v1.0.123 (walk123 privacy) and #2565 (timeline source): RECORDED IN THE PATCH
+
+Both grafts (#3315 the gws consent gate, CM041 d962b74 held by hold_ack; #3316
+the timeline `source` / `title_verbatim` keys) are now recorded in
+`cm041_assistant_api.patch`, regenerated by the tool and self-verified: source
+at the pin plus the patch rebuilds the vendored tree byte for byte. Their
+hand-written sections here were cleared because the patch is the record.
+
+## 2026-11-04: SUPERSEDED BY A REGENERATED PATCH (rows 2206, 2212)
+
+The divergence described above is now RECORDED in this tree's
+`divergence_patch`, written by `scripts/regenerate_divergence_patch.sh --write`
+and self-verified: source at the pin plus the patch rebuilds the vendored tree
+byte for byte. The tool could not do this before because it refused on any
+source commit past the pin, hold_ack or not. This file stays as history; the
+patch is the record.
+
+
+## 2026-11-14: pwg-convo default resolves the owner-side link first, ical-server.py
+
+`vendor/cm041/assistant_api/ical-server.py`: `_default_pwg_convo_bin()` replaces the bare default `PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN", "/usr/local/bin/pwg-convo")`. Order: `PWG_CONVO_BIN` env, then `${OSTLER_DIR}/bin/pwg-convo` if it exists, then `/usr/local/bin/pwg-convo`.
+
+Why: the GUI installer cannot write `/usr/local/bin` on a stock Mac, so it links pwg-convo into the owner's `${OSTLER_DIR}/bin` (install.sh `_ostler_link_cli`). The launchd plist for `com.ostler.ical-server` sets no `PWG_CONVO_BIN` (install.sh, the ical-server plist EnvironmentVariables block), so this default is what runs.
+
+Tests: `tests/test_pwg_convo_bin_owner_side_first.py`. RED on origin/main: `AttributeError: no _default_pwg_convo_bin`. Mutant (owner-side branch removed) fails arm 1.
+## Graft 2026-11-14: a slug shared by two people refuses; forget accepts person_uri
+
+Source: CM041 `fix/slug-ambiguity-409` (commit `cab9d5e`, on top of CM041 main
+`e6b5bce`). Archie's ruling on the wrong-person forget. Grafted by hand, not by
+`sync_vendor.sh`: the tree is ahead of CM041 main in the forget and timeline
+code, so a 3-way merge of the upstream delta from the pinned sha raised 16
+conflicts, and a regeneration would delete the grafts above.
+
+What changed in `vendor/cm041/assistant_api/ical-server.py`:
+
+- `SlugAmbiguous`, `_ambiguous_slug_response`, `_resolve_person_by_uri`.
+  `_resolve_person_by_slug` raises `SlugAmbiguous` when the slug names more
+  than one live person (distinct person URIs in the merge-aware rows).
+- `api_people_forget(slug, person_uri=None)`: a URI resolves exactly that
+  person (404 with no write when it names nobody); a shared slug is a 409
+  before any write. The route parses an optional JSON body with `person_uri`.
+- `person_enrichment`, `person_timeline`: 409 on a shared slug.
+- `api_people_suppress_suggestions`: 409 on a shared slug, before any write.
+
+NOT grafted here: the other upstream CM041 `ical-server.py` commits since the
+pin (`e6b5bce` #249, `d962b74` #245, `5b535c7` #244, `fe3290d` #240). They touch
+the same timeline and brief readers this tree has diverged in. Those are a
+separate graft with its own review.
+
+Proof: `vendor/cm041/assistant_api/tests/test_slug_ambiguity_guard.py`, wired
+in `.github/workflows/forget-tombstone.yml` with a collected-count floor of 14.
+RED against the pre-graft vendored file: 10 failed, 4 passed (the controls).
+GREEN with the graft: 14 passed.
+
+Also edited: vendor/cm041/assistant_api/tests/test_lane11_routes.py, the forget stub takes person_uri (the route now passes it).
+
+## Graft 2026-11-14 (batch B): identity is the mergedInto link; CM041 #249 grafted
+
+Supersedes the name-count predicate in the section above. In this tree the live
+terminus (`_merge_aware_name_rows`) already is the identity: two unlinked nodes
+with one display name are two termini and refuse with 409; nodes the resolver
+linked by `pwg:mergedInto` collapse to one terminus and forget by slug erases
+the whole cluster. Forget by `person_uri` erases only the named node, which may
+be a merged-in fragment. The suppression writer uses the live termini too.
+
+CM041 #249 (`e6b5bce7`, Unicode-aware org key): `_norm_org` and `_orgs_differ`
+grafted into `ical-server.py`, with `tests/test_employer_org_nonlatin.py`
+(14 pass; 12 fail on the pre-graft file). `tests/test_current_employer.py` is
+NOT vendored: 3 of its tests fail on the pre-graft tree too (a pre-existing
+divergence in the operator-override code), so vendoring it would turn CI red
+for reasons this change did not cause.
+
+## Graft 2026-11-14 (batch B): CM041 #251 Photos timeline rows
+
+`_timeline_photos` added before `api_timeline`; `api_timeline` merges its rows
+and tags `photos_error`; the entries serializer carries `photos` through, skips
+`photos_error`, and says All day with the photo day's date. Provenance fields
+(`source`, `title_verbatim`) stay on every entry in this tree, so the contract
+test compares the customer fields only. Test: `tests/test_timeline_photos.py`
+(11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.

@@ -40,7 +40,7 @@ TRAP_SRC=$(awk '
     in_fn { print }
     in_fn && /^trap .*ERR$/ { exit }
 ' "$INSTALL_SH")
-printf '%s\n' "$TRAP_SRC" | grep -q "trap '_ostler_on_err" \
+grep -q "trap '_ostler_on_err" <<< "$TRAP_SRC" \
     || { printf 'FAIL: could not extract _ostler_on_err + ERR trap\n' >&2; exit 1; }
 
 # ── THE RED CONTROL NEEDS THE PRE-FIX HANDLER (#642, 2026-09-04) ──────
@@ -231,9 +231,9 @@ if grep -q '^DONE:fail' "$LEDGER" 2>/dev/null; then
     printf 'FAIL[warming-daemon]: fixed probe still emitted gui_done fail\n' >&2
     cat "$LEDGER" >&2; exit 1
 fi
-printf '%s\n' "$OUT" | grep -q '^REACHED_END$' \
+grep -q '^REACHED_END$' <<< "$OUT" \
     || { printf 'FAIL[warming-daemon]: probe aborted before completing\n%s\n' "$OUT" >&2; exit 1; }
-printf '%s\n' "$OUT" | grep -q 'INFO:doctor-deferred' \
+grep -q 'INFO:doctor-deferred' <<< "$OUT" \
     || { printf 'FAIL[warming-daemon]: deferred info did not print\n%s\n' "$OUT" >&2; exit 1; }
 printf 'PASS[warming-daemon]: no false fail; deferred path printed\n'
 
@@ -242,7 +242,7 @@ OUT=$(run_fixed 0)
 if grep -q '^DONE:fail' "$LEDGER" 2>/dev/null; then
     printf 'FAIL[healthy]: clean doctor run emitted gui_done fail\n' >&2; cat "$LEDGER" >&2; exit 1
 fi
-printf '%s\n' "$OUT" | grep -q 'OK:no-errors' \
+grep -q 'OK:no-errors' <<< "$OUT" \
     || { printf 'FAIL[healthy]: clean run did not report the no-errors OK\n%s\n' "$OUT" >&2; exit 1; }
 printf 'PASS[healthy]: clean doctor run reports OK, no false fail\n'
 

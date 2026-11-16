@@ -37,11 +37,16 @@ printf '\n=== A STORED SECRET SAYS SO WHERE IT IS TYPED ===\n\n'
 # is written in cleartext. If that ever changes, this guard must be revisited
 # rather than quietly keeping a now-false warning on screen.
 # ---------------------------------------------------------------------------
-n_clear=$(grep -c 'echo "password = \\"\$(_esc "\$CHANNEL_EMAIL_PASSWORD")\\""' "$SRC" || true)
-if [ "$n_clear" -eq 1 ]; then
-    ok "premise holds: the email password is still written to config.toml in cleartext"
+# Since #1976 the value goes to ${SECRETS_DIR}/email_password, not config.toml,
+# and that file is still plaintext at 0600: the writer is printf under umask
+# 0077 and nothing encrypts it. Both halves are checked, so the disclosure is
+# revisited the day either changes.
+n_store=$(grep -c "^    if ! ( umask 0077; printf '%s' \"\$_v\" > \"\$_t\" ); then" "$SRC" || true)
+n_cfg=$(grep -c "^        echo 'password = \"\"'$" "$SRC" || true)
+if [ "$n_store" -eq 1 ] && [ "$n_cfg" -eq 1 ]; then
+    ok "premise holds: the email password is written in plaintext (0600) to ~/.ostler/secrets, and config.toml gets an empty one"
 else
-    bad "the cleartext write site moved or changed (found ${n_clear}, expected 1)" \
+    bad "the email password write site moved or changed (secrets writer=${n_store}, blank config line=${n_cfg}, expected 1 and 1)" \
         "If encryption has landed, the prompt text below must be corrected, not kept."
 fi
 
@@ -105,12 +110,18 @@ fi
 # a config file in cleartext. If a second ever appears, this guard has to grow
 # an arm for it rather than silently covering one of two.
 # ---------------------------------------------------------------------------
-n_pw_writes=$(grep -c '^ *echo "password = ' "$SRC" || true)
-if [ "$n_pw_writes" -eq 1 ]; then
-    ok "population: exactly 1 cleartext password write in install.sh, and it is the one covered above"
+n_pw_writes=$(grep -cE '^ *echo .*password = .*\$' "$SRC" || true)
+if [ "$n_pw_writes" -eq 0 ]; then
+    ok "population: 0 password values interpolated into any config line in install.sh"
 else
-    bad "found ${n_pw_writes} cleartext password writes; this guard covers only the email one" \
-        "$(grep -n '^ *echo "password = ' "$SRC" || true)"
+    bad "found ${n_pw_writes} config lines that interpolate a password value" \
+        "$(grep -nE '^ *echo .*password = .*\$' "$SRC" || true)"
+fi
+# Control: the predicate does find the pre-#1976 write when it is present.
+if [ "$(printf '%s\n' '        echo "password = \"$(_esc "$CHANNEL_EMAIL_PASSWORD")\""' | grep -cE '^ *echo .*password = .*\$')" -eq 1 ]; then
+    ok "CONTROL: the population predicate finds the old cleartext config write"
+else
+    bad "the population predicate cannot see the old write; it proves nothing"
 fi
 
 # ---------------------------------------------------------------------------

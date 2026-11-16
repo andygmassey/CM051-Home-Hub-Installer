@@ -16,11 +16,16 @@
 # config file itself, or the probe is CANNOT-RUN. CANNOT-RUN also when
 # config.toml is unreadable, no paired token is accepted, or a base answers
 # nothing. Judge: lib/stored_secret_sweep.py.
+#
+# Also the licence id (${OSTLER_DIR}/license/license.json) and the registered
+# fingerprint (${OSTLER_DIR}/state/fingerprint.txt), which the Hub uses to
+# proxy POST /api/v1/invites/{mint,rewards}. Those two routes are always
+# swept, in both arms. Absent files are reported NOT INSTRUMENTED.
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
 PROBE_NAME="gateway_never_serves_a_stored_secret"
-PROBE_QUESTION="does any gateway or companion route (LAN :8443, loopback :8443 and :8000), with no credential or with a paired bearer, serve a paired token or the Vane password from config.toml?"
+PROBE_QUESTION="does any gateway or companion route (LAN :8443, loopback :8443 and :8000), with no credential or with a paired bearer, serve a paired token or the Vane password from config.toml, or the licence id or device fingerprint (invite routes included)?"
 
 _HERE="$(cd "$(dirname "$0")/.." && pwd)"
 _REPO="$(cd "${_HERE}/../.." && pwd)"
@@ -29,10 +34,10 @@ CONTRACT="${OSTLER_HUB_CONTRACT:-${_REPO}/vendor/cm041/assistant_api/hub_contrac
 
 self_test() {
     if python3 "${LIB}" --self-test; then
-        probe_examined 8 "fake-gateway arms"
-        probe_fail "negative control behaved: a planted token, URL-encoded token and base64 Vane password each went red naming the route, and a blind control went CANNOT-RUN"
+        probe_examined 11 "fake-gateway arms"
+        probe_fail "negative control behaved: a planted token, URL-encoded token, base64 Vane password, and a fingerprint and licence id echoed on the invite routes each went red naming the route, and a blind control went CANNOT-RUN"
     fi
-    probe_examined 8 "fake-gateway arms"
+    probe_examined 11 "fake-gateway arms"
     probe_pass "SELF-TEST BROKEN: the sweep let a planted secret through"
 }
 
@@ -52,7 +57,16 @@ run_probe() {
     fi
     rm -f "${routes}"
     cap="$(mktemp)"
-    box_run "umask 077; CFG=\"\${OSTLER_DIR:-\$HOME/.ostler}/assistant-config/config.toml\"; OSTLER_PAIR_PROBE_HOST='${OSTLER_PAIR_PROBE_HOST:-}' python3 '${remote}/s.py' sweep --config \"\$CFG\" --contract '${remote}/c.json'${bases_arg}; rm -rf '${remote}'" > "${cap}"
+    # The stored paired_tokens are enc2: ciphertext and cannot be replayed as a
+    # bearer (v1.0.121 CANNOT-RUN), so pair a synthetic companion the way the
+    # phone does and sweep with ITS bearer. Revoked again below.
+    declare -F companion_pair_box_snippet >/dev/null || . "${_HERE}/lib/companion_pair.sh"
+    declare -F companion_walk_unpair >/dev/null || . "${_HERE}/lib/companion_unpair.sh"
+    local own_baseline=0
+    if [ -z "${OSTLER_COMPANION_WALK_START:-}" ]; then companion_walk_baseline >&2 || true; own_baseline=1; fi
+    box_run "umask 077; $(companion_pair_box_snippet 'https://127.0.0.1:8443' 0)
+CFG=\"\${OSTLER_DIR:-\$HOME/.ostler}/assistant-config/config.toml\"; OSTLER_SWEEP_BEARER=\"\$CP_TOKEN\" OSTLER_PAIR_PROBE_HOST='${OSTLER_PAIR_PROBE_HOST:-}' python3 '${remote}/s.py' sweep --config \"\$CFG\" --license \"\${OSTLER_DIR:-\$HOME/.ostler}/license/license.json\" --fingerprint \"\${OSTLER_DIR:-\$HOME/.ostler}/state/fingerprint.txt\" --contract '${remote}/c.json'${bases_arg}; rm -rf '${remote}'" > "${cap}"
+    [ "${own_baseline}" = 1 ] && { companion_walk_unpair >&2 || true; }
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side sweep returned no capture (is python3 on the box?)"; }
     out="$(python3 "${LIB}" judge "${cap}")"; rc=$?
@@ -69,3 +83,5 @@ run_probe() {
 }
 
 probe_main "$@"
+
+# WALK_WRITES: pairs and then revokes a synthetic companion (POST /api/pair via companion_pair_box_snippet, then companion_walk_unpair), which writes a paired_tokens row and the daemon log

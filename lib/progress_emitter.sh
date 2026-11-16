@@ -945,3 +945,48 @@ gui_needs_fda() {
     local reason="${2:-Full Disk Access required}"
     gui_emit NEEDS_FDA "probe=$probe" "reason=$reason"
 }
+
+# ollama_pull_progress IDX N  (reads the pull stream, CR already split to LF, on stdin)
+#
+# F&F 2026-11-05 item 4. `ollama pull` prints a percent PER LAYER; this turns the
+# stream into ONE overall bar: completed and total BYTES summed over every layer
+# seen, capped at 99 until the caller sees the pull exit 0, never going backwards
+# when a new layer's total appears, one line per overall-percent change. IDX/N
+# slice the step bar across models ("Model IDX of N"). POSIX awk only.
+# Output lines: PCT<TAB>step-bar-percent<TAB>log text.
+ollama_pull_progress() {
+    awk -v idx="${1:-1}" -v n="${2:-1}" '
+    function bytes(num, unit,   m) { m = 1; if (unit == "KB") m = 1e3; else if (unit == "MB") m = 1e6; else if (unit == "GB") m = 1e9; else if (unit == "TB") m = 1e12; return num * m }
+    {
+        line = $0
+        gsub(/\033\[[0-9;?]*[a-zA-Z]/, "", line)
+        if (!match(line, /pulling [0-9a-f]+:/)) next
+        id = substr(line, RSTART + 8, RLENGTH - 9)
+        rest = substr(line, RSTART + RLENGTH)
+        if (match(rest, /[0-9.]+ ?[KMGT]?B\/[0-9.]+ ?[KMGT]?B/)) {
+            pair = substr(rest, RSTART, RLENGTH)
+            split(pair, ab, "/")
+            split(ab[1], x, " "); split(ab[2], y, " ")
+            if (x[2] == "") { match(ab[1], /[KMGT]?B$/); x[2] = substr(ab[1], RSTART); x[1] = substr(ab[1], 1, RSTART - 1) }
+            if (y[2] == "") { match(ab[2], /[KMGT]?B$/); y[2] = substr(ab[2], RSTART); y[1] = substr(ab[2], 1, RSTART - 1) }
+            done[id] = bytes(x[1] + 0, x[2]); tot[id] = bytes(y[1] + 0, y[2])
+        } else if (rest ~ /100%/ && match(rest, /[0-9.]+ ?[KMGT]?B/)) {
+            sz = substr(rest, RSTART, RLENGTH)
+            if (match(sz, /[KMGT]?B$/)) { u = substr(sz, RSTART); v = substr(sz, 1, RSTART - 1); tot[id] = bytes(v + 0, u); done[id] = tot[id] }
+        } else next
+        sd = 0; st = 0
+        for (k in tot) { sd += done[k]; st += tot[k] }
+        if (st <= 0) next
+        p = int(100 * sd / st)
+        if (p > 99) p = 99
+        if (p < last) p = last
+        if (p == last) next
+        last = p
+        rate = ""; if (match(rest, /[0-9.]+ ?[KMGT]?B\/s/)) rate = substr(rest, RSTART, RLENGTH)
+        label = (n > 1) ? sprintf("Model %d of %d: ", idx, n) : ""
+        bar = int(((idx - 1) * 100 + p) / n)
+        printf "PCT\t%d\t%s%d%%  %.1f GB of %.1f GB  %s\n", bar, label, p, sd / 1e9, st / 1e9, rate
+    }
+    BEGIN { last = -1 }
+    '
+}

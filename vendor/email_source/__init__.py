@@ -8,7 +8,7 @@ messages into per-conversation email threads, renders a cleaned
 speaker-labelled transcript plus CM048 metadata, and hands each thread
 to the CM048 ConversationBundle processor (``pwg-convo process``).
 CM048 then emits the four artefacts under
-``~/Documents/Ostler/Conversations/<date>/<slug>-<short-id>/``.
+``~/Ostler/Conversations/<date>/<slug>-<short-id>/``.
 
 This is the CONVERSATION-MEMORY leg. It is deliberately separate from
 the existing ``email-ingest/`` LaunchAgent (which drains Apple Mail

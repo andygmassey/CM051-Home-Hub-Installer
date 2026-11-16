@@ -9,6 +9,21 @@ walk record. A reboot cannot be driven that way at all, so it has no probe
 file and is not scored by `run_box_walk.sh`. It is checked by hand, on this
 list, every time a console walk happens.
 
+## FIRST STEP, before anything else: clear Ostler from Full Disk Access
+
+Clear the Ostler, Ostler Installer and ostler-assistant from System Settings >
+Privacy & Security > Full Disk Access before starting (Andy does this at the
+console; no agent runs tccutil on any box).
+
+**Why.** The system TCC.db keeps Ostler grants across a "cold" reset (NEW-119,
+diag118 Mini16 on macOS 27.2, 2026-10-29: grants written six weeks earlier were
+still present after the VM, data disk and uninstaller had all run). A console
+walk that starts with those grants in place cannot tell whether the install's
+own Full Disk Access prompt works, because macOS never shows it. The thin walk
+records the rows it found in its header as DECLARED STATE
+(`scripts/lib_walk_tcc_declared.sh`), read-only; only a human at the console
+removes them.
+
 ## FileVault reboot recovery
 
 **Why this cannot be an ssh probe.** install.sh offers FileVault enablement
@@ -55,3 +70,33 @@ answers normally afterwards. FAIL and the exact step number if any expected
 screen did not appear or the Hub does not come back up. This item has no
 CANNOT-RUN state: if the walk plan called for exercising FileVault, the human
 either saw the unlock screen or did not.
+
+## One call capture, then 0 audio files on disk (v1.0.109)
+
+**Why a human is needed.** RemoteCapture needs the Screen Recording and
+Microphone grants, which only the console can give. The measurement itself is
+the ssh probe `call_audio_never_retained`; this item is the capture it needs.
+
+1. From the RemoteCapture menu bar item, start a capture, speak for about 30
+   seconds, stop it.
+2. **Expected:** a transcript appears under `~/Ostler/Transcripts/YYYY/MM/`.
+3. Re-run the walk probes (`scripts/post_walk_qa.sh <box-host>`).
+   `call_audio_never_retained` must report `VERDICT: PASS -- 0 audio files after N transcript(s)`.
+
+**Record:** PASS only on that probe line. Any audio file left in the capture
+temp dir or the transcripts dirs is a FAIL of the owner's core privacy rule.
+
+## RemoteCapture consent screen names the jurisdiction from the Mac's region (v1.0.119, row 1001)
+
+**Why a human is needed.** The consent screen is RemoteCapture GUI, shown on
+first launch at the console. An ssh session cannot see it, and whether macOS
+raises a Location prompt is itself a GUI event.
+
+1. On a box whose macOS Region is set to Hong Kong (System Settings > General >
+   Language & Region), launch RemoteCapture 0.1.11 for the first time.
+2. **Expected:** the consent screen names the jurisdiction from the Mac's
+   region (HK) without a Location prompt.
+
+**Record:** PASS only if the screen names HK AND no Location permission dialog
+appears. A Location prompt, or a jurisdiction that does not match the region,
+is a FAIL (CM042 #39, shipped via CM051 #3207).

@@ -107,6 +107,10 @@
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
         <key>ZEROCLAW_WORKSPACE</key>
         <string>OSTLER_ASSISTANT_CONFIG</string>
+        <key>OSTLER_PYTHON</key>
+        <string>OSTLER_DIR_ROOT/.venv/bin/python3</string>
+        <key>OSTLER_REMOTECAPTURE_TRANSCRIPTION_SCRIPT</key>
+        <string>OSTLER_DIR_ROOT/bin/remotecapture_transcription.sh</string>
         <!--
             OSTLER_IMESSAGE_SELF_HANDLES (#646): the customer's OWN
             iMessage handles (comma-separated phone + email), rendered by
@@ -173,10 +177,15 @@
             a customer Mac). Proven live on the .153 box: at ctx 4096 the
             agent prompt returns empty; at 32768 it returns a real reply.
             KEEP_ALIVE pins the model resident so it does not cold-reload
-            between turns. It is -1m (forever), matching the Ollama server's
-            OLLAMA_KEEP_ALIVE=-1: the daemon stamps it on every request, and
-            30m let the chat model expire on a quiet box, which is the cold
-            start that starved chat on walk #19. It MUST carry a unit: the
+            between turns, and it is now an IDLE window, not forever. It was
+            -1m (forever): a 7 GB model then stayed resident all day and all
+            night on an idle Mac (F&F tester, 2026-11-13). 15m frees it after
+            a quarter hour with no request, and a conversation (turns a few
+            minutes apart) stays warm; the 09:00 and 18:00 briefs each pay one
+            cold load. The walk #19 cold start was a 30m window on a quiet box
+            under memory pressure. The watchdog prewarm loads with this same window.
+            Cold-load latency is NOT measured on hardware yet (see the PR
+            body). It MUST carry a unit: the
             daemon sends it as a JSON string, and Ollama parses a string
             with time.ParseDuration, which rejects a bare "-1" ("missing
             unit in duration") and so fails every chat request. Measured
@@ -187,7 +196,7 @@
         <key>OLLAMA_NUM_CTX</key>
         <string>32768</string>
         <key>OLLAMA_KEEP_ALIVE</key>
-        <string>-1m</string>
+        <string>15m</string>
     </dict>
 
     <!--
@@ -240,16 +249,27 @@
     <string>OSTLER_LOGS/ostler-assistant.err</string>
 
     <!--
-        Interactive process type because the daemon serves
-        websocket gateway traffic the user is interactively
-        producing (iMessage replies, dashboard clicks). Adaptive
-        is the closest match for "responsive but not realtime";
-        but Background is what the existing wiki-recompile uses
-        and is the conservative pick for a v0.1 always-on agent
-        that is mostly idle. Open question for the operator:
-        flip to Adaptive if iMessage latency feels sluggish.
+        Interactive, NOT Background. This daemon is the process that
+        answers every Hub screen: the gateway on :8443 serves the app's
+        pages, its same-origin fonts, the /wiki/s/ proxy and the
+        /api/v1/people and /api/v1/timeline proxies, plus chat.
+
+        It shipped as Background (v0.1, "mostly idle"). Background puts
+        the whole process under launchd's background resource limits, so
+        during first-run ingest (load 8 to 19 on the v1.0.123 walk) the
+        Hub starved: wiki not loaded in 45 s, Timeline and People
+        screenshots timing out at 30 s waiting for fonts, a blank person
+        page. All passed at idle. Measured with a synthetic LaunchAgent
+        under the same CPU load (walkdriver bench/firstrun_load, arm 1):
+        Background p50 4 s / p95 21 s (one run never answered in 60 s),
+        Interactive p50 46 ms / p95 75 ms.
+
+        The heavy work is NOT here: ingest ticks, the wiki compile and
+        the editor run as their own Background jobs, and model calls
+        run in Ollama. Test: tests/test_no_heavy_job_bypasses_the_chat_yield.sh
+        class C.
     -->
     <key>ProcessType</key>
-    <string>Background</string>
+    <string>Interactive</string>
 </dict>
 </plist>

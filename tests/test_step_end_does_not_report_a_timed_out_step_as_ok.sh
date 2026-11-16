@@ -287,7 +287,7 @@ step_end_line() {
 B_LINE="$(step_end_line cm048_setup "$MARKERS")"
 if [ -z "$B_LINE" ]; then
     fail "B control: no STEP_END for cm048_setup at all. The emitter is dead, so every absence assertion below is worthless."
-elif printf '%s' "$B_LINE" | grep -q 'status=ok'; then
+elif grep -q 'status=ok' <<< "$B_LINE"; then
     pass "B control: a step whose child exits 0 still closes status=ok"
 else
     fail "B control: a clean step did NOT close status=ok, it closed: ${B_LINE}"
@@ -298,17 +298,17 @@ A_LINE="$(step_end_line hydrate_people "$MARKERS")"
 if [ -z "$A_LINE" ]; then
     fail "A: no STEP_END for hydrate_people. Nothing was measured."
 else
-    if printf '%s' "$A_LINE" | grep -q 'status=ok'; then
+    if grep -q 'status=ok' <<< "$A_LINE"; then
         fail "A: a step killed by its timeout reported status=ok. This is the v1.0.36 defect: ${A_LINE}"
     else
         pass "A: a step killed by its timeout does NOT report status=ok"
     fi
-    if printf '%s' "$A_LINE" | grep -q 'status=timeout'; then
+    if grep -q 'status=timeout' <<< "$A_LINE"; then
         pass "A: it reports status=timeout, distinct from a plain error"
     else
         fail "A: expected status=timeout, got: ${A_LINE}"
     fi
-    if printf '%s' "$A_LINE" | grep -q 'rc=124'; then
+    if grep -q 'rc=124' <<< "$A_LINE"; then
         pass "A: it carries rc=124, the code the timeout actually returned"
     else
         fail "A: expected rc=124 on the STEP_END, got: ${A_LINE}"
@@ -349,8 +349,8 @@ fi
 
 # --- C (three states, never two) ---------------------------------------
 C_LINE="$(step_end_line hydrate_browsing "$MARKERS")"
-if printf '%s' "$C_LINE" | grep -q 'status=error' \
-   && printf '%s' "$C_LINE" | grep -q 'rc=3'; then
+if grep -q 'status=error' <<< "$C_LINE" \
+   && grep -q 'rc=3' <<< "$C_LINE"; then
     pass "C: a child exiting 3 closes status=error rc=3, not timeout and not ok"
 else
     fail "C: expected status=error rc=3, got: ${C_LINE:-<no STEP_END for hydrate_browsing>}"
@@ -360,7 +360,7 @@ fi
 D_LINE="$(step_end_line wiki_compile "$MARKERS")"
 if [ -z "$D_LINE" ]; then
     fail "D: no STEP_END for wiki_compile. Nothing was measured."
-elif printf '%s' "$D_LINE" | grep -q 'status=ok'; then
+elif grep -q 'status=ok' <<< "$D_LINE"; then
     fail "D: an explicit \`gui_step_end ok\` overwrote a recorded timeout: ${D_LINE}"
 else
     pass "D: an explicit \`gui_step_end ok\` cannot overwrite a recorded timeout"
@@ -368,14 +368,14 @@ fi
 
 # --- E (one-line truth) ------------------------------------------------
 DONE_LINE="$(grep -E '#OSTLER.*DONE' "$MARKERS" | tail -n 1)"
-if printf '%s' "$DONE_LINE" | grep -q 'failed_steps=3'; then
+if grep -q 'failed_steps=3' <<< "$DONE_LINE"; then
     pass "E: the DONE line carries failed_steps=3 (hydrate_people, hydrate_browsing, wiki_compile)"
 else
     fail "E: expected failed_steps=3 on the DONE line, got: ${DONE_LINE:-<no DONE line>}"
 fi
 
 CLEAN_DONE="$(grep -E '#OSTLER.*DONE' "$CLEAN_MARKERS" | tail -n 1)"
-if printf '%s' "$CLEAN_DONE" | grep -q 'failed_steps=0'; then
+if grep -q 'failed_steps=0' <<< "$CLEAN_DONE"; then
     pass "E: a clean run PRINTS failed_steps=0, so a zero cannot be confused with an unreporting build"
 else
     fail "E: expected failed_steps=0 on a clean run, got: ${CLEAN_DONE:-<no DONE line>}"

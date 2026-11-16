@@ -8,9 +8,9 @@
 # `allowed_senders = []`, which the daemon reads as "answer no one", so the
 # custom-IMAP email channel shipped inert.
 #
-# Also pinned: the config that holds the mailbox password is written under
-# umask 0077 and chmod 600, and the password is never printed anywhere but into
-# that file.
+# Also pinned: config.toml is written under umask 0077 and chmod 600, and the
+# mailbox password is never printed anywhere: it goes only to the secrets-file
+# writer (#1976), never into the TOML.
 #
 # Every structural assertion is run twice: on install.sh (must pass) and on a
 # mutant with the old behaviour restored (must FAIL), so the check is known to
@@ -84,10 +84,10 @@ structural() { # <file> -> prints failures, returns count
     if [ -z "$u" ] || [ -z "$r" ] || [ -z "$c" ] || [ "$u" -ge "$r" ] || [ "$c" -le "$r" ] || [ $((c - r)) -gt 2 ]; then
         echo "  config not written under umask 0077 then chmod 600 (umask=$u redirect=$r chmod=$c)"; bad=$((bad + 1))
     fi
-    # the password may be assigned, compared, written to the TOML and unset; never printed or logged
+    # the password may be assigned, compared, handed to the secrets-file writer and unset; never printed, logged or put in the TOML (#1976)
     local leaks
     leaks="$(grep -n 'CHANNEL_EMAIL_PASSWORD' "$f" | grep -v '^[0-9]*:[[:space:]]*#' \
-        | grep -Ev 'CHANNEL_EMAIL_PASSWORD=|== "\$_email_confirm_input"|echo "password = |unset CHANNEL_EMAIL_PASSWORD' || true)"
+        | grep -Ev 'CHANNEL_EMAIL_PASSWORD=|== "\$_email_confirm_input"|-n "\$\{CHANNEL_EMAIL_PASSWORD:-\}"|_email_password_store "\$CHANNEL_EMAIL_PASSWORD" "\$EMAIL_PASSWORD_FILE"|unset CHANNEL_EMAIL_PASSWORD' || true)"
     if [ -n "$leaks" ]; then echo "  password referenced where it may be printed: $leaks"; bad=$((bad + 1)); fi
     # no command-substitution or log call may carry the password
     if [ "$(grep -nE '(dbg|info|warn|ok|log|printf|echo)[^|]*CHANNEL_EMAIL_PASSWORD' "$f" | grep -v 'echo "password = ' | grep -v '^[0-9]*:[[:space:]]*#' | grep -c .)" -gt 0 ]; then
@@ -113,5 +113,10 @@ fi
 grep -v '^chmod 600 "\$ASSISTANT_CONFIG"$' "$INSTALL_SH" > "$mut"
 if structural "$mut" >/dev/null; then fail "control: structural let a missing chmod through"; else pass "control: a missing chmod 600 is caught"; fi
 
+# mutant 4: the plaintext password goes back into the TOML (#1976)
+sed "s|^        echo 'password = \"\"'\$|        echo \"password = \\\\\"\$(_esc \"\$CHANNEL_EMAIL_PASSWORD\")\\\\\"\"|" "$INSTALL_SH" > "$mut"
+if cmp -s "$mut" "$INSTALL_SH"; then fail "control: mutant 4 did not apply"; else
+    if structural "$mut" >/dev/null; then fail "control: structural let the password back into the TOML"; else pass "control: a password written into the TOML is caught"; fi
+fi
 echo "failures: $fails"
 [ "$fails" -eq 0 ]

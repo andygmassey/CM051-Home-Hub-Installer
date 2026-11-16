@@ -24,7 +24,7 @@ fences. No commentary. The object MUST have these three keys:
   ],
   "todos": [
     {
-      "text": "What needs to be done. Imperative voice.",
+      "text": "A standalone title: verb + object + person, 60 characters or fewer (for example \"Send the landlord the signed lease\"). Imperative voice. No @handles, slugs, emails, file paths or dates. If you cannot write it this specifically, leave the todo out.",
       "owner": "user | other | both | <participant id>",
       "deadline": "ISO 8601 date if explicitly stated or confidently inferrable. Otherwise null.",
       "source_anchor": "Free-form pointer back to the transcript moment (line offset, timestamp, message id). Optional."
@@ -41,11 +41,32 @@ fences. No commentary. The object MUST have these three keys:
 - Topic names use title case (Project Status, Family Logistics).
 - Points are prose bullets, NOT raw quotes. Quotes belong in the
   transcript.md artefact, not summary.md.
-- Todos are commitments only -- "I'll send you the doc",
-  "We need to follow up on X", "She asked me to call her back".
-  General discussion is not a todo. Hypotheticals are not todos.
+- Todos are actions someone has to take. That covers BOTH
+  commitments ("I'll send you the doc", "We need to send Alex the
+  invoice") AND requests or instructions addressed to someone ("please
+  use the new reference", "chase the supplier about it", "if she
+  calls, tell her it is on track", "message me rather than ring").
+  A conditional instruction is still a todo; keep the condition in
+  the text ("If the client calls, tell her ...").
+  General discussion is not a todo. Pure hypotheticals are not todos.
+- Every todo ``text`` is verb + object + person, at most 60
+  characters, and readable on its own with no other context. Never
+  write "Follow up on X", "Follow up with <person>" or "Follow up on
+  the conversation": name the concrete action ("Send the plumber the
+  quote"). Never put handles, slugs, emails, file paths or dates in
+  the text. If a request is too vague to name a concrete action,
+  OMIT it: return ``"todos": []`` rather than a vague todo.
+- One action per todo. Do not merge separate requests into one,
+  and do not drop one because another is in the same sentence.
+  Name the person to deal with when the transcript names them
+  ("Chase the address correction with the supplier").
+- Read the whole transcript for todos before you answer; requests
+  near the end are as important as those at the start.
 - ``owner`` of "user" means the user-side participant has the
-  action. "other" means a non-user participant. "both" means
+  action. The user is the person who captured the conversation; in
+  a recording where only one speaker is labelled, that speaker is
+  usually addressing the user, so what they ask "you" to do is
+  owned by "user". "other" means a non-user participant. "both" means
   jointly owned. A specific participant id is fine when there
   are multiple non-user participants and one specifically owns it.
 - ``deadline`` only when explicitly stated ("by Friday",
@@ -64,6 +85,18 @@ fences. No commentary. The object MUST have these three keys:
   that script's normal capitalisation.
 - Use the user's locale for spelling (en-GB, en-US, etc.) when the
   output language is English.
+- The owner values (user, other, both) are machine labels for the
+  ``owner`` field ONLY. Never write them into the summary, topic
+  points or todo text. Never write "the Other", "the other party"
+  or "the User". Use the participant's name or speaker label when
+  you have it; for the person who captured the conversation, or an
+  unnamed listener being spoken to, write "you".
+- Report only what was said. Do not add urgency, emotion or
+  importance the speakers did not express: no "urgent", "critical"
+  or "important" unless a speaker said so.
+- The summary must mention every request or instruction given,
+  including practical ones about how to get in touch ("message
+  rather than ring").
 
 # Channel-specific guidance
 

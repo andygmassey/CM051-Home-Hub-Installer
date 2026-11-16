@@ -103,7 +103,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
     # population is derived from. The gate must refuse rather than report a
     # population it did not establish.
     _st_mut3="$_st_work/mutant3.sh"
-    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g' \
+    # Every RECORDER form is renamed, not only two of four: with food (#3234) the
+    # no_data and cannot_run call sites alone reached 13 sources, so the old
+    # two-form mutation no longer broke the derivation and this arm went CANNOT-RUN.
+    sed 's/_hydrate_sentinel_record_error "/_hydrate_sentinel_recordERR "/g; s/_hydrate_sentinel_record "/_hydrate_sentinel_recordOK "/g; s/_hydrate_sentinel_record_no_data "/_hydrate_sentinel_recordND "/g; s/_hydrate_sentinel_record_cannot_run "/_hydrate_sentinel_recordCR "/g' \
         "$REPO_ROOT/install.sh" > "$_st_mut3"
     _st_left="$(grep -oE '_hydrate_sentinel_[a-z_]+ "[a-z_]+"' "$_st_mut3" | grep -oE '"[a-z_]+"' | sort -u | wc -l | tr -d ' ')"
     if [[ "$_st_left" -ge 13 ]]; then
@@ -189,7 +192,7 @@ check "(2) an ERRORED run is NOT fresh, so the next run retries" "$rc" "1"
 # (3) The record still exists on disk and names the rc. Refusing to write the
 #     file at all would lose the evidence Doctor and a human need.
 out="$(bash -c "source '$HARNESS/helpers.sh'; _hydrate_sentinel_record_error places 2 'status=run'; cat \"\$_HYDRATE_SENTINEL_DIR/places.done\"")"
-if printf '%s' "$out" | grep -q '^status=error' && printf '%s' "$out" | grep -q '^rc=2'; then
+if grep -q '^status=error' <<< "$out" && grep -q '^rc=2' <<< "$out"; then
     pass "(3) the failure is still RECORDED (status=error, rc=2), not discarded"
 else
     fail "(3) the error record lost its status or rc: $out"
@@ -314,7 +317,7 @@ for src in $ALL_SOURCES; do
             else if ($0 ~ /^[[:space:]]*fi([[:space:]]|$)/) depth--
         }
     ' "$INSTALL")"
-    if [[ -n "$ARM" ]] && ! printf '%s\n' "$ARM" | grep -q '_hydrate_sentinel_record '; then
+    if [[ -n "$ARM" ]] && ! grep -q '_hydrate_sentinel_record ' <<< "$ARM"; then
         echo "     guarded    $src   (error arm records NO sentinel, so the retry stands)"
         GUARDED=$((GUARDED + 1))
     else

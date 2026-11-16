@@ -170,11 +170,18 @@ class CoachReaderTests(unittest.TestCase):
         self.assertEqual(out["db_state"], "absent")
 
     def test_zero_byte_decoy_never_masks_the_real_db(self):
-        # Pointing the reader at the decoy (the old behaviour) must refuse.
+        # Pointing the reader at a 0-byte decoy must never look like a
+        # healthy zero. Walk #31 (v1.0.108) changed HOW: an uninitialised
+        # db is now a DECLARED empty (db_state="empty", 200) rather than a
+        # 500, because a stray 0-byte file at the REAL path broke every
+        # context-refresh tick. The path drift this test was written for is
+        # held by test_reader_path_equals_writer_path; here the reader must
+        # still say, in the body, that it read nothing real.
         s = self._server(KEY)
         s.COACH_DB = self.home / ".pwg" / "coach" / "observations.db"
-        with self.assertRaises(s.CoachDbError):
-            s.coach_recent(user_id=USER)
+        out = s.coach_recent(user_id=USER)
+        self.assertEqual(out["observations"], [])
+        self.assertEqual(out["db_state"], "empty")
 
 
 if __name__ == "__main__":

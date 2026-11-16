@@ -183,22 +183,22 @@ run_guard() {
 # ---------------------------------------------------------------------------
 
 # (1) THE DEFECT ITSELF. The shipped plist must schedule by interval.
-c1() { printf '%s\n' "$PLIST_BODY" | grep -q '<key>StartInterval</key>'; }
+c1() { grep -q '<key>StartInterval</key>' <<< "$PLIST_BODY"; }
 
 # (2) And must NOT reintroduce a pinned calendar date. Checked separately from
 #     (1) because a plist can legitimately carry BOTH keys, and a partially
 #     restored StartCalendarInterval would slip past (1) alone.
-c2() { ! printf '%s\n' "$PLIST_BODY" | grep -q 'StartCalendarInterval'; }
+c2() { ! grep -q 'StartCalendarInterval' <<< "$PLIST_BODY"; }
 
 # (3) No pinned Year/Month/Day survives anywhere in the heredoc. This is the
 #     axis that made the old plist one-shot -- a StartCalendarInterval with
 #     only Minute set recurs hourly and is harmless; it is the DATE that kills
 #     it. Assert the mechanism, not the key name.
-c3() { ! printf '%s\n' "$PLIST_BODY" | grep -qE '<key>(Year|Month|Day)</key>'; }
+c3() { ! grep -qE '<key>(Year|Month|Day)</key>' <<< "$PLIST_BODY"; }
 
 # (4) The interval is substituted from the tunable, not hardcoded in the plist,
 #     so a test or an operator can vary it without editing the heredoc.
-c4() { printf '%s\n' "$PLIST_BODY" | grep -q '<integer>\${OSTLER_FDA_RERUN_INTERVAL_S}</integer>'; }
+c4() { grep -q '<integer>\${OSTLER_FDA_RERUN_INTERVAL_S}</integer>' <<< "$PLIST_BODY"; }
 
 # (5) The tunable has a positive-integer default. A default of 0 or empty would
 #     make launchd reject the job, and the install would still print success.
@@ -234,7 +234,7 @@ c8() { [[ "$(run_guard absent)" == "1 0" ]]; }
 # which is the failure this control exists to prevent.
 c9() {
     local bootout_at load_at
-    printf '%s\n' "$LAUNCHCTL_BODY" | grep -q 'launchctl bootout' || return 1
+    grep -q 'launchctl bootout' <<< "$LAUNCHCTL_BODY" || return 1
     bootout_at="$(grep -n -F 'launchctl bootout "gui/$(id -u)/com.ostler.fda-rerun"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
     load_at="$(grep -n -F '_ostler_launchagent_load_verified "$FDA_RERUN_PLIST"' "$INSTALL_SH" | head -1 | cut -d: -f1)"
     [ -n "$bootout_at" ] && [ -n "$load_at" ] || return 1
@@ -334,7 +334,7 @@ if [[ "$SELF_TEST" == "1" ]]; then
             SELF_FAIL=$((SELF_FAIL + 1))
             return
         fi
-        if printf '%s\n' "$out" | grep -q "\[FAIL\] ${expect_fail}"; then
+        if grep -q "\[FAIL\] ${expect_fail}" <<< "$out"; then
             printf '  [pass] %s -> %s went RED as required\n' "$label" "$expect_fail"
         else
             printf '  [FAIL] %s -> %s stayed GREEN with the defect present\n' "$label" "$expect_fail"

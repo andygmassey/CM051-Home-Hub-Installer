@@ -94,7 +94,7 @@ while IFS= read -r match; do
     # Pull the JOINED invocation that starts at this call, not the raw line.
     logical="$(printf '%s\n' "$JOINED" | grep -E 'codesign --force --sign' | head -1)"
     [[ -n "$logical" ]] || logical="${match#*:}"
-    if ! printf '%s' "$logical" | grep -qE '\-\-entitlements'; then
+    if ! grep -qE '\-\-entitlements' <<< "$logical"; then
         echo "FAIL [case-2b]: codesign signing call at $SIGN_SCRIPT:$line_no missing --entitlements"
         echo "   logical line: $logical"
         exit 1
@@ -145,7 +145,7 @@ MAKEFILE_RESIGN_LINE=$(awk '/sign-python-bundle:/,/^$/' "$MAKEFILE" | grep -E 'c
 # No deep re-sign, no CX-33 recurrence vector, nothing to guard.
 if [[ -z "$MAKEFILE_RESIGN_LINE" ]]; then
     echo "PASS [case-4]: no --force --deep outer re-sign in sign-python-bundle (ccfd1bf removed it; nothing can strip CX-30's entitlements)"
-elif ! printf '%s' "$MAKEFILE_RESIGN_LINE" | grep -qE '\-\-entitlements'; then
+elif ! grep -qE '\-\-entitlements' <<< "$MAKEFILE_RESIGN_LINE"; then
     # Only reachable if someone REINTRODUCES the deep re-sign. Then the CX-33
     # invariant is live again and it must carry --entitlements.
     echo "FAIL [case-4b]: gui/Makefile outer re-sign call missing --entitlements"

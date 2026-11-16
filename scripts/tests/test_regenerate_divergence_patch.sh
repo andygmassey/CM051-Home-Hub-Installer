@@ -402,6 +402,72 @@ else
 fi
 [ "$(vendor_hash "$R12")" = "$H12" ] || fail "control 12: THE VENDORED TREE CHANGED"
 
+# --- 13/14/15: HOLD_ACK. The pin is held behind upstream on purpose ----------
+# Rows 2206/2212 (v1.0.124): every cm041 tree carries a hold_ack, and the tool
+# refused every one of them because it ignored the ledger the freshness gate
+# honours. 13 = every post-pin commit acked -> records and reconstructs.
+# 14 = one UNACKED commit among acked ones -> still a RE-PIN refusal.
+# 15 = acked but shipping_bugfixes_grafted not asserted -> still refused.
+held_fixture() { # root -> prints "<acked sha> <second sha>" after two upstream commits
+    local root="$1"
+    make_fixture "$root" >/dev/null
+    printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n' \
+        > "$root/vendor/synthtree/pkg/mod.py"
+    (
+        cd "$root/synthetic-source"
+        printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n' > pkg/mod.py
+        git add pkg/mod.py; git commit --quiet -m "upstream: the fix the vendor grafted"
+        printf 'def hello():\n    return "v1"\n\ndef graft():\n    return "local"\n\ndef later():\n    return 2\n' > pkg/mod.py
+        git add pkg/mod.py; git commit --quiet -m "upstream: a later change"
+    )
+    printf '%s %s\n' "$(git -C "$root/synthetic-source" rev-parse HEAD~1)" \
+                     "$(git -C "$root/synthetic-source" rev-parse HEAD)"
+}
+add_hold() { # root shas grafted
+    {
+        printf 'hold_ack_shas    = "%s"\n' "$2"
+        printf 'hold_ack_reason  = "synthetic self-test hold"\n'
+        printf 'shipping_bugfixes_grafted = %s\n' "$3"
+    } >> "$1/vendor/VENDOR_MANIFEST.toml"
+}
+
+R13="$WORK/c13"; mkdir -p "$R13"; read -r a13 b13 <<<"$(held_fixture "$R13")"
+add_hold "$R13" "$a13 $b13" true
+H13="$(vendor_hash "$R13")"
+out="$( cd "$R13" && VENDOR_PATCH_REGEN_CONFIRM=synthtree \
+        bash scripts/regenerate_divergence_patch.sh synthtree --write 2>&1 )"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'ALL held by hold_ack' <<<"$out" \
+   && grep -q 'The graft is now RECORDED' <<<"$out"; then
+    pass "control 13: every post-pin commit hold-acked -> recorded and self-verified"
+else
+    fail "control 13: all-acked -> rc=$rc, expected a verified write"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+[ "$(vendor_hash "$R13")" = "$H13" ] || fail "control 13: THE VENDORED TREE CHANGED"
+
+R14="$WORK/c14"; mkdir -p "$R14"; read -r a14 b14 <<<"$(held_fixture "$R14")"
+add_hold "$R14" "$a14" true
+H14="$(vendor_hash "$R14")"
+out="$(run_tool "$R14" synthtree)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'RE-PIN, not a graft' <<<"$out" \
+   && grep -q "${b14:0:7}" <<<"$out" && ! grep -q "${a14:0:7} " <<<"$out"; then
+    pass "control 14: one UNACKED commit among acked ones -> REFUSED, naming only it"
+else
+    fail "control 14: one unacked -> rc=$rc, expected RE-PIN refusal naming ${b14:0:7}"
+    printf '%s\n' "$out" | tail -6 | sed 's/^/        /'
+fi
+[ -f "$R14/vendor/divergences/synthtree.patch" ] && fail "control 14: WROTE A PATCH"
+[ "$(vendor_hash "$R14")" = "$H14" ] || fail "control 14: THE VENDORED TREE CHANGED"
+
+R15="$WORK/c15"; mkdir -p "$R15"; read -r a15 b15 <<<"$(held_fixture "$R15")"
+add_hold "$R15" "$a15 $b15" false
+out="$(run_tool "$R15" synthtree)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'RE-PIN, not a graft' <<<"$out"; then
+    pass "control 15: acked but shipping_bugfixes_grafted not asserted -> REFUSED"
+else
+    fail "control 15: no grafted assertion -> rc=$rc, expected refusal"
+fi
+
 echo ""
 if [ "$fails" -gt 0 ]; then
     printf '\033[0;31mregenerate_divergence_patch: %d control(s) FAILED\033[0m\n' "$fails"

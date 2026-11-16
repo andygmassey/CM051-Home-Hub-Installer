@@ -67,13 +67,13 @@ PATHS=(
     "/Applications/Ostler RemoteCapture.app|the renamed capture app"
     "${HOME}/Applications/Ostler.app|a per-user Hub app"
     "${HOME}/.colima/_lima/_disks/colima|16G of store data a walk would call clean"
-    "${HOME}/Documents/Ostler|wiki pages from a previous run"
+    "${HOME}/Ostler|wiki pages from a previous run"
     "/usr/local/bin/ostler-knowledge|a stale CLI pointing into a deleted venv"
     "/usr/local/bin/pwg-convo|a stale CLI pointing into a deleted venv"
     "/usr/local/bin/ostler|a stale CLI pointing into a deleted venv"
     "${HOME}/state/apple_mail_mbox_checkpoint.json|a stale email checkpoint (legacy path outside ~/.ostler) that tells a fresh install its backfill is done"
     # #2520: chat history lives in WebKit's localStorage, keyed by bundle id,
-    # not under ~/.ostler and not under ~/Documents/Ostler -- so neither of
+    # not under ~/.ostler and not under ~/Ostler -- so neither of
     # this script's other removal roots ever touched it. MEASURED on a box
     # this script had just called PRISTINE, after a fresh reinstall: the
     # previous walk's conversation (two timestamps from an earlier day) was

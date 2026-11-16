@@ -40,6 +40,84 @@ def _later(a, b):
     return b if aware(b) > aware(a) else a
 
 
+# INGEST CONTRACT (smart-prefs foundations, 2026-10-22). Derivation rolls a
+# track up to its ARTIST and decays it from the REAL play time, so both must
+# survive ingest as fields, not as text inside the subject string.
+#
+# "Track Name" (Track Play History) and "Track Description" (Play History Daily
+# Tracks) are "<artist> - <title>" strings. Before this the artist rode along
+# inside the subject only, so a rollup keyed on extra["artist"] found nothing
+# on 68k Apple Music points. The subject is NOT changed: the stable preference
+# id is derived from it, and a changed subject would orphan every stored point.
+#
+# "Apple Music Play Activity.csv" has no artist column at all (its only artist
+# column, the container one, is set on a sliver of rows), so the artist is
+# looked up from the sibling history files of the SAME export by song title,
+# and only when the title maps to exactly one artist. An ambiguous title gets
+# no artist rather than a guess.
+#
+# That file's real play time is in several columns and only the plain event
+# column was read; on a real export it is set on roughly a third of completed
+# plays, while the event-end column is set on every one of them.
+# Lowercase, matched case-insensitively against the row's own headers.
+_APPLE_PLAY_TIMESTAMP_COLUMNS = (
+    "event timestamp",
+    "event end timestamp",
+    "event start timestamp",
+    "event received timestamp",
+)
+_APPLE_HISTORY_FILES = (
+    "apple music - track play history.csv",
+    "apple music - play history daily tracks.csv",
+)
+
+
+def _split_artist_track(description: str):
+    """("artist", "title") from "artist - title", else ("", description)."""
+    text = (description or "").strip()
+    head, sep, tail = text.partition(" - ")
+    if sep and head.strip() and tail.strip():
+        return head.strip(), tail.strip()
+    return "", text
+
+
+def _first_timestamp(row: dict) -> str:
+    """The first non-empty play-time column of a Play Activity row."""
+    lowered = {str(k).strip().lower(): v for k, v in row.items() if k}
+    for column in _APPLE_PLAY_TIMESTAMP_COLUMNS:
+        value = (lowered.get(column) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _artist_lookup(file_path: Path) -> dict:
+    """{lowercased title: artist} for titles that map to exactly one artist.
+
+    Built from the sibling history files of the same export. Missing siblings
+    give an empty lookup (no artist), never an error.
+    """
+    seen: Dict[str, set] = defaultdict(set)
+    try:
+        siblings = [p for p in file_path.parent.iterdir()
+                    if p.name.lower() in _APPLE_HISTORY_FILES]
+    except OSError:
+        return {}
+    for sibling in siblings:
+        column = "Track Name" if "track play history" in sibling.name.lower() \
+            else "Track Description"
+        try:
+            with open(sibling, mode='r', encoding='utf-8-sig', newline='') as f:
+                for row in csv.DictReader(f):
+                    artist, title = _split_artist_track(row.get(column, ""))
+                    if artist:
+                        seen[title.lower()].add(artist)
+        except (OSError, csv.Error):
+            continue
+    return {title: next(iter(artists)) for title, artists in seen.items()
+            if len(artists) == 1}
+
+
 # Apple Health record types - ALLOWLIST (aggregate patterns only)
 # These are safe to expose as patterns, not individual readings
 APPLE_HEALTH_ALLOWED_TYPES = {
@@ -639,6 +717,15 @@ class AppleParser(BaseParser):
             # job, on the same scale as Spotify (see MUSIC_PASSIVE_PLAY_STRENGTH).
             strength = MUSIC_PASSIVE_PLAY_STRENGTH
 
+            artist, title = _split_artist_track(track_name)
+            extra = {
+                "play_count": data['count'],
+                "content_type": "track",
+                "passive_play": True,
+            }
+            if artist:
+                extra["artist"] = artist
+                extra["track"] = title
             yield ParsedPreference(
                 subject=track_name,
                 preference_type="Neutral",
@@ -648,11 +735,7 @@ class AppleParser(BaseParser):
                 source=self.source_name,
                 compartment_level=default_compartment,
                 size="Small",
-                extra={
-                    "play_count": data['count'],
-                    "content_type": "track",
-                    "passive_play": True,
-                }
+                extra=extra,
             )
 
     async def _parse_play_activity(
@@ -678,6 +761,7 @@ class AppleParser(BaseParser):
         def read_and_aggregate():
             play_counts = {}
             row_count = 0
+            artists = _artist_lookup(file_path)
             with open(file_path, mode='r', encoding='utf-8-sig', newline='') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
@@ -687,7 +771,7 @@ class AppleParser(BaseParser):
                     try:
                         song_name = row.get('Song Name', '').strip()
                         album_name = row.get('Album Name', '').strip()
-                        event_timestamp = row.get('Event Timestamp', '').strip()
+                        event_timestamp = _first_timestamp(row)
                         event_type = row.get('Event Type', '').strip()
                         play_duration_ms = row.get('Play Duration Milliseconds', '').strip()
 
@@ -716,7 +800,8 @@ class AppleParser(BaseParser):
                                 'album_name': album_name,
                                 'count': 0,
                                 'last_played': None,
-                                'total_duration_ms': 0
+                                'total_duration_ms': 0,
+                                'artist': artists.get(song_name.lower(), ''),
                             }
 
                         play_counts[key]['count'] += 1
@@ -758,6 +843,18 @@ class AppleParser(BaseParser):
             if data['album_name']:
                 subject = f"{data['song_name']} - {data['album_name']}"
 
+            extra = {
+                "play_count": data['count'],
+                "total_duration_ms": data['total_duration_ms'],
+                "content_type": "song",
+                "passive_play": True,
+                "album": data['album_name'],
+                "track": data['song_name'],
+            }
+            if data['artist']:
+                extra["artist"] = data['artist']
+                extra["artist_source"] = "export_sibling_history"
+
             yield ParsedPreference(
                 subject=subject,
                 preference_type="Neutral",
@@ -767,13 +864,7 @@ class AppleParser(BaseParser):
                 source=self.source_name,
                 compartment_level=default_compartment,
                 size="Small",
-                extra={
-                    "play_count": data['count'],
-                    "total_duration_ms": data['total_duration_ms'],
-                    "content_type": "song",
-                    "passive_play": True,
-                    "album": data['album_name'],
-                }
+                extra=extra,
             )
 
     async def _parse_daily_tracks(
@@ -862,6 +953,18 @@ class AppleParser(BaseParser):
                 continue
             strength = MUSIC_PASSIVE_PLAY_STRENGTH
 
+            artist, title = _split_artist_track(track_desc)
+            extra = {
+                "play_count": play_count,
+                "skip_count": skip_count,
+                "skip_ratio": round(skip_ratio, 2),
+                "content_type": "song",
+                "passive_play": True,
+            }
+            if artist:
+                extra["artist"] = artist
+                extra["track"] = title
+
             yield ParsedPreference(
                 subject=track_desc,
                 preference_type="Neutral",
@@ -871,13 +974,7 @@ class AppleParser(BaseParser):
                 source=self.source_name,
                 compartment_level=default_compartment,
                 size="Small",
-                extra={
-                    "play_count": play_count,
-                    "skip_count": skip_count,
-                    "skip_ratio": round(skip_ratio, 2),
-                    "content_type": "song",
-                    "passive_play": True,
-                }
+                extra=extra,
             )
 
     async def _parse_app_purchases(
@@ -3693,7 +3790,7 @@ class AppleParser(BaseParser):
                 observed_at=observed_at,
                 source="apple_tv",
                 source_id=f"apple_tv_{key[:50]}",
-                compartment_level=default_compartment or 2,
+                compartment_level=default_compartment if default_compartment is not None else 2,
                 size="Medium",
                 extra={
                     "content_type": "apple_tv_watched",

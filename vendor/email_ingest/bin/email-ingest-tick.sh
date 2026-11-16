@@ -64,6 +64,29 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
+# --- Operator Pause (Doctor Settings) --------------------------------
+# An explicit Pause means "leave my Mac alone", and hourly email import is
+# background work, so it stops here too. Checked before the harvest, so a
+# paused tick reads no mail and moves no checkpoint. Same helper and
+# fail-open semantics as the wiki and editor ticks: lib absent or unreadable
+# means proceed. Disable with OSTLER_RESOURCE_GOVERNOR=0.
+if [ "${OSTLER_RESOURCE_GOVERNOR:-1}" = "1" ]; then
+    _ostler_tier_lib="${OSTLER_RESOURCE_TIER_LIB:-$OSTLER_DIR/lib/ostler-resource-tier.sh}"
+    if [ -f "$_ostler_tier_lib" ]; then
+        # shellcheck source=/dev/null
+        . "$_ostler_tier_lib"
+        if command -v ostler_rt_load_user_settings >/dev/null 2>&1; then
+            ostler_rt_load_user_settings || true
+        fi
+        if command -v ostler_resource_tier_is_paused >/dev/null 2>&1 \
+            && ostler_resource_tier_is_paused; then
+            log "background work paused by the operator; skipping this email import (auto-resumes when the pause ends)."
+            exit 0
+        fi
+    fi
+fi
+# --- end Operator Pause ----------------------------------------------
+
 # --- Rule 0.8: the Ostler Pro subscription gate ----------------------
 # PRODUCTISATION_CHECKLIST.md Rule 0.8, locked 2026-05-09: every
 # ingestion pipeline checks the subscription gate before processing NEW

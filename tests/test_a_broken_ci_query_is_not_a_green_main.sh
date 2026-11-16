@@ -301,17 +301,17 @@ else
         printf '  [CANNOT-RUN] %s\n' "parsed only ${_on_lines} line(s) from the on: block; not measuring triggers against that" >&2
         FAIL=$((FAIL+1))
     else
-        printf '%s\n' "${_on}" | grep -q '^  push:' \
+        grep -q '^  push:' <<< "${_on}" \
             && ok "the workflow runs on push, so recovery is noticed when it happens, not on the next surviving cron tick" \
             || bad "no push: trigger -- 'this issue closes itself' is back to depending on a cron that delivered 13% of its ticks"
 
-        printf '%s\n' "${_on}" | grep -qE '^ +branches: \[main\]' \
+        grep -qE '^ +branches: \[main\]' <<< "${_on}" \
             && ok "and it is scoped to main, so a branch push does not run the filer" \
             || bad "the push trigger is not scoped to branches: [main]"
 
         # MUST-MISS. The schedule is the backstop for a quiet repo; dropping it
         # in favour of push-only would leave a repo with no main pushes blind.
-        printf '%s\n' "${_on}" | grep -q '^  schedule:' \
+        grep -q '^  schedule:' <<< "${_on}" \
             && ok "the schedule is still there as the backstop for a repo with no main pushes" \
             || bad "the schedule was removed; a quiet repo would never notice a red main at all"
     fi

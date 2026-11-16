@@ -72,7 +72,7 @@ fi
 # So: isolate the seeder invocation (its line plus backslash continuations) and
 # assert the ROOT ARGUMENT on that alone.
 BODY="$(awk '/^seed-installer-app-pyc:/{f=1;next} f&&/^[a-zA-Z0-9_.-]+:/{exit} f{print}' "${MK}")"
-printf '%s' "${BODY}" | grep -q 'seed-hub-payload-pyc.sh' \
+grep -q 'seed-hub-payload-pyc.sh' <<< "${BODY}" \
   && ok "recipe invokes seed-hub-payload-pyc.sh" \
   || bad "recipe does not invoke seed-hub-payload-pyc.sh"
 

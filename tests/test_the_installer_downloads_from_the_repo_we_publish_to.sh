@@ -84,15 +84,24 @@ else
     bad "install.sh fetches from '${I_REPO}' but publish_release.sh uploads to '${P_REPO}' -- an artefact published by the ceremony lands where the installer does not look"
 fi
 
-echo "== --help advertises the URL the code actually uses =="
+echo "== --help no longer advertises the dead tarball default =="
+# The tarball default is dead (no install.tar.gz since v0.3.0), so --help must
+# not present it as a "Default:" any more. The old arm compared the help URL to
+# the code URL; with the help URL gone, an empty help extraction is now the
+# EXPECTED state, so the subject is the ABSENCE of the advertisement, and the
+# control is that the code default and the help block both still exist.
 CODE_URL="$(/usr/bin/grep -o 'DEFAULT_INSTALLER_TARBALL_URL="[^"]*"' "${INSTALL_SH}" | head -1 | sed 's|.*="||; s|"$||')"
 HELP_URL="$(/usr/bin/grep -o 'Default: https://github.com/[^ "]*install\.tar\.gz' "${INSTALL_SH}" | head -1 | sed 's|Default: ||')"
-if [ -z "${CODE_URL}" ] || [ -z "${HELP_URL}" ]; then
-    bad "could not extract both URLs (code='${CODE_URL}' help='${HELP_URL}') -- an empty extraction is not agreement"
-elif [ "${CODE_URL}" = "${HELP_URL}" ]; then
-    ok "--help and the code agree: ${CODE_URL}"
+if [ -z "${CODE_URL}" ]; then
+    bad "could not extract the code default URL -- an empty extraction proves nothing about the help text"
+elif ! /usr/bin/grep -q 'echo "  OSTLER_INSTALLER_TARBALL_URL"' "${INSTALL_SH}"; then
+    bad "CONTROL: the --help block for the tarball variable is gone, so its absence of a default means nothing"
+elif [ -n "${HELP_URL}" ]; then
+    bad "--help still advertises '${HELP_URL}' as a Default -- that tarball is not published"
+elif /usr/bin/grep -q 'No default is published' "${INSTALL_SH}"; then
+    ok "--help advertises no tarball default and says so (code still names ${CODE_URL} as a known-absent default)"
 else
-    bad "--help advertises '${HELP_URL}' but the code uses '${CODE_URL}' -- the documented default is not the real one"
+    bad "--help dropped the default but does not say none is published"
 fi
 
 echo "== the failure path names the route that actually works =="

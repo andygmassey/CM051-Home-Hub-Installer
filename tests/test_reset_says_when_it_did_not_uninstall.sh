@@ -15,9 +15,10 @@
 # compiled wiki carried over, so every store-reading probe measures history
 # rather than the artefact under test.
 #
-# This asserts the skip is ANNOUNCED. It deliberately does NOT assert that the
-# real path is searched: adding it would make the next walk wipe stores, which
-# is an operator decision and not a side effect of a logging fix.
+# This asserts the skip is ANNOUNCED. Since v1.0.117 W4 the real path
+# (~/.ostler/bin/ostler-uninstall) IS searched first; that it runs, and what
+# the reset does after it, is pinned by
+# tests/test_ttywalk_reset_leaves_no_ostler_job_and_free_ports.sh.
 # ===========================================================================
 set -uo pipefail
 
@@ -59,19 +60,22 @@ chk "ttywalk.sh still parses" "$r"
 # BEHAVIOUR: no uninstaller anywhere -> the skip is announced.
 rm -rf "${WORK}/h"; mkdir -p "${WORK}/h"
 out_none="$(HOME="${WORK}/h" bash "${WORK}/blk" 2>&1)"
-printf '%s' "$out_none" | grep -q 'This reset did NOT uninstall' && r=0 || r=1
+grep -q 'This reset did NOT uninstall' <<< "$out_none" && r=0 || r=1
 chk "no uninstaller found -> the run says it did NOT uninstall" "$r"
-printf '%s' "$out_none" | grep -q 'CARRIED OVER' && r=0 || r=1
-chk "no uninstaller found -> it names the consequence for the stores" "$r"
+# v1.0.117 W4: the consequence is no longer "carried over". The reset deletes
+# the colima VM with its data disk below, so it must say the stores are still
+# removed, and must NOT claim they were kept (the old claim became a lie).
+grep -q 'still removed below, by colima delete --data' <<< "$out_none" && ! grep -q 'CARRIED OVER' <<< "$out_none" && r=0 || r=1
+chk "no uninstaller found -> it says the stores are still removed by colima delete --data, never carried over" "$r"
 
 # BEHAVIOUR: an uninstaller present -> it runs, and the warning does NOT fire.
 rm -rf "${WORK}/h"; mkdir -p "${WORK}/h/.ostler"
 printf '#!/bin/bash\necho FAKE_UNINSTALLER_RAN\n' > "${WORK}/h/.ostler/uninstall.sh"
 chmod +x "${WORK}/h/.ostler/uninstall.sh"
 out_some="$(HOME="${WORK}/h" bash "${WORK}/blk" 2>&1)"
-printf '%s' "$out_some" | grep -q 'FAKE_UNINSTALLER_RAN' && r=0 || r=1
+grep -q 'FAKE_UNINSTALLER_RAN' <<< "$out_some" && r=0 || r=1
 chk "an uninstaller present -> it is executed" "$r"
-printf '%s' "$out_some" | grep -q 'did NOT uninstall' && r=1 || r=0
+grep -q 'did NOT uninstall' <<< "$out_some" && r=1 || r=0
 chk "an uninstaller present -> the warning does NOT fire" "$r"
 
 # ── #1828: config-only teardown clears setup-gating config + poison, and

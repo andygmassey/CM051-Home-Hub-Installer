@@ -50,14 +50,25 @@ struct ContentView: View {
             // over the whole window with a calm neutral terminal. Checked
             // first so it overrides every other gate once install.sh has
             // emitted DONE status=cancelled.
-            if coordinator.cancelled {
+            // F006: one switch over `coordinator.rootScreen`, which holds
+            // the same order this if-chain always had, plus the hardware
+            // floor ahead of all of it. The comments below are the
+            // original ones, kept against the case they explain.
+            switch coordinator.rootScreen {
+            case .systemRequirements:
+                // An unsupported Mac stops here, before the FDA gate,
+                // permissions, licence, admin, CLT and any network call.
+                if let shortfall = coordinator.systemShortfall {
+                    SystemRequirementsView(shortfall: shortfall)
+                }
+            case .cancelled:
                 InstallCancelledView()
             // CX-87 (2026-06-01): Full Disk Access gate sits ahead of
             // everything except the cancelled terminal. On first launch
             // with no FDA, this is the only screen shown until the
             // customer grants it and reopens -- so the quit-and-reopen
             // happens before any questions, not mid-install.
-            } else if coordinator.needsFullDiskAccessUpfront {
+            case .fullDiskAccess:
                 FullDiskAccessGateView()
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
@@ -66,11 +77,11 @@ struct ContentView: View {
             // walked away to read their welcome email. Once the
             // intro flow is `.complete` or `.skipped` we fall
             // through to the existing licence + admin gates.
-            } else if !coordinator.permissionsPrewarmFinished {
+            case .permissionsIntro:
                 PermissionsIntroView()
-            } else if coordinator.licenseVerified {
+            case .install:
                 gatedContent
-            } else {
+            case .licence:
                 LicenseEntryView()
             }
         }
@@ -108,7 +119,7 @@ struct ContentView: View {
     /// Retry re-invokes `AuthorizationHelper` cleanly.
     @ViewBuilder
     private var adminRetryGate: some View {
-        AdminAccessRequiredView(mode: .retry)
+        AdminAccessRequiredView(mode: .retry, refusal: coordinator.adminRefusal)
     }
 
     /// Pre-flight view shown after the licence + registration gates
@@ -702,6 +713,9 @@ enum SupportMailtoBuilder {
 private struct AdminAccessRequiredView: View {
     @EnvironmentObject private var coordinator: InstallerCoordinator
     let mode: Mode
+    /// Set when Ostler refused on purpose (another account owns Homebrew).
+    /// Shown as text on the retry gate, so the customer sees why.
+    var refusal: String? = nil
 
     enum Mode {
         case preAcknowledgement
@@ -725,6 +739,15 @@ private struct AdminAccessRequiredView: View {
                 .foregroundColor(.ostlerInk)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            if mode == .retry, let refusal {
+                Text(refusal)
+                    .font(.ostlerBody)
+                    .foregroundColor(.ostlerInkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("adminRefusalText")
+            }
 
             if mode == .preAcknowledgement {
                 // Friendly reassurance for the first-time prompt.
@@ -865,11 +888,20 @@ private struct FooterView: View {
             // slot on the right.
             if coordinator.pendingPrompt?.id != "consent_install" && coordinator.finished == nil {
                 Button(ViewCopy.shared.string(for: "footer.cancel_button")) {
-                    coordinator.cancel()
-                    NSApp.terminate(nil)
+                    // F&F item 6: at the pairing step Cancel finishes without
+                    // pairing instead of discarding the install.
+                    if coordinator.requestCancel() == .terminate {
+                        NSApp.terminate(nil)
+                    }
                 }
                 .buttonStyle(.ostlerGhost)
                 .keyboardShortcut(.cancelAction)
+                if LateStepPolicy.isPairingStep(coordinator.currentStepId) {
+                    Button(ViewCopy.shared.string(for: "footer.finish_pair_later_button")) {
+                        coordinator.requestCancel()
+                    }
+                    .buttonStyle(.ostlerPrimary)
+                }
             }
 
             Spacer()
@@ -885,7 +917,7 @@ private struct FooterView: View {
 
             if coordinator.finished == .ok {
                 Button(ViewCopy.shared.string(for: "footer.reveal_in_finder_button")) {
-                    let url = URL(fileURLWithPath: ("~/Documents/Ostler" as NSString).expandingTildeInPath)
+                    let url = URL(fileURLWithPath: ("~/Ostler" as NSString).expandingTildeInPath)
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .buttonStyle(.ostlerGhost)

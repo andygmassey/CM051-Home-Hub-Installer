@@ -108,8 +108,8 @@ note "=== Scenario 1: CLEAN tree PASSES ==="
 TMP1="$(mktemp -d)"
 make_fixture "$TMP1" >/dev/null
 out1="$(run_gate "$TMP1")"; rc1=$?
-if [ "$rc1" -eq 0 ] && printf '%s' "$out1" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out1" | grep -qE "OK    synthtree"; then
+if [ "$rc1" -eq 0 ] && grep -q "GATE: GREEN" <<< "$out1" \
+    && grep -qE "OK    synthtree" <<< "$out1"; then
     ok "clean tree -> GREEN (exit 0)"
 else
     bad "clean tree did not go GREEN (exit $rc1)"; printf '%s\n' "$out1" | tail -5
@@ -124,8 +124,8 @@ make_fixture "$TMP2" >/dev/null
 printf '\n# DELIBERATE ROT injected by self-test -- not in source\n' >> "$TMP2/vendor/synthtree/pkg/mod.py"
 out2="$(run_gate "$TMP2")"; rc2=$?
 if [ "$rc2" -ne 0 ] \
-    && printf '%s' "$out2" | grep -q "GATE: RED" \
-    && printf '%s' "$out2" | grep -qE "FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out2" \
+    && grep -qE "FAIL  synthtree" <<< "$out2"; then
     ok "rotted vendored file -> RED, named 'synthtree' (exit $rc2)"
 else
     bad "rot was NOT caught (exit $rc2) -- the gate is blind!"
@@ -144,7 +144,7 @@ SRC3="$TMP3/synthetic-source"
 
 # Sanity: at the pin, the gate is GREEN.
 out3a="$(run_gate "$TMP3")"; rc3a=$?
-if [ "$rc3a" -eq 0 ] && printf '%s' "$out3a" | grep -q "GATE: GREEN"; then
+if [ "$rc3a" -eq 0 ] && grep -q "GATE: GREEN" <<< "$out3a"; then
     ok "synthetic tree at pin -> GREEN"
 else
     bad "synthetic tree at pin did not go GREEN (exit $rc3a)"
@@ -160,9 +160,9 @@ fi
 )
 out3b="$(run_gate "$TMP3")"; rc3b=$?
 if [ "$rc3b" -ne 0 ] \
-    && printf '%s' "$out3b" | grep -q "GATE: RED" \
-    && printf '%s' "$out3b" | grep -qi "UNGRAFTED" \
-    && printf '%s' "$out3b" | grep -qE "FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out3b" \
+    && grep -qi "UNGRAFTED" <<< "$out3b" \
+    && grep -qE "FAIL  synthtree" <<< "$out3b"; then
     ok "source advanced past pin -> RED, flagged ungrafted commit on 'synthtree' (exit $rc3b)"
 else
     bad "stale-source was NOT caught (exit $rc3b)"
@@ -207,8 +207,8 @@ SHA4="$(advance_source "$TMP4/synthetic-source" "v2 -- held on purpose" "fix: up
 set_hold_ack "$TMP4" "$SHA4" "self-test: held deliberately, nothing un-grafted" "true"
 out4="$(run_gate "$TMP4")"; rc4=$?
 if [ "$rc4" -eq 0 ] \
-    && printf '%s' "$out4" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out4" | grep -q "HELD by hold_ack"; then
+    && grep -q "GATE: GREEN" <<< "$out4" \
+    && grep -q "HELD by hold_ack" <<< "$out4"; then
     ok "fully-acknowledged delta -> GREEN, reported as HELD (exit $rc4)"
 else
     bad "acknowledged delta did not go GREEN (exit $rc4) -- hold_ack is not being honoured"
@@ -229,10 +229,10 @@ UNACKED5="$(advance_source "$SRC5" "v3 -- NOT acknowledged" "fix: second upstrea
 set_hold_ack "$TMP5" "$ACKED5" "self-test: only the first commit is acknowledged" "true"
 out5="$(run_gate "$TMP5")"; rc5=$?
 if [ "$rc5" -ne 0 ] \
-    && printf '%s' "$out5" | grep -q "GATE: RED" \
-    && printf '%s' "$out5" | grep -q "NOT in hold_ack_shas" \
-    && printf '%s' "$out5" | grep -q "${UNACKED5:0:7}" \
-    && ! printf '%s' "$out5" | grep -q "${ACKED5:0:7}"; then
+    && grep -q "GATE: RED" <<< "$out5" \
+    && grep -q "NOT in hold_ack_shas" <<< "$out5" \
+    && grep -q "${UNACKED5:0:7}" <<< "$out5" \
+    && ! grep -q "${ACKED5:0:7}" <<< "$out5"; then
     ok "partial ack -> RED naming only the un-acknowledged commit (exit $rc5)"
 else
     bad "partial ack was NOT caught precisely (exit $rc5)"
@@ -247,7 +247,7 @@ make_fixture "$TMP6" >/dev/null
 SHA6="$(advance_source "$TMP6/synthetic-source" "v2" "fix: upstream change")"
 set_hold_ack "$TMP6" "$SHA6" "" "true"          # reason omitted
 out6a="$(run_gate "$TMP6")"; rc6a=$?
-if [ "$rc6a" -ne 0 ] && printf '%s' "$out6a" | grep -q "hold_ack_reason is empty"; then
+if [ "$rc6a" -ne 0 ] && grep -q "hold_ack_reason is empty" <<< "$out6a"; then
     ok "hold_ack with no reason -> RED"
 else
     bad "hold_ack with no reason was accepted (exit $rc6a) -- an unauditable exemption"
@@ -260,7 +260,7 @@ make_fixture "$TMP6B" >/dev/null
 SHA6B="$(advance_source "$TMP6B/synthetic-source" "v2" "fix: upstream change")"
 set_hold_ack "$TMP6B" "$SHA6B" "self-test: reason present, assertion missing" ""   # grafted omitted
 out6b="$(run_gate "$TMP6B")"; rc6b=$?
-if [ "$rc6b" -ne 0 ] && printf '%s' "$out6b" | grep -q "shipping_bugfixes_grafted is not true"; then
+if [ "$rc6b" -ne 0 ] && grep -q "shipping_bugfixes_grafted is not true" <<< "$out6b"; then
     ok "hold_ack without shipping_bugfixes_grafted -> RED"
 else
     bad "hold_ack without the grafted assertion was accepted (exit $rc6b)"
@@ -283,9 +283,9 @@ git -C "$SRC7" update-ref refs/remotes/origin/main "$PIN7"
 advance_source "$SRC7" "v2 -- on HEAD only, not on origin/main" "feat: unmerged work in progress" >/dev/null
 out7="$(run_gate "$TMP7")"; rc7=$?
 if [ "$rc7" -eq 0 ] \
-    && printf '%s' "$out7" | grep -q "GATE: GREEN" \
-    && printf '%s' "$out7" | grep -q "\[vs origin/main\]" \
-    && printf '%s' "$out7" | grep -q "1 ahead / 0 behind origin/main"; then
+    && grep -q "GATE: GREEN" <<< "$out7" \
+    && grep -q "\[vs origin/main\]" <<< "$out7" \
+    && grep -q "1 ahead / 0 behind origin/main" <<< "$out7"; then
     ok "advance arm used origin/main, named the ref, and reported checkout drift"
 else
     bad "advance arm did not resolve the comparison ref explicitly (exit $rc7)"
@@ -325,9 +325,9 @@ make_fixture "$TMP8" >/dev/null
 remanifest "$TMP8" "$TMP8/there-is-no-repo-here" ""
 out8="$(run_gate "$TMP8")"; rc8=$?
 if [ "$rc8" -ne 0 ] \
-    && printf '%s' "$out8" | grep -q "GATE: RED" \
-    && printf '%s' "$out8" | grep -qE "^WARN  synthtree" \
-    && printf '%s' "$out8" | grep -qE "1 unverifiable \(UNKNOWN\)"; then
+    && grep -q "GATE: RED" <<< "$out8" \
+    && grep -qE "^WARN  synthtree" <<< "$out8" \
+    && grep -qE "1 unverifiable \(UNKNOWN\)" <<< "$out8"; then
     ok "unverifiable + unacknowledged -> RED and counted UNKNOWN (exit $rc8)"
 else
     bad "an unacknowledged unverifiable tree did NOT go RED as UNKNOWN (exit $rc8)"
@@ -341,9 +341,9 @@ make_fixture "$TMP9" >/dev/null
 remanifest "$TMP9" "$TMP9/there-is-no-repo-here" "$ACK_FULL"
 out9="$(run_gate "$TMP9")"; rc9=$?
 if [ "$rc9" -eq 0 ] \
-    && printf '%s' "$out9" | grep -qE "^ACK   synthtree" \
-    && printf '%s' "$out9" | grep -qE "1 acknowledged-unverifiable" \
-    && printf '%s' "$out9" | grep -q "GATE: GREEN WITH 1 ACKNOWLEDGED-UNVERIFIABLE"; then
+    && grep -qE "^ACK   synthtree" <<< "$out9" \
+    && grep -qE "1 acknowledged-unverifiable" <<< "$out9" \
+    && grep -q "GATE: GREEN WITH 1 ACKNOWLEDGED-UNVERIFIABLE" <<< "$out9"; then
     ok "acknowledged unverifiable -> counted separately, exit 0"
 else
     bad "a complete acknowledgement was not honoured/counted (exit $rc9)"
@@ -351,7 +351,7 @@ else
 fi
 # ...and the verdict must NOT be the plain GREEN line. This is the assertion
 # that stops the ack becoming the next "GATE: GREEN with N warning(s)".
-if printf '%s' "$out9" | grep -q "GATE: GREEN -- every vendored tree"; then
+if grep -q "GATE: GREEN -- every vendored tree" <<< "$out9"; then
     bad "the verdict read as a PLAIN GREEN while a tree was unverified -- that is the old hole"
 else
     ok "the verdict does not read as a plain GREEN while an ack is live"
@@ -368,8 +368,8 @@ remanifest "$TMP10" "$TMP10/synthetic-source" "$ACK_FULL"
 printf '\n# DELIBERATE ROT injected by self-test -- not in source\n' >> "$TMP10/vendor/synthtree/pkg/mod.py"
 out10="$(run_gate "$TMP10")"; rc10=$?
 if [ "$rc10" -ne 0 ] \
-    && printf '%s' "$out10" | grep -q "GATE: RED" \
-    && printf '%s' "$out10" | grep -qE "^FAIL  synthtree"; then
+    && grep -q "GATE: RED" <<< "$out10" \
+    && grep -qE "^FAIL  synthtree" <<< "$out10"; then
     ok "acked-but-rotted tree still FAILS -- an ack cannot launder drift (exit $rc10)"
 else
     bad "an ack SILENCED real drift -- it has become the blanket ignore switch (exit $rc10)"
@@ -384,15 +384,126 @@ remanifest "$TMP11" "$TMP11/there-is-no-repo-here" \
     $'unverifiable_ack = true\nunverifiable_ack_reason = "synthetic: a reason with nobody\'s name on it"'
 out11="$(run_gate "$TMP11")"; rc11=$?
 if [ "$rc11" -ne 0 ] \
-    && printf '%s' "$out11" | grep -q "GATE: RED" \
-    && printf '%s' "$out11" | grep -qE "^FAIL  synthtree" \
-    && printf '%s' "$out11" | grep -qi "INCOMPLETE"; then
+    && grep -q "GATE: RED" <<< "$out11" \
+    && grep -qE "^FAIL  synthtree" <<< "$out11" \
+    && grep -qi "INCOMPLETE" <<< "$out11"; then
     ok "ack missing an owner -> RED, named as incomplete (exit $rc11)"
 else
     bad "an incomplete ack was honoured -- an unsigned exemption became permanent (exit $rc11)"
     printf '%s\n' "$out11" | grep -E "GATE|FAIL|ACK|vendor-freshness" | head -6
 fi
 rm -rf "$TMP11"
+
+# ---------------------------------------------------------------------------
+# Scenarios 12-16 (rows 2206/2212, v1.0.124): source_mask and VENDOR_FRESH_SCOPE.
+#
+# source_mask lets a divergence patch rebuild a tree whose vendored copy removed
+# an id-shaped literal, without the patch re-publishing that literal on its
+# minus side. The literal is composed at runtime here so this file never carries
+# the shape it is testing.
+LIT="$(printf '%015d' 7)"
+
+mask_fixture() { # root -> source carries the literal, vendor carries a composed form
+    local root="$1" src="$1/synthetic-source" sha
+    make_fixture "$root" >/dev/null
+    (
+        cd "$src"
+        printf 'CONTROL = "%s"\n\ndef hello():\n    return "v1"\n' "$LIT" > pkg/mod.py
+        git add pkg/mod.py; git commit --quiet -m "source with an id-shaped literal"
+    )
+    sha="$(git -C "$src" rev-parse HEAD)"
+    printf 'CONTROL = "0" * 14 + "7"\n\ndef hello():\n    return "v1"\n' > "$root/vendor/synthtree/pkg/mod.py"
+    remanifest "$root" "$src" 'source_mask = "pkg/mod.py::[0-9]{15,}"'
+    sed -i.bak "s#^divergence_patch = \"\"#divergence_patch = \"vendor/divergences/synthtree.patch\"#" "$root/vendor/VENDOR_MANIFEST.toml"
+    rm -f "$root/vendor/VENDOR_MANIFEST.toml.bak"
+    # The patch the regenerator would write: the gate's own diff, from the
+    # MASKED source to the vendored tree.
+    ( cd "$root" && bash -c '. scripts/_vendor_lib.sh; d="$(mktemp -d)"; vlib_materialise synthtree "$d" && { vlib_vendor_diff synthtree "$d" "$VLIB_REPO_ROOT/vendor/synthtree" vendor/divergences/synthtree.patch; true; }; rm -rf "$d"' )
+}
+
+note "=== Scenario 12: source_mask -> pin + patch rebuilds the tree, and the patch carries no literal ==="
+TMP12="$(mktemp -d)"
+mask_fixture "$TMP12"
+out12="$(run_gate "$TMP12")"; rc12=$?
+if [ "$rc12" -eq 0 ] && grep -qE "OK    synthtree" <<< "$out12" \
+   && ! grep -q "$LIT" "$TMP12/vendor/divergences/synthtree.patch" \
+   && grep -q 'MASKED_BY_VENDOR_MANIFEST_SOURCE_MASK' "$TMP12/vendor/divergences/synthtree.patch"; then
+    ok "masked source + patch -> GREEN, literal absent from the patch (exit $rc12)"
+else
+    bad "source_mask did not reconstruct cleanly (exit $rc12)"; printf '%s\n' "$out12" | tail -5
+fi
+
+note "=== Scenario 13: the SAME patch with the mask REMOVED -> RED (the mask is load-bearing) ==="
+sed -i.bak '/^source_mask/d' "$TMP12/vendor/VENDOR_MANIFEST.toml"; rm -f "$TMP12/vendor/VENDOR_MANIFEST.toml.bak"
+out13="$(run_gate "$TMP12")"; rc13=$?
+if [ "$rc13" -ne 0 ] && grep -qE "FAIL  synthtree" <<< "$out13"; then
+    ok "mask removed -> RED, the patch no longer applies (exit $rc13)"
+else
+    bad "removing the mask did not go RED (exit $rc13)"
+fi
+rm -rf "$TMP12"
+
+note "=== Scenario 14: a STALE mask (matches nothing at the pin) -> RED, never silently ignored ==="
+TMP14="$(mktemp -d)"
+mask_fixture "$TMP14"
+sed -i.bak 's#\[0-9\]{15,}#[0-9]{40,}#' "$TMP14/vendor/VENDOR_MANIFEST.toml"; rm -f "$TMP14/vendor/VENDOR_MANIFEST.toml.bak"
+out14="$(run_gate "$TMP14")"; rc14=$?
+if [ "$rc14" -ne 0 ] && grep -q "matches NOTHING" <<< "$out14" && grep -qE "FAIL  synthtree" <<< "$out14"; then
+    ok "stale source_mask -> RED, named (exit $rc14)"
+else
+    bad "a stale source_mask was not refused (exit $rc14)"; printf '%s\n' "$out14" | tail -4
+fi
+rm -rf "$TMP14"
+
+note "=== Scenario 15: VENDOR_FRESH_SCOPE examines only its trees and SAYS what it skipped ==="
+TMP15="$(mktemp -d)"
+make_fixture "$TMP15" >/dev/null
+sha15="$(git -C "$TMP15/synthetic-source" rev-parse HEAD)"
+mkdir -p "$TMP15/vendor/othertree/pkg"
+cp "$TMP15/vendor/synthtree/pkg/mod.py" "$TMP15/vendor/othertree/pkg/mod.py"
+printf '\n# rot outside the scope\n' >> "$TMP15/vendor/othertree/pkg/mod.py"
+cat >> "$TMP15/vendor/VENDOR_MANIFEST.toml" <<EOF2
+
+[[tree]]
+name             = "othertree"
+vendor_path      = "vendor/othertree"
+source_repo      = "$TMP15/synthetic-source"
+source_path      = "."
+pinned_sha       = "$sha15"
+divergence_patch = ""
+exclude          = ["__pycache__/"]
+verify           = "full"
+EOF2
+out15a="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=synth bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15a=$?
+out15b="$( cd "$TMP15" && bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15b=$?
+if [ "$rc15a" -eq 0 ] && grep -q "GREEN FOR SCOPE 'synth' ONLY" <<< "$out15a" \
+   && grep -q "1 of 2 tree(s); the other 1 NOT EXAMINED" <<< "$out15a" \
+   && ! grep -q "othertree" <<< "$out15a"; then
+    ok "scoped run -> GREEN for its scope only, and names the 1 tree it did not examine"
+else
+    bad "scoped run did not report its scope (exit $rc15a)"; printf '%s\n' "$out15a" | tail -4
+fi
+if [ "$rc15b" -ne 0 ] && grep -qE "FAIL  othertree" <<< "$out15b"; then
+    ok "control: the unscoped run on the same fixture is RED on the rotted tree (exit $rc15b)"
+else
+    bad "control failed: the unscoped run did not see the rot (exit $rc15b)"
+fi
+printf '\n# rot inside the scope\n' >> "$TMP15/vendor/synthtree/pkg/mod.py"
+out15c="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=synth bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc15c=$?
+if [ "$rc15c" -ne 0 ] && grep -qE "FAIL  synthtree" <<< "$out15c" && grep -q "SCOPED to 'synth'" <<< "$out15c"; then
+    ok "rot inside the scope -> RED (exit $rc15c)"
+else
+    bad "a scoped run missed rot inside its own scope (exit $rc15c)"
+fi
+
+note "=== Scenario 16: a scope that names nothing -> CANNOT-RUN (exit 2), never GREEN ==="
+out16="$( cd "$TMP15" && VENDOR_FRESH_SCOPE=nosuchprefix/ bash scripts/verify_vendor_fresh.sh 2>&1 )"; rc16=$?
+if [ "$rc16" -eq 2 ] && grep -q "CANNOT-RUN" <<< "$out16"; then
+    ok "empty scope -> CANNOT-RUN (exit 2)"
+else
+    bad "an empty scope did not refuse (exit $rc16)"
+fi
+rm -rf "$TMP15"
 
 # ---------------------------------------------------------------------------
 note ""

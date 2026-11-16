@@ -100,11 +100,11 @@ check_file() {
     if [[ -z "$provider_line" ]]; then
         echo "FAIL [provider]: no embedding_provider is written."
         failures=$((failures + 1))
-    elif printf '%s' "$provider_line" | grep -qE 'embedding_provider *= *\\?"none\\?"'; then
+    elif grep -qE 'embedding_provider *= *\\?"none\\?"' <<< "$provider_line"; then
         echo "FAIL [provider]: embedding_provider is written as \"none\"."
         echo "   That is the daemon's own schema default and routes to NoopEmbedding."
         failures=$((failures + 1))
-    elif ! printf '%s' "$provider_line" | grep -q 'custom:'; then
+    elif ! grep -q 'custom:' <<< "$provider_line"; then
         echo "FAIL [provider]: embedding_provider does not name a custom: endpoint."
         echo "   line: $provider_line"
         failures=$((failures + 1))

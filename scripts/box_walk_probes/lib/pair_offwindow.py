@@ -89,15 +89,48 @@ def self_test():
         _, rc = judge(c)
         print("  %s  %s -> %s" % ("ok   " if rc == want else "FAIL ", name, {0: "PASS", 1: "FAIL", 78: "CANNOT"}[rc]))
         ok &= rc == want
+    ok &= _self_test_unreadable()
     print("every mutant went red" if ok else "SELF-TEST BROKEN")
     return 0 if ok else 1
+
+
+def judge_file(path):
+    """judge() over a capture FILE. A judge that crashes or cannot read its
+    capture has measured nothing: CANNOT-RUN with the reason, never FAIL (the
+    v1.0.112 walk graded a JSONDecodeError traceback as a product FAIL)."""
+    try:
+        with open(path) as fh:
+            cap = json.load(fh)
+        if not isinstance(cap, dict):
+            raise ValueError("capture is %s, not an object" % type(cap).__name__)
+        return judge(cap)
+    except Exception as exc:  # noqa: BLE001 -- any judge failure is a missing instrument
+        return ["  CANNOT the judge could not grade the capture (%s: %s); nothing was measured"
+                % (type(exc).__name__, str(exc)[:160])], EX_CANNOT
+
+
+def _self_test_unreadable():
+    import os
+    import tempfile
+    ok = True
+    for label, text in (("a capture with a leading-zero status (curl's 000)", '{"source": "lan", "endpoints": [{"path": "/pair", "status": 000, "body": ""}]}'),
+                        ("an empty capture", ""), ("a capture that is not an object", "[1]")):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            fh.write(text)
+        try:
+            _, rc = judge_file(fh.name)
+        finally:
+            os.unlink(fh.name)
+        print("  %s  %s -> %s (must be CANNOT, never FAIL or PASS)" % ("ok   " if rc == EX_CANNOT else "FAIL ", label, rc))
+        ok &= rc == EX_CANNOT
+    return ok
 
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--self-test"]:
         sys.exit(self_test())
     if sys.argv[1:2] == ["judge"]:
-        lines, rc = judge(json.load(open(sys.argv[2])))
+        lines, rc = judge_file(sys.argv[2])
         print("\n".join(lines))
         sys.exit(rc)
     print(__doc__)

@@ -2,7 +2,7 @@
 
 Every human-to-human conversation (iMessage / WhatsApp / email
 thread / meeting transcript / voice note) lands as a folder under
-``~/Documents/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``
+``~/Ostler/Conversations/<YYYY-MM-DD>/<slug>-<short-id>/``
 with three markdown artefacts inside:
 
     summary.md      Overall summary + per-topic breakdown.
@@ -163,8 +163,8 @@ class ConversationBundle:
     source_session_id: str
     channel: str  # "im" | "email" | "spoken" | "manual" | etc
     participants: tuple[str, ...]
-    started_at: str  # ISO 8601
-    ended_at: str
+    started_at: str  # ISO 8601, or "" when genuinely unknown (omitted)
+    ended_at: str  # ISO 8601, or "" when genuinely unknown (omitted)
     summary: ConversationSummary
     transcript: str
     todos: tuple[Todo, ...] = ()
@@ -176,6 +176,9 @@ class ConversationBundle:
     # NOT rendered into any artefact; used only to derive the reminder
     # ``thread_key`` the assistant daemon matches against chat.db.
     participant_handles: tuple[str, ...] = ()
+    # Calendar date (YYYY-MM-DD) for the folder when ``started_at`` is
+    # unknown. Never used to invent a clock time.
+    date: str = ""
 
 
 @dataclass(frozen=True)
@@ -223,7 +226,7 @@ def write_conversation(
     """Produce the four-artefact bundle on disk and (for non-L3)
     invoke the gist callback.
 
-    ``root`` defaults to ``~/Documents/Ostler/Conversations`` via
+    ``root`` defaults to ``~/Ostler/Conversations`` via
     ``ostler_paths.conversations_dir()``. Tests should pass a
     ``tmp_path`` to keep filesystem effects sandboxed.
 
@@ -407,7 +410,7 @@ def _resolve_folder(
     """Return ``<root>/<YYYY-MM-DD>/<slug>-<short-id>/``.
 
     ``root`` defaults to the user-facing
-    ``~/Documents/Ostler/Conversations`` path. The slug is
+    ``~/Ostler/Conversations`` path. The slug is
     derived from the FULL participant list (including the user-
     side label) so multi-user installs -- e.g. a Hub Mac shared
     by two iCloud accounts -- preserve the user axis in the
@@ -416,7 +419,7 @@ def _resolve_folder(
     review feedback: do not strip ``user`` from the slug.)
     """
     base = root if root is not None else ostler_paths.conversations_dir()
-    date_part = (bundle.started_at or "")[:10] or "unknown"
+    date_part = (bundle.started_at or "")[:10] or bundle.date or "unknown"
     slug_source = "-".join(p for p in bundle.participants if p) or "conversation"
     slug = _slug_segment(slug_source)
     folder_name = f"{slug}-{_short_id(bundle.conversation_id)}"
@@ -494,8 +497,15 @@ def _render_frontmatter(
     if bundle.source_app:
         lines.append(f"source_app: {_yaml_quote(bundle.source_app)}")
     lines.append(f"channel: {_yaml_quote(bundle.channel)}")
-    lines.append(f"started_at: {_yaml_quote(bundle.started_at)}")
-    lines.append(f"ended_at: {_yaml_quote(bundle.ended_at)}")
+    # A time we do not know is omitted, never written as a placeholder:
+    # the customer reads frontmatter times as measured (2026-10-18 phone
+    # capture showed 00:00-01:00 for a 09:16-09:17 conversation).
+    if bundle.started_at:
+        lines.append(f"started_at: {_yaml_quote(bundle.started_at)}")
+    if bundle.ended_at:
+        lines.append(f"ended_at: {_yaml_quote(bundle.ended_at)}")
+    if not bundle.started_at and bundle.date:
+        lines.append(f"date: {_yaml_quote(bundle.date)}")
     lines.append(f"privacy_level: {privacy_level}")
     lines.append("participants:")
     for participant in bundle.participants:

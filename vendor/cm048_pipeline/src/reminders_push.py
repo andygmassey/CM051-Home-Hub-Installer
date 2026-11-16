@@ -54,14 +54,16 @@ re-rendered ``todos.md`` reflects reality and the CM044 wiki
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 from . import ostler_paths
+from . import scam_guard
 
 if TYPE_CHECKING:  # avoid a circular import at runtime
     from .conversation_writer import ConversationBundle, Todo
@@ -96,6 +98,12 @@ SKIP_REASON_L3 = "l3"
 SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
+SKIP_REASON_NO_SPECIFIC_ACTION = "no_specific_action"
+# The title cannot be shortened to MAX_TITLE_CHARS at a word boundary (one
+# unbroken run of characters longer than the limit). Distinct from
+# no_specific_action so a walk can tell "too long" from "too vague".
+SKIP_REASON_TITLE_TOO_LONG = "title_too_long"
+SKIP_REASON_STALE = "stale_source"
 # An organisation or automated sender (the People list's own rules say so).
 SKIP_REASON_NON_HUMAN = "non_human_sender"
 # The People rules could not be loaded. The organisation filter is a QUALITY
@@ -105,6 +113,34 @@ SKIP_REASON_NON_HUMAN = "non_human_sender"
 FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
+# Junk / spam / fraud mail, a fraud-worded todo, or a payment todo for
+# someone the owner has never written to (scam_guard.py). Reminders has no
+# room for a caveat, so these never reach it.
+SKIP_REASON_SCAM = "possible_scam"
+# A pending (not yet pushed) row whose todo is absent from a later run of
+# the SAME conversation: the conversation was updated and re-extracted,
+# and this todo is no longer in it (or is now worded differently enough
+# to be a new row). Skipping it stops the assistant pushing a reminder
+# the customer can no longer see in todos.md. A PUSHED row is never
+# touched: the reminder already exists and is the customer's.
+SKIP_REASON_SUPERSEDED = "superseded_by_update"
+
+
+def make_todo_key(conversation_id: str, owner: str, text: str) -> str:
+    """Wording-tolerant identity of a todo within one conversation.
+
+    ``todo_id`` hashes the exact text, so a re-extraction after an update
+    that only changes case, spacing or punctuation ("Send the agenda
+    tonight." vs "send the agenda tonight") produces a new id, and the
+    assistant would push the same reminder twice. The key folds those
+    differences away; a row found by key keeps its original todo_id.
+    """
+    import hashlib
+    import re
+
+    norm = re.sub(r"[\W_]+", " ", (text or "").casefold()).strip()
+    payload = f"{conversation_id}\x1f{(owner or '').strip().casefold()}\x1f{norm}"
+    return "tkey-" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +603,154 @@ def thread_key_for(bundle: "ConversationBundle", user_id: str) -> str:
     return hashlib.sha256(("ostler-thread:" + basis).encode()).hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------
+# Title quality gate + staleness
+# ---------------------------------------------------------------------------
+
+MAX_TITLE_CHARS = 80  # prompt asks for <=60; the gate only rejects runaways
+DEFAULT_MAX_AGE_DAYS = 30
+MAX_AGE_ENV = "OSTLER_TODO_MAX_AGE_DAYS"
+
+_HANDLE_RE = re.compile(r"(?<![\w])@\w")
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
+_PATH_RE = re.compile(
+    r"(file://|https?://|(?:^|\s)~/|(?:^|\s)/(?:Users|home|var|tmp|private)/"
+    r"|\.(?:md|txt|json|yaml|yml|pdf|csv)\b)",
+    re.IGNORECASE,
+)
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_FOLLOW_UP_RE = re.compile(r"^follow[\s-]?up\b[\s:,-]*", re.IGNORECASE)
+_VAGUE_OBJECT_RE = re.compile(
+    r"^(on|with|about|regarding)?\s*(the|a|an|this|that|these|those|our|your|my|it|"
+    r"commitment|conversation|discussion|thread|chat|call|meeting|message|"
+    r"investigation|matter|issue|item|items)\b",
+    re.IGNORECASE,
+)
+_FILLER_WORDS = frozenset(
+    {"on", "with", "about", "regarding", "the", "a", "an", "to", "of", "and"}
+)
+
+
+TITLE_ELLIPSIS = "\u2026"
+
+
+def truncate_title(text: str, limit: int = MAX_TITLE_CHARS) -> Optional[str]:
+    """``text`` cut at a word boundary to ``limit`` chars or fewer.
+
+    Returned unchanged when it already fits. Otherwise the cut lands on
+    whitespace and ends in one ellipsis character, the whole being
+    ``<= limit``. None when no word boundary exists inside the limit (a
+    single unbroken run): the caller refuses with ``title_too_long``.
+    """
+    t = (text or "").strip()
+    if len(t) <= limit:
+        return t
+    head = t[: limit - 1]
+    if not t[limit - 1].isspace():
+        cut = max((i for i, c in enumerate(head) if c.isspace()), default=-1)
+        head = head[:cut] if cut > 0 else ""
+    head = head.rstrip(" \t\n,;:.-")
+    if not head:
+        return None
+    return head + TITLE_ELLIPSIS
+
+
+def title_quality_reason(title: str, *, check_length: bool = True) -> Optional[str]:
+    """Return why ``title`` is not fit to show a customer, or None if it is.
+
+    Deterministic, no LLM. Rejects: empty, over-long, handles, emails,
+    file paths / URLs, ISO dates, and the generic "Follow up ..." family
+    that names neither an object nor a person.
+    """
+    t = (title or "").strip()
+    if not t or t == "(empty commitment)":
+        return "empty"
+    if check_length and len(t) > MAX_TITLE_CHARS:
+        return "too_long"
+    if _EMAIL_RE.search(t):
+        return "email"
+    if _HANDLE_RE.search(t):
+        return "handle"
+    if _PATH_RE.search(t):
+        return "path"
+    if _ISO_DATE_RE.search(t):
+        return "iso_date"
+    m = _FOLLOW_UP_RE.match(t)
+    if m:
+        rest = t[m.end():].strip(" .")
+        words = [w for w in re.findall(r"[\w'-]+", rest) if w.lower() not in _FILLER_WORDS]
+        if len(words) < 2:
+            # "Follow up", "Follow up with Sam": no object.
+            return "generic_follow_up"
+        if _VAGUE_OBJECT_RE.match(rest):
+            # "Follow up on the ...", "Follow up on a conversation".
+            return "vague_follow_up"
+    return None
+
+
+def max_age_days() -> Optional[int]:
+    """Staleness cutoff in days. ``OSTLER_TODO_MAX_AGE_DAYS`` overrides;
+    0 or a negative value disables the cutoff."""
+    raw = os.environ.get(MAX_AGE_ENV, "").strip()
+    if raw:
+        try:
+            v = int(raw)
+        except ValueError:
+            return DEFAULT_MAX_AGE_DAYS
+        return v if v > 0 else None
+    return DEFAULT_MAX_AGE_DAYS
+
+
+def _source_datetime(bundle: "ConversationBundle") -> Optional[datetime]:
+    """When the source conversation happened, or None if unknowable."""
+    for raw in (bundle.started_at, bundle.date):
+        if not raw or not isinstance(raw, str):
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return None
+
+
+def _has_future_deadline(todo: Optional["Todo"], now: Optional[datetime]) -> bool:
+    """An open todo whose deadline is today or later is pushed whatever its
+    source date (CM048 #120, ``_in_push_window``)."""
+    raw = getattr(todo, "deadline", None) if todo is not None else None
+    if not raw:
+        return False
+    try:
+        due = date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return False
+    ref = (now or datetime.now(timezone.utc)).astimezone().date()
+    return due >= ref
+
+
+def _is_stale(
+    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int],
+    todo: Optional["Todo"] = None,
+) -> bool:
+    """Writer-side age gate, aligned with CM048 #120 (merged 68897402).
+
+    An UNDATED bundle is NOT pushed (fails closed), unless the todo still has a
+    deadline today or later. The age cutoff applies only to dated bundles, and
+    ``OSTLER_TODO_MAX_AGE_DAYS`` <= 0 turns that cutoff off, not the undated rule.
+    """
+    if _has_future_deadline(todo, now):
+        return False
+    src = _source_datetime(bundle)
+    if src is None:
+        return True  # age unknowable: fail CLOSED, as #120 does
+    if limit_days is None:
+        return False
+    ref = now or datetime.now(timezone.utc)
+    return (ref - src).days > limit_days
+
+
 def _format_push_title(
     todo: "Todo",
     privacy_level: str,
@@ -600,14 +784,32 @@ def _format_push_title(
             kind, name = participant or _classify_participant(others[0], name_resolver)
             if kind == KIND_PERSON and name:
                 text = _short_text(todo.text or "")
-                return f"{name}: {text}" if text else f"Follow up with {name}"
-            return GENERIC_FOLLOW_UP_TITLE
-        if others:
-            return GENERIC_FOLLOW_UP_TITLE
-        # Solo / no-other-party (e.g. a meeting note where the user is the
-        # only labelled participant). Don't name anyone.
-        return "Follow up on commitment"
-    return (todo.text or "").strip() or "(empty commitment)"
+                # No text left after stripping: "" is rejected by the gate.
+                return f"{name}: {text}" if text else ""
+            return ""
+        # Group / solo / unresolved partner: any title would be generic,
+        # which the quality gate rejects, so none is built.
+        return ""
+    return (todo.text or "").strip()
+
+
+_DISPLAY_NAME_RE = re.compile(r"^[^\W\d_]+(?:[ '.][^\W\d_]+)*$")
+
+
+def _display_name(label: str) -> Optional[str]:
+    """A participant label fit to print, or None for handles, emails,
+    phone numbers and slugs (anything that is not plain words)."""
+    lab = (label or "").strip()
+    if not lab or "@" in lab or not _DISPLAY_NAME_RE.match(lab):
+        return None
+    return lab
+
+
+def _human_date(bundle: "ConversationBundle") -> str:
+    src = _source_datetime(bundle)
+    if src is None:
+        return ""
+    return f"{src.day} {src.strftime('%b %Y')}"
 
 
 def _format_push_notes(
@@ -619,25 +821,25 @@ def _format_push_notes(
     name_resolver: Optional[NameResolver] = None,
     participant: Optional[tuple] = None,
 ) -> str:
-    """Notes body. Short context line + a ``file://`` deep link back
-    to the bundle's ``summary.md`` so a tap in Reminders.app opens
-    the source. No transcript dump.
-
-    L2 emits a neutral context line. L3 never reaches here. L0 / L1 name
-    the partner only when they resolve to a person; never a raw handle.
+    """Notes body: one human line, e.g. "From your conversation with Sam,
+    12 Aug 2021". No ISO date, no ``file://`` path or any link, no
+    transcript. The partner is named only when they resolve to a person;
+    never a raw handle. ``todo`` / ``summary_path`` kept for call
+    compatibility. L3 never reaches here.
     """
-    started = (bundle.started_at or "")[:10] or "unknown date"
-    if privacy_level == "L2":
-        context = f"From a private conversation on {started}"
+    others = _other_participants(bundle.participants, user_id="")
+    if len(others) == 1:
+        kind, name = participant or _classify_participant(others[0], name_resolver)
+        if kind == KIND_PERSON and name and _display_name(name):
+            context = f"From your conversation with {name}"
+        else:
+            context = "From your conversation"
+    elif len(others) > 1:
+        context = "From your group conversation"
     else:
-        others = _other_participants(bundle.participants, user_id="")
-        who = "the group"
-        if len(others) == 1:
-            kind, name = participant or _classify_participant(others[0], name_resolver)
-            who = name if (kind == KIND_PERSON and name) else "a contact"
-        context = f"From conversation with {who} on {started}"
-    file_link = f"file://{summary_path}"
-    return f"{context}\n\n{file_link}"
+        context = "From your conversation"
+    date = _human_date(bundle)
+    return f"{context}, {date}" if date else context
 
 
 def decide_push(
@@ -648,6 +850,8 @@ def decide_push(
     user_id: str,
     summary_path: Path,
     name_resolver: Optional[NameResolver] = None,
+    now: Optional[datetime] = None,
+    max_age_days_override: Optional[int] = None,
 ) -> PushDecision:
     """Run the writer-side gate for one todo.
 
@@ -661,6 +865,26 @@ def decide_push(
         return PushDecision(
             eligible=False,
             skip_reason=SKIP_REASON_EMPTY_TEXT,
+            push_title="",
+            push_notes="",
+            push_deadline=None,
+        )
+
+    meta = dict(getattr(bundle, "extra_metadata", None) or {})
+    # The bundle's own channel and participants are the evidence the guard
+    # reads for "has the owner corresponded with them".
+    meta.setdefault("channel", getattr(bundle, "channel", "") or "")
+    meta.setdefault("source", getattr(bundle, "source_subtype", "") or "")
+    meta.setdefault("participants", [
+        {"display": p, "role": "user" if str(p).lower() in ("user", "me") else "other"}
+        for p in (getattr(bundle, "participants", None) or ())
+    ])
+    if scam_guard.todo_withheld_reason(
+        text, meta, transcript=getattr(bundle, "transcript", "") or ""
+    ):
+        return PushDecision(
+            eligible=False,
+            skip_reason=SKIP_REASON_SCAM,
             push_title="",
             push_notes="",
             push_deadline=None,
@@ -695,6 +919,16 @@ def decide_push(
             push_deadline=None,
         )
 
+    limit = (
+        max_age_days_override if max_age_days_override is not None
+        else max_age_days()
+    )
+    if _is_stale(bundle, now=now, limit_days=limit, todo=todo):
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_STALE,
+            push_title="", push_notes="", push_deadline=None,
+        )
+
     others = _other_participants(bundle.participants, user_id=user_id)
     classified = [(_classify_participant(o, name_resolver)) for o in others]
     kinds = [k for k, _ in classified]
@@ -711,17 +945,45 @@ def decide_push(
         # fail open: name the person if we have a name, else stay generic
         participant = (KIND_PERSON, participant[1]) if participant[1] else (KIND_UNKNOWN, None)
 
+    title = _format_push_title(
+        todo, level, bundle=bundle, user_id=user_id,
+        name_resolver=name_resolver, participant=participant,
+    )
+    # Every quality rule except length runs on the FULL text first, so cutting
+    # the title can never hide an email, path or date in the part that then
+    # goes to the notes.
+    if title_quality_reason(title, check_length=False) is not None:
+        return PushDecision(
+            eligible=False, skip_reason=SKIP_REASON_NO_SPECIFIC_ACTION,
+            push_title="", push_notes="", push_deadline=None,
+        )
+    full_text = ""
+    if len(title.strip()) > MAX_TITLE_CHARS:
+        # A valid commitment longer than the limit is shortened, never
+        # dropped. Only L0 / L1 titles are the raw text (L2 titles are built
+        # short), so the full text may go to the notes only there.
+        shortened = truncate_title(title)
+        if shortened is None or title_quality_reason(shortened) is not None:
+            return PushDecision(
+                eligible=False, skip_reason=SKIP_REASON_TITLE_TOO_LONG,
+                push_title="", push_notes="", push_deadline=None,
+            )
+        if level in ("L0", "L1"):
+            full_text = title.strip()
+        title = shortened
+
+    notes = _format_push_notes(
+        todo, bundle, privacy_level=level, summary_path=summary_path,
+        name_resolver=name_resolver, participant=participant,
+    )
+    if full_text:
+        notes = f"{full_text}\n\n{notes}"
+
     return PushDecision(
         eligible=True,
         skip_reason=None,
-        push_title=_format_push_title(
-            todo, level, bundle=bundle, user_id=user_id,
-            name_resolver=name_resolver, participant=participant,
-        ),
-        push_notes=_format_push_notes(
-            todo, bundle, privacy_level=level, summary_path=summary_path,
-            name_resolver=name_resolver, participant=participant,
-        ),
+        push_title=title,
+        push_notes=notes,
         push_deadline=todo.deadline,
         thread_key=thread_key_for(bundle, user_id),
         flag=flag,
@@ -769,11 +1031,18 @@ def _open_db(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(_SCHEMA)
-    # thread_key: stable person/thread id (additive; the assistant's
-    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected).
+    # Writer-owned additive columns, added in place on an existing DB. thread_key
+    # is the vendored stable person/thread id (CM051 divergence; the assistant's
+    # REQUIRED_COLUMNS do not include it, so an older reader is unaffected);
+    # todo_key and conversation_id are upstream CM048 #93/#96 identity columns.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(reminders_map)")}
-    if "thread_key" not in cols:
-        conn.execute("ALTER TABLE reminders_map ADD COLUMN thread_key TEXT")
+    for column in ("thread_key", "todo_key", "conversation_id"):
+        if column not in cols:
+            try:
+                conn.execute(f"ALTER TABLE reminders_map ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError:
+                # A concurrent opener added it between the check and here.
+                pass
     conn.commit()
     return conn
 
@@ -799,6 +1068,77 @@ def _open_thread_exists(
         (user_id, thread_key, STATUS_PENDING, STATUS_PUSHED, session_id, todo_id),
     ).fetchone()
     return row is not None
+
+
+def _resolve_row_id(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    todo_id: str,
+    todo_key: str,
+) -> str:
+    """The todo_id of the row this todo already owns, else its own id."""
+    if conn.execute(
+        "SELECT 1 FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        (user_id, session_id, todo_id),
+    ).fetchone():
+        return todo_id
+    row = conn.execute(
+        "SELECT todo_id FROM reminders_map WHERE user_id=? AND source_session_id=? "
+        "AND todo_key=? ORDER BY (status='pushed') DESC LIMIT 1",
+        (user_id, session_id, todo_key),
+    ).fetchone()
+    return row[0] if row else todo_id
+
+
+def _stamp_identity(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    todo_id: str,
+    todo_key: str,
+    conversation_id: str,
+) -> None:
+    conn.execute(
+        "UPDATE reminders_map SET todo_key=?, conversation_id=? "
+        "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        (todo_key, conversation_id, user_id, session_id, todo_id),
+    )
+
+
+def _supersede_unseen_pending(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    session_id: str,
+    conversation_id: str,
+    seen_ids: set,
+) -> int:
+    """Skip this conversation's pending rows that the current run lacks.
+
+    Scoped by conversation_id, not only session: a WhatsApp chat's
+    session id spans many conversations, and another conversation's
+    pending todos must never be cancelled by this one's update. Rows
+    from before the conversation_id column existed carry NULL and are
+    left alone.
+    """
+    rows = conn.execute(
+        "SELECT todo_id FROM reminders_map WHERE user_id=? AND source_session_id=? "
+        "AND conversation_id=? AND status=?",
+        (user_id, session_id, conversation_id, STATUS_PENDING),
+    ).fetchall()
+    stale = [r[0] for r in rows if r[0] not in seen_ids]
+    for todo_id in stale:
+        conn.execute(
+            "UPDATE reminders_map SET status=?, skip_reason=?, last_seen_at=? "
+            "WHERE user_id=? AND source_session_id=? AND todo_id=? AND status=?",
+            (STATUS_SKIPPED, SKIP_REASON_SUPERSEDED, _now_iso(),
+             user_id, session_id, todo_id, STATUS_PENDING),
+        )
+    conn.commit()
+    return len(stale)
 
 
 def _now_iso() -> str:
@@ -996,7 +1336,40 @@ def apply_push_status_to_todos(
     try:
         out: list = []
         session_id = bundle.source_session_id
+        # PRE-PASS. Re-bind every todo to the row it already owns (found by
+        # its exact id, else by its wording-tolerant key) so an updated
+        # conversation's re-extraction never creates a second row, and so
+        # never a second reminder, for the same todo.
+        rebound: list = []
+        seen_ids: set = set()
         for todo in todos:
+            todo_key = make_todo_key(bundle.conversation_id, todo.owner, todo.text)
+            row_id = _resolve_row_id(
+                conn, user_id=user_id, session_id=session_id,
+                todo_id=todo.id, todo_key=todo_key,
+            )
+            if row_id != todo.id:
+                todo = _replace_status(todo, todo.status, new_id=row_id)
+            seen_ids.add(todo.id)
+            rebound.append((todo, todo_key))
+        # SUPERSEDE BEFORE THE duplicate_thread GATE (CM051 v1.0.111, Archie's
+        # condition on the CM048 #93/#95/#96 re-vendor). Upstream supersedes
+        # after the loop. Here the vendored thread_key gate below would then
+        # find this conversation's OWN stale pending row for the thread, skip
+        # the updated todo as a duplicate, and supersede the stale row after:
+        # the customer would get no reminder at all. Superseding first means
+        # the gate only sees rows the current run still wants.
+        superseded = _supersede_unseen_pending(
+            conn, user_id=user_id, session_id=session_id,
+            conversation_id=bundle.conversation_id, seen_ids=seen_ids,
+        )
+        if superseded:
+            log.info(
+                "reminders_push: %d pending todo(s) of %s no longer in the "
+                "updated conversation; marked %s",
+                superseded, bundle.conversation_id, SKIP_REASON_SUPERSEDED,
+            )
+        for todo, todo_key in rebound:
             decision = decide_push(
                 todo,
                 bundle,
@@ -1012,6 +1385,12 @@ def apply_push_status_to_todos(
                     todo_id=todo.id,
                     reason=decision.skip_reason or "unknown",
                 )
+                _stamp_identity(
+                    conn, user_id=user_id, session_id=session_id,
+                    todo_id=todo.id, todo_key=todo_key,
+                    conversation_id=bundle.conversation_id,
+                )
+                conn.commit()
                 # Skipped todos retain their input status (typically
                 # "extracted"). The wiki will not show a Reminders
                 # pill on them.
@@ -1046,6 +1425,12 @@ def apply_push_status_to_todos(
                 todo_id=todo.id,
                 decision=decision,
             )
+            _stamp_identity(
+                conn, user_id=user_id, session_id=session_id,
+                todo_id=todo.id, todo_key=todo_key,
+                conversation_id=bundle.conversation_id,
+            )
+            conn.commit()
             if current_status == STATUS_PUSHED:
                 # The assistant pushed this row on a prior sweep and
                 # recorded calendar_item_identifier. Reflect that in
@@ -1091,7 +1476,7 @@ def apply_push_status_to_todos(
         conn.close()
 
 
-def _replace_status(todo: "Todo", new_status: str):
+def _replace_status(todo: "Todo", new_status: str, *, new_id: Optional[str] = None):
     """Return a new Todo with ``status`` replaced.
 
     The Todo dataclass is frozen, so we can't mutate; rebuild
@@ -1102,7 +1487,7 @@ def _replace_status(todo: "Todo", new_status: str):
     """
     from .conversation_writer import Todo
     return Todo(
-        id=todo.id,
+        id=new_id if new_id is not None else todo.id,
         text=todo.text,
         owner=todo.owner,
         deadline=todo.deadline,
@@ -1117,7 +1502,9 @@ __all__ = [
     "STATUS_PERMISSION_DENIED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+    "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
     "apply_push_status_to_todos",
     "decide_push",
     "default_db_path",
+    "make_todo_key",
 ]

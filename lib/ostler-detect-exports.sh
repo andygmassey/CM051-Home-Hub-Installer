@@ -25,9 +25,87 @@ set -uo pipefail
 DIR="${1:-}"
 DO_UNZIP=0
 DO_LOOSE=0
+DO_STAGE_CHATGPT=0
 [[ "${2:-}" == "--unzip" ]] && DO_UNZIP=1
 [[ "${2:-}" == "--loose" ]] && DO_LOOSE=1
+[[ "${2:-}" == "--stage-chatgpt" ]] && DO_STAGE_CHATGPT=1
 [[ -n "$DIR" && -d "$DIR" ]] || exit 1
+
+# --- F010: bounded scan (depth cap, time budget, nested-backup skip) ---------
+# A 52-minute scan was measured when Desktop held a copied old-Mac home folder
+# (its own Library/ and Documents/ tree). Three guards, all env-overridable:
+#   OSTLER_SCAN_MAXDEPTH  find depth cap (default 6, the depth every known
+#                         export shape fits in)
+#   OSTLER_SCAN_BUDGET_S  wall-clock budget in seconds for the WHOLE INSTALL
+#                         (default 300). 0 = scan nothing and report
+#                         budget_hit=1.
+#   OSTLER_SCAN_DEADLINE_EPOCH  absolute epoch-seconds deadline. install.sh
+#                         computes it ONCE (now + budget) and exports it, so
+#                         every invocation (unzip, loose, default) shares one
+#                         budget. Unset or non-numeric: this invocation starts
+#                         its own (now + budget), which is the standalone case.
+#   nested backups        any directory below DIR that itself holds a Library/
+#                         or Users/ subtree is pruned, never walked.
+# Counts only (never paths) go to STDERR as one SCAN_SUMMARY line, so the
+# "LABEL<TAB>path" hits on stdout stay parseable. State lives in files because
+# every find runs inside a process substitution (a subshell).
+SCAN_MAXDEPTH="${OSTLER_SCAN_MAXDEPTH:-6}"
+SCAN_BUDGET_S="${OSTLER_SCAN_BUDGET_S:-300}"
+case "$SCAN_MAXDEPTH" in ''|*[!0-9]*|0) SCAN_MAXDEPTH=6 ;; esac
+case "$SCAN_BUDGET_S" in ''|*[!0-9]*) SCAN_BUDGET_S=300 ;; esac
+_SCAN_STATE="$(mktemp -d "${TMPDIR:-/tmp}/ostler-scan.XXXXXX")" || exit 1
+SCAN_DEADLINE="${OSTLER_SCAN_DEADLINE_EPOCH:-}"
+case "$SCAN_DEADLINE" in ''|*[!0-9]*) SCAN_DEADLINE=$(( $(date +%s) + SCAN_BUDGET_S )) ;; esac
+_scan_summary() {
+    local skipped=0 hit=0
+    [[ -f "$_SCAN_STATE/skipped" ]] && skipped="$(cat "$_SCAN_STATE/skipped")"
+    [[ -f "$_SCAN_STATE/budget_hit" ]] && hit=1
+    printf 'SCAN_SUMMARY skipped_nested_backups=%s budget_hit=%s maxdepth=%s budget_s=%s\n' \
+        "$skipped" "$hit" "$SCAN_MAXDEPTH" "$SCAN_BUDGET_S" >&2
+    rm -rf "$_SCAN_STATE"
+}
+trap _scan_summary EXIT
+
+# _bfind <find args...>: run find to a temp file under the shared deadline.
+# Kills only the find it started. Output is whatever was found before the stop.
+_bfind() {
+    local out pid
+    if (( $(date +%s) >= SCAN_DEADLINE )); then
+        : > "$_SCAN_STATE/budget_hit"
+        return 0
+    fi
+    out="$(mktemp "$_SCAN_STATE/find.XXXXXX")" || return 0
+    find "$@" > "$out" 2>/dev/null &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( $(date +%s) >= SCAN_DEADLINE )); then
+            kill "$pid" 2>/dev/null
+            : > "$_SCAN_STATE/budget_hit"
+            break
+        fi
+        sleep 0.2
+    done
+    wait "$pid" 2>/dev/null
+    cat "$out"
+    rm -f "$out"
+    return 0
+}
+
+# Nested home-folder backups: parents (below DIR) of a Library/ or Users/ dir.
+# Depth 4 finds roots up to 3 levels down, where a copied backup sits.
+SCAN_PRUNE=()
+_scan_find_backups() {
+    local root esc n=0
+    while IFS= read -r root; do
+        [[ -n "$root" && "$root" != "$DIR" ]] || continue
+        esc="${root//\\/\\\\}"; esc="${esc//\*/\\*}"; esc="${esc//\?/\\?}"; esc="${esc//\[/\\[}"
+        SCAN_PRUNE+=( -path "$esc" -prune -o )
+        n=$((n + 1))
+    done < <(_bfind "$DIR" -maxdepth 4 -type d \( -name Library -o -name Users \) -prune -print \
+                | while IFS= read -r hit; do dirname "$hit"; done | sort -u)
+    echo "$n" > "$_SCAN_STATE/skipped"
+}
+_scan_find_backups
 
 # --- 0. LOOSE FILES: the ONE table both detectors read (#30, 2026-10-15) ------
 #
@@ -55,8 +133,10 @@ DO_LOOSE=0
 #             less, so 1001 is the floor here and a smaller file is reported
 #             as skipped rather than as imported
 #   Evernote  ostler_fda.universal_import _detect_evernote (.enex)
-#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, for the name
-#             WhatsApp's "Export chat" gives the file
+#   WhatsApp  ostler_fda.universal_import _detect_whatsapp_txt, then
+#             ostler_fda.whatsapp_export parses it and pwg-convo persists it
+#             (the Messenger sink). Owner direction 2026-11-08 (Andy). Import only if WhatsApp was accepted at setup (posture/consent.json).
+#             An iOS .zip reaches it through _zip_shape_re and _chat.txt.
 #   Contacts  NO importer reads a loose .vcf: import_all has no vCard arm, and
 #             the only vCard reader (syncer.sync_from_vcf) takes the Contacts
 #             app's own export. Recognised, so it is never silent, and skipped
@@ -65,7 +145,7 @@ LOOSE=(
   $'Mailbox\x1f\\.mbox$\x1f1\x1f'
   $'Calendar\x1f\\.ics$\x1f1001\x1f'
   $'Evernote\x1f\\.enex$\x1f1\x1f'
-  $'WhatsApp chat\x1f^whatsapp chat.*\\.txt$\x1f1\x1f'
+  $'WhatsApp chat\x1f^(whatsapp chat.*|_chat)\\.txt$\x1f1\x1f'
   $'Contacts\x1f\\.vcf$\x1f1\x1fOstler cannot read a loose contact card yet. Open it to add it to Contacts, and Ostler reads it from there'
 )
 
@@ -75,7 +155,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_rest="${_lx#*$'\x1f'}"
         _lx_res="${_lx_res}${_lx_res:+$'\x1f'}${_lx_rest%%$'\x1f'*}"
     done
-    _lx_any=1
+    _lx_any=1; _lx_wa_dec=""; _lx_wa_why="you did not accept WhatsApp in the setup consent screen, so Ostler did not read this chat"; [[ -r "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json" ]] && _lx_wa_dec="$(awk '/"whatsapp_unofficial_risk"[[:space:]]*:/{f=1} f && /"decision"[[:space:]]*:/{ if (match($0, /"(accepted|declined)"/)) { print substr($0, RSTART+1, RLENGTH-2); exit } }' "${OSTLER_HOME:-$HOME/.ostler}/posture/consent.json")"; [[ "$_lx_wa_dec" == declined ]] && _lx_wa_why="you declined WhatsApp in the setup consent screen, so Ostler did not read this chat"
     # Bounded the way the install-time calendar arm was (2026-09-12, Andy:
     # "change the installer, not the box"): depth 6 covers every export shape
     # measured so far (Takeout/Calendar is depth 4), -xdev keeps a mounted disk
@@ -93,7 +173,7 @@ if [[ "$DO_LOOSE" == "1" ]]; then
         _lx_label="${_lx_row%%$'\x1f'*}"
         _lx_t="${_lx_row#*$'\x1f'}"; _lx_t="${_lx_t#*$'\x1f'}"
         _lx_min="${_lx_t%%$'\x1f'*}"
-        _lx_noimp="${_lx_t#*$'\x1f'}"
+        _lx_noimp="${_lx_t#*$'\x1f'}"; [[ "$_lx_label" == "WhatsApp chat" && "$_lx_wa_dec" != accepted ]] && _lx_noimp="$_lx_wa_why"
         _lx_size="$(wc -c < "$_lx_path" 2>/dev/null | tr -d ' ')"
         case "$_lx_size" in ''|*[!0-9]*) _lx_size="" ;; esac
         if [[ -z "$_lx_size" ]]; then
@@ -108,7 +188,8 @@ if [[ "$DO_LOOSE" == "1" ]]; then
             printf '%s\t%s\timport\t\n' "$_lx_label" "$_lx_path"
         fi
         _lx_any=0
-    done < <(find "$DIR" -maxdepth 6 -xdev \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" -xdev \
+                  ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \
                   \( -name 'node_modules' -o -name '.git' -o -name '.Trash' \
                      -o -name '*.app' -o -name '*.bundle' -o -name '*.framework' \
                      -o -name '*.photoslibrary' -o -name '*.aplibrary' \
@@ -119,6 +200,48 @@ if [[ "$DO_LOOSE" == "1" ]]; then
              | OSTLER_LX_RES="$_lx_res" awk -F/ 'BEGIN { n = split(ENVIRON["OSTLER_LX_RES"], R, "\037") }
                    { b = tolower($NF); for (i = 1; i <= n; i++) if (b ~ R[i]) { print (i - 1) "\t" $0; next } }')
     exit "$_lx_any"
+fi
+
+# --- 0b. CHATGPT STAGE (2026-11-14) -------------------------------------------
+# Usage: ostler-detect-exports.sh <export_dir> --stage-chatgpt <drop_dir>
+# Copies the export's conversations.json into <drop_dir>/<export name>/conversations.json,
+# the folder the CM052 ChatGPT adapter reads (OSTLER_CHATGPT_IMPORT_DIR, default
+# ~/Ostler/imports/chatgpt). The aiconv agent runs hourly with cm052 --source all,
+# which reads that folder. Exit 0 when staged, 1 when no export is found under
+# <export_dir>. The copy goes to a temp name first and is moved into place, so a
+# half-copied file is never read.
+if [[ "$DO_STAGE_CHATGPT" == "1" ]]; then
+    _sc_drop="${3:-}"
+    [[ -n "$_sc_drop" ]] || exit 1
+    _sc_src=""
+    while IFS= read -r _sc_f; do
+        if [[ -f "$(dirname "$_sc_f")/chat.html" ]]; then _sc_src="$_sc_f"; break; fi
+    done < <(find "$DIR" -maxdepth 4 -type f -name conversations.json 2>/dev/null)
+    [[ -n "$_sc_src" ]] || exit 1
+    _sc_name="$(basename "$DIR")"
+    _sc_name="${_sc_name//[^A-Za-z0-9._-]/_}"
+    # The export is the customer's full ChatGPT history (L3). Owner-only from
+    # the first byte: umask 077 before any mkdir or cp, so nothing is ever
+    # created 0755 or 0644 (the default umask would make them), then explicit
+    # chmod 700 on both folders and 600 on the file.
+    (
+        umask 077
+        mkdir -p "$_sc_drop" && chmod 700 "$_sc_drop" || exit 1
+        mkdir -p "$_sc_drop/$_sc_name" && chmod 700 "$_sc_drop/$_sc_name" || exit 1
+        # Copy into a 700 temp dir inside the drop folder, then one atomic mv
+        # into place: the adapter never sees a half-copied conversations.json.
+        _sc_tmp="$(mktemp -d "$_sc_drop/.stage.XXXXXX")" || exit 1
+        chmod 700 "$_sc_tmp" || { rm -rf "$_sc_tmp"; exit 1; }
+        if cp "$_sc_src" "$_sc_tmp/conversations.json.part" \
+            && chmod 600 "$_sc_tmp/conversations.json.part" \
+            && mv "$_sc_tmp/conversations.json.part" "$_sc_drop/$_sc_name/conversations.json"; then
+            rm -rf "$_sc_tmp"
+            exit 0
+        fi
+        rm -rf "$_sc_tmp"
+        exit 1
+    ) || _sc_rc=$?
+    exit "${_sc_rc:-0}"
 fi
 
 # platform <US> extended-regex of signature basenames (a file OR dir whose
@@ -142,6 +265,7 @@ SIGS=(
   $'TikTok\x1f^user_data.*\\.json$'
   $'Pinterest\x1f^boards\\.csv$|^pins\\.csv$'
   $'Discord\x1f^messages\\.csv$|^activity$'
+  $'ChatGPT\x1f^conversations\\.json$'
 )
 
 # --- 1. Optionally unzip archives worth opening -------------------------------
@@ -172,7 +296,7 @@ for entry in "${SIGS[@]}"; do
     re_unanchored="${re//^/}"; re_unanchored="${re_unanchored//\$/}"
     _zip_re="${_zip_re:+$_zip_re|}${re_unanchored}"
 done
-_zip_shape_re='\.(csv|json|html?|ics|js)$'
+_zip_shape_re='\.(csv|json|html?|ics|js)$|(^|/)(_chat|whatsapp chat[^/]*)\.txt$'
 _zip_open_re="${_zip_re}|${_zip_shape_re}"
 
 if [[ "$DO_UNZIP" == "1" ]]; then
@@ -215,7 +339,7 @@ if [[ "$DO_UNZIP" == "1" ]]; then
                 _uz_skipped_other=$((_uz_skipped_other + 1))
             fi
         fi
-    done < <(find "$DIR" -maxdepth 2 -type f -iname '*.zip' 2>/dev/null || true)
+    done < <(_bfind "$DIR" -maxdepth 2 ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} -type f -iname '*.zip' -print)
     # Counts only, no filenames, on STDERR -- so it never mixes with the
     # "LABEL<TAB>path" hits on stdout that callers (install.sh, the export
     # watcher) already parse.
@@ -244,6 +368,9 @@ for entry in "${SIGS[@]}"; do
     while IFS= read -r hit; do
         [[ -n "$hit" ]] || continue
         top="$(_top_under "$hit")"
+        # ChatGPT: a bare conversations.json is not an export (many tools write
+        # one). The official export always ships chat.html beside it.
+        if [[ "$label" == "ChatGPT" && ! -f "$(dirname "$hit")/chat.html" ]]; then continue; fi
         # de-dup identical top folders reported by multiple signatures
         skip=0
         for s in ${SEEN_TOPS[@]+"${SEEN_TOPS[@]}"}; do [[ "$s" == "$label::$top" ]] && skip=1 && break; done
@@ -251,7 +378,7 @@ for entry in "${SIGS[@]}"; do
         SEEN_TOPS+=("$label::$top")
         printf '%s\t%s\n' "$label" "$top"
         found_any=0
-    done < <(find "$DIR" -maxdepth 6 \( -type f -o -type d \) 2>/dev/null \
+    done < <(_bfind "$DIR" -maxdepth "$SCAN_MAXDEPTH" ${SCAN_PRUNE[@]+"${SCAN_PRUNE[@]}"} \( -type f -o -type d \) -print \
                 | awk -F/ -v re="$re" 'tolower($NF) ~ tolower(re) || $NF ~ re {print}' \
                 | head -5)
 done

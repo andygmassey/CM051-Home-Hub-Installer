@@ -36,7 +36,7 @@ check_files() {
         while IFS= read -r raw; do
             ref="$(printf '%s\n' "$raw" | sed -E 's/^[0-9]+:[[:space:]]*image:[[:space:]]*//; s/[[:space:]]+#.*$//; s/[[:space:]]*$//; s/^["'\'']//; s/["'\'']$//')"
             n=$((n + 1))
-            if printf '%s' "$ref" | grep -Eq '^ghcr\.io/[a-z0-9._-]+(/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$'; then
+            if grep -Eq '^ghcr\.io/[a-z0-9._-]+(/[a-z0-9._-]+)+@sha256:[a-f0-9]{64}$' <<< "$ref"; then
                 echo "  ok   ${f##*/}: $ref"
             else
                 echo "  FAIL ${f##*/}: '$ref' is not ghcr.io/...@sha256:<digest>"

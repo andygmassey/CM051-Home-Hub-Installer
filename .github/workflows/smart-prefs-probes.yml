@@ -1,0 +1,66 @@
+name: smart-prefs-probes
+
+# The five BLOCKING Smart Preferences walk probes (v1.0.118):
+#   derived_preferences_runs, derived_preferences_breadth,
+#   derived_preferences_dislike, derived_preferences_not_others,
+#   dislike_respected_in_brief
+# (OS003 docs/SMART_PREFERENCES_SPEC.md, "Done means PROVEN").
+#
+# The probes themselves run on a walk box (run_box_walk.sh globs probes/, and
+# cut-manifests/permanent.yaml re-drives each at the cut). What THIS workflow
+# runs is the apparatus: a probe is believed only after it has gone red.
+#
+#   selftest   each probe's judges against a good fixture and one mutant per
+#              assertion, including a uniform-zero (blind engine) control.
+#   e2e        the real probe scripts, staging, box-side reader and judge against
+#              fake stores and three engine stubs: v1.0.116-shaped (all five RED,
+#              FAIL not CANNOT-RUN), intended (all five PASS), one defect each.
+#
+# Exit 2 is CANNOT-RUN and fails the step.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/**'
+      - 'scripts/walk_promote_scope.tsv'
+      - 'cut-manifests/permanent.yaml'
+      - 'tests/test_smart_prefs_probes.sh'
+      - 'tests/test_every_probe_on_disk_is_collected.py'
+      - '.github/workflows/smart-prefs-probes.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  smart-prefs-probes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Each probe's negative controls fire
+        if: always()
+        # The self-test EXITS 1 when it behaves (the probe contract turns a
+        # behaving judge into its own expected FAIL), so capture under set +e.
+        run: |
+          for p in derived_preferences_runs derived_preferences_breadth derived_preferences_dislike derived_preferences_not_others dislike_respected_in_brief; do
+            set +e
+            out=$(bash scripts/box_walk_probes/probes/$p.sh --self-test 2>&1); rc=$?
+            set -e
+            printf '%s\n' "$out" | tail -3
+            [ "$rc" -eq 1 ] && grep -q '^VERDICT: FAIL -- negative control behaved' <<< "$out" || { echo "::error::$p self-test did not behave"; exit 1; }
+          done
+      - name: The five probes go RED on a v1.0.116 box, PASS on the intended one, and only the defective one goes red on a single defect
+        if: always()
+        run: bash tests/test_smart_prefs_probes.sh
+      - name: Every probe on disk is collected by the runner
+        if: always()
+        run: python3 tests/test_every_probe_on_disk_is_collected.py

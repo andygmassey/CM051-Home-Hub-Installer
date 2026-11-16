@@ -11,6 +11,10 @@
 #   5. no route answering: CANNOT-RUN (78)
 #   6. in every arm, no secret value appears anywhere in the probe's output
 #   7. mutation: a blinded counter turns arm 2 into CANNOT-RUN, not PASS
+#   8. a fake gateway that echoes the device fingerprint on POST
+#      /api/v1/invites/mint (the Hub's invites proxy, ostler-assistant #573):
+#      FAIL naming that route, which the probe sweeps even though the vendored
+#      contract may not list it yet
 # Synthetic values only (the lib's SYN_* constants).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
@@ -37,7 +41,8 @@ import sys, time
 sys.path.insert(0, sys.argv[1])
 import stored_secret_sweep as s
 spec = sys.argv[3].split()
-srv = s._fake_server(None if spec == ["none"] else (spec[0], spec[1], s.SYN_TOKEN))
+secret = getattr(s, spec[2]) if len(spec) > 2 else s.SYN_TOKEN
+srv = s._fake_server(None if spec == ["none"] else (spec[0], spec[1], secret))
 open(sys.argv[2], "w").write(str(srv.server_address[1]))
 time.sleep(600)
 PY
@@ -53,10 +58,13 @@ sys.path.insert(0, sys.argv[1])
 import stored_secret_sweep as s
 cfg, _, blind = s.write_fixture(sys.argv[2])
 shutil.move(cfg, os.path.join(sys.argv[2], "ostler/assistant-config/config.toml"))
+for sub, name in (("license", "license.json"), ("state", "fingerprint.txt")):
+    os.makedirs(os.path.join(sys.argv[2], "ostler", sub), exist_ok=True)
+    shutil.move(os.path.join(sys.argv[2], name), os.path.join(sys.argv[2], "ostler", sub, name))
 PY
 [ "$(stat -c %a "$work/ostler/assistant-config/config.toml" 2>/dev/null || stat -f %Lp "$work/ostler/assistant-config/config.toml")" = 600 ] \
     && ok "the fixture config.toml is 0600" || bad "the fixture config.toml is not 0600"
-SECRETS="$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import stored_secret_sweep as s; print(s.SYN_TOKEN); print(s.SYN_TOKEN2); print(s.SYN_VANE)" "$LIBDIR")"
+SECRETS="$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import stored_secret_sweep as s; print(s.SYN_TOKEN); print(s.SYN_TOKEN2); print(s.SYN_VANE); print(s.SYN_LICENCE); print(s.SYN_FPRINT)" "$LIBDIR")"
 ngw="$(python3 -c "import json; print(len([r for r in json.load(open('vendor/cm041/assistant_api/hub_contract.yaml'))['routes'] if r['listener']=='gateway']))")"
 
 run_arm() {  # $1 port(s), extra env in caller
@@ -76,6 +84,12 @@ rc="$(run_arm "http://127.0.0.1:$pl")"
 nf="$(/usr/bin/grep -cE '^  FAIL   [A-Z]+ /' "$work/out")"
 [ "$nf" -eq 1 ] && ok "exactly one route named (the leaking one)" || bad "leak arm named $nf routes"
 no_values "leak arm"
+
+start_fake fp 'POST /api/v1/invites/mint SYN_FPRINT'; pf="$FAKE_PORT"
+rc="$(run_arm "http://127.0.0.1:$pf")"
+[ "$rc" -eq 1 ] && /usr/bin/grep -q 'FAIL   POST /api/v1/invites/mint on http://127.0.0.1.*device_fingerprint' "$work/out" \
+    && ok "the fingerprint echoed on POST /api/v1/invites/mint: FAIL naming the route and the secret label" || { bad "invite fingerprint arm rc=$rc"; tail -5 "$work/out"; }
+no_values "invite fingerprint arm"
 
 start_fake clean none; pc="$FAKE_PORT"
 rc="$(run_arm "http://127.0.0.1:$pc")"

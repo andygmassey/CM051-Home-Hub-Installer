@@ -99,7 +99,16 @@ def test_the_route_is_guarded_and_works(tmp_path, monkeypatch):
         from fastapi.testclient import TestClient
     except Exception as exc:  # the Doctor app needs its own deps
         pytest.skip("web_ui not importable here: %s" % exc)
+    import owner_peer
+
     c = TestClient(web_ui.app, base_url="http://127.0.0.1:8089")
+    # S1: TestClient has no real socket peer, so the kernel owner check fails
+    # closed. Prove that first, then stand the caller in as the owner through
+    # the same seam as test_the_hub_reads_the_doctor_like_the_app.py.
+    unowned = c.post("/api/v1/reminders/turn-on", headers={"Sec-Fetch-Site": "same-origin"})
+    assert unowned.status_code == 403
+    assert read_reminders_runtime()["state"] == STATE_LIST_REMOVED
+    monkeypatch.setattr(owner_peer, "verdict", lambda client, server: None)
     # cross-site: refused, nothing changed
     bad = c.post("/api/v1/reminders/turn-on", headers={"Sec-Fetch-Site": "cross-site"})
     assert bad.status_code == 403
