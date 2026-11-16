@@ -84,7 +84,7 @@ def _get(path, token):
 def _transcript(marker, level):
     return (
         "---\n"
-        f"title: Walk probe {marker}\n"
+        "title: Walk probe\n"
         f"call_id: {marker.lower()}\n"
         "timestamp: 2026-11-16T09:15:00Z\n"
         "duration_seconds: 90\n"
@@ -155,7 +155,7 @@ def _seed(cid, marker, level):
     meta = {
         "conversation_id": cid, "date": "2026-11-16", "channel": "spoken",
         "source": "voice_note", "source_session_id": cid, "capture_source": "cm042_mac",
-        "privacy_level": level, "title": "Walk probe " + marker,
+        "privacy_level": level, "title": "Walk probe",
         "participants": [{"id": "user", "display": "You", "role": "user"}],
     }
     d = tempfile.mkdtemp(prefix="no-l3-probe-")
@@ -363,9 +363,6 @@ def _capture_timeline(token, markers):
     out = {"api_text": api_text, "reply_text": reply_text, "prompt": TIMELINE_PROMPT,
            "reply_chars": len(reply_text), "reply_l2_control": markers["L2"] in reply_text,
            "api_l2_control": bool(api_text and markers["L2"] in api_text),
-           # PRIMARY outbound judge: the tool result the daemon fed the model. The
-           # capture hook (oa) does not exist yet; None means CANNOT-RUN to the judge.
-           "tool_result_text": None,
            "text": (api_text or "") + "\n--- channel reply ---\n" + reply_text}
     _note("timeline: api %s, reply %d chars, L2 control in reply: %s" % (
         "ok" if api_text is not None else (api.get("error") or "status=%s" % api.get("status")),
@@ -481,7 +478,7 @@ SF_DIR = os.path.expanduser("~/.ostler/speaker_feedback")
 # Logs are append-only and excluded; the stores are measured through their APIs.
 DISK_ROOTS = [os.path.expanduser(p) for p in (
     "~/.ostler/processing", "~/.ostler/speaker_feedback", "~/.ostler/coach", "~/.ostler/queue",
-    "~/.ostler/state", "~/.ostler/data", "~/.ostler/workspace", "~/Documents/Ostler")]
+    "~/.ostler/state", "~/.ostler/data", "~/.ostler/workspace", "~/Ostler", "~/Documents/Ostler")]
 
 
 def _sf_files(stamp, directory=None):
@@ -521,7 +518,9 @@ def _cleanup_files(cid, stamp):
     """Files the shipped writer leaves for a conversation id, removed by id and
     counted before and after. Logs are append-only and are not touched."""
     roots = [os.path.expanduser("~/.ostler/processing"),
-             os.path.expanduser("~/Documents/Ostler/Conversations")]
+             os.path.expanduser("~/Ostler/Conversations"),          # ostler_paths.conversations_dir()
+             os.path.expanduser("~/Documents/Ostler/Conversations"),
+             SF_DIR]
     found = []
     for root in roots:
         if not os.path.isdir(root):
@@ -531,6 +530,51 @@ def _cleanup_files(cid, stamp):
                 if cid in n or stamp in n:
                     found.append(os.path.join(dirpath, n))
     return found
+
+
+def _store_of(path):
+    """Which of the writer's stores a leftover path belongs to."""
+    if "/.ostler/processing/" in path:
+        return "processing"
+    if "/speaker_feedback/" in path:
+        return "speaker_feedback"
+    return "md"     # ~/Ostler/Conversations/<id>.md (ostler_paths.conversations_dir)
+
+
+def _tally(stores, paths, field):
+    """Add each path to its store's `field` count (before or after). Pure."""
+    for f in paths:
+        stores[_store_of(f)][field] += 1
+
+
+COACH_SNIPPET = """
+import sqlite3, sys
+from src import ingest
+from src.settings import Settings
+s = Settings(user_id=sys.argv[3])
+key = getattr(ingest, "_ENCRYPTION_KEY", None)
+conn = ingest._secure_connect(s.coach_db_path, key) if key else sqlite3.connect(str(s.coach_db_path))
+try:
+    if sys.argv[1] == "delete":
+        conn.execute("DELETE FROM observations WHERE conversation_id=?", (sys.argv[2],)); conn.commit()
+    print(conn.execute("SELECT COUNT(*) FROM observations WHERE conversation_id=?", (sys.argv[2],)).fetchone()[0])
+except sqlite3.OperationalError as exc:
+    print(0 if "no such table" in str(exc) else "ERR " + str(exc)[:80])
+"""
+
+
+def _coach_rows(action, cid, owner):
+    """Rows the L2 seed's coach step wrote for this conversation id, or None when
+    the coach database does not exist on this box (nothing to count or delete)."""
+    db = os.path.expanduser("~/.ostler/coach/observations.db")
+    if not os.path.exists(db):
+        return None
+    p = subprocess.run([VENV_PY, "-c", COACH_SNIPPET, action, cid, owner], cwd=CM048_DIR,
+                       capture_output=True, text=True, timeout=60)
+    out = p.stdout.strip()
+    if p.returncode != 0 or not out.isdigit():
+        raise RuntimeError("coach read failed: rc=%s %s %s" % (p.returncode, out[:80], p.stderr.strip()[:120]))
+    return int(out)
 
 
 def _remove_files(paths):
@@ -595,6 +639,12 @@ def self_test():
         want("tree sha sees a changed byte", a1 != a3, True)
     finally:
         shutil.rmtree(d, ignore_errors=True)
+    # the per-store tally puts each leftover path in its own store, so a file left
+    # in ANY store shows up as a non-zero "after"
+    tl = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach")}
+    _tally(tl, ["/h/.ostler/processing/x/09.json", "/h/Ostler/Conversations/x.md", "/h/.ostler/speaker_feedback/x.json",
+                "/h/.ostler/speaker_feedback/y.json"], "after")
+    want("tally by store", [tl[k]["after"] for k in ("processing", "md", "speaker_feedback", "coach")], [1, 1, 2, 0])
     # a speaker_feedback file written for this run's id is FOUND (so a leftover is
     # seen), a file for another run's id is not, and removal by exact name works
     d2 = tempfile.mkdtemp(prefix="no-l3-selftest-sf-")
@@ -729,24 +779,40 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     except Exception as exc:  # noqa: BLE001
         fx["graph_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:150])
         _note("graph teardown FAILED: " + fx["graph_error"])
-    # 3. the legacy pwg-convo conversations (store rows) and their files
+    # 3. the legacy pwg-convo conversations: every store the seed's writer touches,
+    # each counted before and after (write_all: md, Qdrant, Oxigraph, coach DB,
+    # speaker_feedback; plus the step dir under processing)
+    stores = {k: {"before": 0, "after": 0} for k in ("processing", "md", "speaker_feedback", "coach")}
+    fx["stores"] = stores
     for key, cid in legacy_ids.items():
         try:
             files = _cleanup_files(cid, stamp)
+            _tally(stores, files, "before")
+            try:
+                cb = _coach_rows("count", cid, owner)
+                if cb is None:
+                    stores["coach"]["note"] = "coach db absent on this box"
+                else:
+                    stores["coach"]["before"] += cb
+                    if cb:
+                        _coach_rows("delete", cid, owner)
+                    stores["coach"]["after"] += _coach_rows("count", cid, owner) or 0
+            except Exception as exc:  # noqa: BLE001
+                stores["coach"]["after"] += 1
+                stores["coach"]["note"] = "coach unreadable: " + str(exc)[:100]
             t = _teardown(cid, owner)
             _remove_files(files)
-            t["files_before"], t["files_after"] = len(files), len(_cleanup_files(cid, stamp))
+            left = _cleanup_files(cid, stamp)
+            _tally(stores, left, "after")
+            t["files_before"], t["files_after"] = len(files), len(left)
             if t.get("parsed") and t["files_after"] != 0:
                 t = {"id": cid, "parsed": False, "raw": "file residue: %d" % t["files_after"]}
             td[key] = t
         except Exception as exc:  # noqa: BLE001
             td[key] = {"id": cid, "parsed": False, "raw": "%s: %s" % (type(exc).__name__, str(exc)[:150])}
-    try:
-        _remove_files(_sf_files(stamp))
-        fx["sf_after"] = len(_sf_files(stamp))
-    except Exception as exc:  # noqa: BLE001
-        fx["sf_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:120])
-    fx["free_gb_after"] = round(shutil.disk_usage("/").free / 1e9, 1)
+    for k, note in (("md", "not written on this box"),):
+        if not stores[k]["before"] and "note" not in stores[k]:
+            stores[k]["note"] = note
     # 4. LAST: the independent "stamp anywhere" count, after every writer's rows are
     # gone (the pwg-convo rows carry the stamp too; measured 2026-11-16 before this
     # move: 20 stamp rows were still there at the old position).
