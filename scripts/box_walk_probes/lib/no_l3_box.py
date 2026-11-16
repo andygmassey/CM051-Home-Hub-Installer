@@ -600,13 +600,23 @@ def _page_files(needle, root):
 
 WIKI_VOLUME_SH = r"""
 ACTION="$1"; NEEDLE="$2"
-for v in /w /s; do
-  [ -d "$v/Conversations/timeline" ] || continue
-  grep -rl --binary-files=text -F -- "$NEEDLE" "$v/Conversations/timeline" 2>/dev/null | while IFS= read -r f; do
-    case "$f" in
-      /w/Conversations/timeline/index.md|/s/Conversations/timeline/index.html) echo "SHARED $v";;
-      *) echo "PAGE $v"; [ "$ACTION" = delete ] && rm -f -- "$f";;
-    esac
+ROOTS="${ROOTS:-docs:/w built:/s}"
+for pair in $ROOTS; do
+  label="${pair%%:*}"; v="${pair#*:}"
+  # every .../Conversations/timeline dir under the volume: the docs copy is
+  # /w/Conversations/timeline, the built copy is /s/conv/build-<date>-<stamp>/Conversations/timeline
+  # (one dir per build, several can exist), so the search is recursive.
+  find "$v" -type d -path '*/Conversations/timeline' 2>/dev/null | while IFS= read -r root; do
+    grep -rl --binary-files=text -F -- "$NEEDLE" "$root" 2>/dev/null | while IFS= read -r f; do
+      case "$f" in
+        "$root"/index.md|"$root"/index.html) echo "SHARED $label";;
+        *) echo "PAGE $label"
+           if [ "$ACTION" = delete ]; then
+             rm -f -- "$f"
+             case "$f" in */index.html) rmdir -- "$(dirname -- "$f")" 2>/dev/null || true;; esac
+           fi;;
+      esac
+    done
   done
 done
 exit 0
@@ -636,7 +646,7 @@ def _wiki_volume_pages(action, needle):
 
 
 def parse_volume_output(text):
-    """'PAGE /w' / 'PAGE /s' / 'SHARED /w' lines -> counts. Pure."""
+    """'PAGE docs' / 'PAGE built' / 'SHARED docs' lines -> counts. Pure."""
     c = {"wiki_docs": 0, "wiki_built": 0, "shared": 0}
     for line in text.splitlines():
         parts = line.split()
@@ -645,7 +655,7 @@ def parse_volume_output(text):
         if parts[0] == "SHARED":
             c["shared"] += 1
         elif parts[0] == "PAGE":
-            c["wiki_docs" if parts[1] == "/w" else "wiki_built"] += 1
+            c["wiki_docs" if parts[1] == "docs" else "wiki_built"] += 1
     return c
 
 
@@ -805,7 +815,40 @@ def self_test():
         want("the shared index survives", os.path.exists(os.path.join(vr, "index.md")), True)
     finally:
         shutil.rmtree(d5, ignore_errors=True)
-    want("volume output parsed", parse_volume_output("PAGE /w\nPAGE /w\nPAGE /s\nSHARED /w\njunk"),
+    # the volume script itself, run for real over a tree shaped like the two volumes
+    d6 = tempfile.mkdtemp(prefix="no-l3-selftest-vol-")
+    try:
+        w, sv = os.path.join(d6, "w"), os.path.join(d6, "s")
+        spots = {
+            os.path.join(w, "Conversations", "timeline", "2026-11-16", "user-a.md"): "QUARTZ6",
+            os.path.join(w, "Conversations", "timeline", "2026-11-16", "user-b.md"): "ZEPHYR6",
+            os.path.join(w, "Conversations", "timeline", "index.md"): "QUARTZ6 listed",
+            os.path.join(sv, "conv", "build-1", "Conversations", "timeline", "2026-11-16", "user-a", "index.html"): "QUARTZ6",
+            os.path.join(sv, "conv", "build-2", "Conversations", "timeline", "2026-11-16", "user-a", "index.html"): "QUARTZ6",
+            os.path.join(sv, "conv", "build-2", "Conversations", "timeline", "2026-11-16", "user-b", "index.html"): "ZEPHYR6",
+            os.path.join(sv, "conv", "build-2", "Conversations", "timeline", "index.html"): "QUARTZ6 listed",
+            os.path.join(sv, "search", "search_index.json"): "QUARTZ6",
+        }
+        for f, t in spots.items():
+            os.makedirs(os.path.dirname(f), exist_ok=True)
+            with open(f, "w") as fh:
+                fh.write(t)
+        env = dict(os.environ, ROOTS="docs:%s built:%s" % (w, sv))
+        def vol(action):
+            return parse_volume_output(subprocess.run(["sh", "-c", WIKI_VOLUME_SH, "sh", action, "QUARTZ6"],
+                                                      capture_output=True, text=True, env=env).stdout)
+        want("volume script counts docs page, built pages in every build dir, and the shared indexes",
+             vol("count"), {"wiki_docs": 1, "wiki_built": 2, "shared": 2})
+        vol("delete")
+        want("volume script removed this seed's pages", vol("count"), {"wiki_docs": 0, "wiki_built": 0, "shared": 2})
+        want("the page dir is removed with its index.html", os.path.exists(os.path.join(sv, "conv", "build-1", "Conversations", "timeline", "2026-11-16", "user-a")), False)
+        want("the other seed's built page survives", os.path.exists(os.path.join(sv, "conv", "build-2", "Conversations", "timeline", "2026-11-16", "user-b", "index.html")), True)
+        want("the shared indexes and search index are untouched",
+             [os.path.exists(os.path.join(w, "Conversations", "timeline", "index.md")),
+              os.path.exists(os.path.join(sv, "search", "search_index.json"))], [True, True])
+    finally:
+        shutil.rmtree(d6, ignore_errors=True)
+    want("volume output parsed", parse_volume_output("PAGE docs\nPAGE docs\nPAGE built\nSHARED docs\njunk"),
          {"wiki_docs": 2, "wiki_built": 1, "shared": 1})
     # the per-store tally puts each leftover path in its own store, so a file left
     # in ANY store shows up as a non-zero "after"
