@@ -20,8 +20,8 @@ control-plane row in Honest residue below was re-measured on a live install
 on 2026-09-18 and is dated there.
 
 <!-- EGRESS-LEDGER-BINDING
-hosts: 55
-digest: 5518ec6cc14ea3c2ede0706a2253f47484c75244813ea422789bf2df062b70ac
+hosts: 60
+digest: a504f05fdb25de6cfc45e360b706dc2d9ede441e667ed840bc003b33810b7848
 -->
 
 This document is BOUND to the set of hosts declared in the ledger above.
@@ -228,12 +228,12 @@ install. It does not say what DID, and no daemon socket was sampled.
 **SURPRISING, undeclared until this revision:**
 
 - `wttr.in`: the `weather` tool is registered unconditionally
-  (`crates/zeroclaw-runtime/src/tools/mod.rs:392`), builds
+  (`crates/zeroclaw-runtime/src/tools/mod.rs:392`) and builds
   `https://wttr.in/<location>` from a model-chosen string
-  (`crates/zeroclaw-tools/src/weather_tool.rs:14,142-145`), is absent from
-  the installer's `non_cli_excluded_tools` (`install.sh:17808`) and from
-  the egress gate (`egress_gate.rs:49`). A chat turn can send a location with no
-  prompt. Fix is one word in the exclusion list or one line in `EGRESS_TOOLS`.
+  (`crates/zeroclaw-tools/src/weather_tool.rs:14,142-145`). It IS gated: `weather`
+  is in `EGRESS_TOOLS` (`egress_gate.rs:61`) with a `requires_owner_approval` consent arm
+  (`egress_gate.rs:112`). The location string chosen by the model goes to a third party in the URL path when the owner approves.
+
 - `appcast.ostler.ai`: named in code (`crates/zeroclaw-gateway/src/invites_proxy.rs:39`)
   and the installer but the ledger held only `ostler.ai`.
 - `api.github.com` for `zeroclaw-labs/zeroclaw` (`src/commands/update.rs:8-10`):
@@ -243,7 +243,7 @@ install. It does not say what DID, and no daemon socket was sampled.
 |---|---|---|---|
 | any host (`web_fetch`, `http_request`) | `schema.rs:3014-3015`, `2891-2892`; tools registered `tools/mod.rs:491,501` | enabled, `allowed_domains = ["*"]` | gated by #597 |
 | local Vane, then public engines | `web_search_tool.rs:639`, `schema.rs:3307`, `install.sh:17598` | on, loopback to the container | engines NOT INSTRUMENTED; #602 open |
-| `wttr.in` | above | on | UNDECLARED, ungated |
+| `wttr.in` | above | on | gated (egress_gate.rs:61/:112) |
 | `appcast.ostler.ai` | `invites_proxy.rs:39` | on | now declared |
 | `api.github.com` | `update.rs:8` | manual command | now declared |
 | `api.open-meteo.com`, `ipapi.co` | `brief/weather.rs:291,196` | library only | DEAD CODE: `resolve_location` and `fetch_weather` have no caller outside `weather.rs` |
