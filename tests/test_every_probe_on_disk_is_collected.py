@@ -46,6 +46,10 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/walk_vm_resources.sh": (
+        "a sourced helper (walk_vm_resources), not a probe: run_box_walk.sh sources it and calls it at walk "
+        "start and end to print the VM's resources into the record; judged by "
+        "tests/test_walk_header_carries_vm_resources.py"),
     "lib/companion_unpair.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it and calls "
         "companion_walk_baseline before the pairing probes and "

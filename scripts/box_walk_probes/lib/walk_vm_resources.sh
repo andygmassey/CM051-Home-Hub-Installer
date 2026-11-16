@@ -15,7 +15,7 @@ walk_vm_resources() {
     fi
     _wvr() {
         if [ -n "$remote" ]; then
-            /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 "$remote" "$1" 2>/dev/null
+            /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$remote" "$1" 2>/dev/null
         else
             /bin/sh -c "$1" 2>/dev/null
         fi
