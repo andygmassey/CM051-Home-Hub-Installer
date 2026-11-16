@@ -91,22 +91,52 @@ print(row)' 2>/dev/null); \
 case \"\$last\" in Running*) break ;; esac; i=\$((i+1)); sleep 5; done; echo \"\${last:-NONE}\""
 }
 
+host_tier_expected() {
+    # host_tier_expected <memsize_bytes> <ncpu> -> "CPUS MEM_GIB", or nothing.
+    # The installer's tier table, read from the CONTRACT FIXTURE that
+    # lib/ostler-vm-size.sh's table is tested against (test_vm_size_tiers_contract.sh),
+    # so the probe and the installer cannot drift apart silently.
+    local bytes="$1" ncpu="$2" fixture min mem cpu cpus_out="" mem_out="" ram cap
+    fixture="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/tests/fixtures/vm_size_tiers_contract.txt"
+    [ -f "$fixture" ] || return 0
+    case "$bytes" in ''|*[!0-9]*) return 0 ;; esac
+    case "$ncpu" in ''|*[!0-9]*) return 0 ;; esac
+    ram=$(( bytes / 1073741824 ))
+    while read -r min mem cpu; do
+        case "$min" in ''|\#*) continue ;; esac
+        if [ "$ram" -ge "$min" ]; then mem_out="$mem"; cpus_out="$cpu"; break; fi
+    done < <(grep -v '^#' "$fixture")
+    [ -n "$mem_out" ] || return 0
+    cap=$(( ncpu / 2 )); [ "$cap" -ge 2 ] || cap=2
+    [ "$cpus_out" -le "$cap" ] || cpus_out="$cap"
+    printf '%s %s\n' "$cpus_out" "$mem_out"
+}
+
 run_probe() {
     if ! box_reachable; then
         probe_cannot_run "cannot reach box ${OSTLER_BOX_HOST:-(local)} over ssh; nothing inspected"
     fi
 
-    local rec rec_c rec_m reading status cpus mem verdict
+    local rec rec_c rec_m rec_src reading status cpus mem verdict hostline
     rec="$(read_record)"
+    if [ -n "$rec" ]; then
+        rec_src="the installer's record (~/.ostler/state/vm_size)"
+    else
+        # NO RECORD on this box (a v1.0.132 install writes none). The expectation is
+        # DERIVED from the host's RAM and CPUs by the installer's tier table. It is
+        # not read from the box, and the verdict says so. Weaker than a record.
+        hostline="$(box_run "printf '%s %s' \"\$(/usr/sbin/sysctl -n hw.memsize 2>/dev/null)\" \"\$(/usr/sbin/sysctl -n hw.ncpu 2>/dev/null)\"")"
+        # shellcheck disable=SC2086
+        rec="$(host_tier_expected $hostline)"
+        if [ -z "$rec" ]; then
+            probe_examined 1 "host RAM and CPU count (for the tier expectation)"
+            probe_cannot_run "no installer record at ~/.ostler/state/vm_size, and the host RAM or CPU count did not read (${hostline:-empty}), so there is no expected size to judge the VM against."
+        fi
+        rec_src="the HOST-TIER expectation (no installer record on this box; RAM ${hostline%% *} bytes, ${hostline##* } CPUs through the installer's tier table)"
+    fi
     rec_c="${rec%% *}"
     rec_m="${rec##* }"
-    [ -n "$rec" ] || { rec_c=""; rec_m=""; }
-    probe_note "installer record ~/.ostler/state/vm_size : ${rec:-<none>}"
-
-    if [ -z "$rec" ]; then
-        probe_examined 1 "installer size record (no VM was restarted: nothing to compare against)"
-        probe_cannot_run "no installer size record at ~/.ostler/state/vm_size, so there is no chosen size to compare the VM against. A VM without an Ostler record is not one this probe can judge."
-    fi
+    probe_note "expected size from ${rec_src}: ${rec_c} CPU / ${rec_m} GiB"
 
     reading="$(force_restart_and_measure)"
     probe_note "after forced colima stop + daemon kickstart : ${reading}"
@@ -115,14 +145,14 @@ run_probe() {
     status="${1:-NONE}"; cpus="${2:-}"; mem="${3:-}"
     [ "$status" = "NONE" ] && status=""
 
-    probe_examined 2 "signals: the installer record and the default VM's cpus and memory after a forced colima start"
+    probe_examined 2 "signals: the expected size and the default VM's cpus and memory after a forced colima start"
 
     verdict="$(_vm_size_classify "$rec_c" "$rec_m" "$status" "$cpus" "$mem")"
     case "$verdict" in
         PASS)
             probe_pass "the VM after a forced daemon restart is ${cpus} CPU / ${mem} GiB, the size the installer recorded" ;;
         FAIL-SHRUNK)
-            probe_fail "the daemon restart SHRANK the VM: the installer chose ${rec_c} CPU / ${rec_m} GiB and colima now runs ${cpus} CPU / ${mem} GiB. Every restart that has to start colima does this to the customer's VM." ;;
+            probe_fail "the daemon restart SHRANK the VM: the expected size from ${rec_src} is ${rec_c} CPU / ${rec_m} GiB and colima now runs ${cpus} CPU / ${mem} GiB. Every restart that has to start colima does this to the customer's VM." ;;
         FAIL-DIFFERS)
             probe_fail "the VM after a forced daemon restart is ${cpus} CPU / ${mem} GiB, not the installer's recorded ${rec_c} CPU / ${rec_m} GiB." ;;
         CANNOT-RUN-NOT-RUNNING)
@@ -136,7 +166,7 @@ self_test() {
     # NEGATIVE CONTROL on the adjudication. The live restart needs a box, so the
     # control drives _vm_size_classify with readings known to be right or wrong.
     PROBE_SELF_TEST=1
-    probe_examined 6 "synthetic reading sets (negative control)"
+    probe_examined 9 "synthetic reading sets and host-tier expectations (negative control)"
 
     # 1. Sizes equal -> PASS. Anything else and the probe reds a healthy VM.
     if [ "$(_vm_size_classify 3 6 Running 3 6)" != "PASS" ]; then
@@ -168,7 +198,19 @@ self_test() {
         probe_pass "NEGATIVE CONTROL DID NOT FIRE: an empty measurement adjudicated as $(_vm_size_classify 3 6 Running "" ""), not CANNOT-RUN-UNREADABLE."
     fi
 
-    probe_fail "negative control behaved correctly on all 6 reading sets (equal passes; a shrink, a mismatch, a stopped VM, a missing record and an unreadable measurement each get their own verdict)."
+    # 7-9. The host-tier expectation: 48 GiB / 12 CPU -> 5/10 (the 132 MBP's tier);
+    #      16 GiB / 8 CPU -> 3/6 (CPU capped to half the cores); unreadable -> nothing.
+    if [ "$(host_tier_expected 51539607552 12)" != "5 10" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 48 GiB / 12 CPU tier expectation was '$(host_tier_expected 51539607552 12)', not 5 10."
+    fi
+    if [ "$(host_tier_expected 17179869184 8)" != "3 6" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: 16 GiB / 8 CPU tier expectation was '$(host_tier_expected 17179869184 8)', not 3 6."
+    fi
+    if [ -n "$(host_tier_expected "" "")" ]; then
+        probe_pass "NEGATIVE CONTROL DID NOT FIRE: an unreadable host produced an expectation."
+    fi
+
+    probe_fail "negative control behaved correctly on all 9 reading sets (equal passes; a shrink, a mismatch, a stopped VM, a missing record and an unreadable measurement each get their own verdict)."
 }
 
 probe_main "$@"
