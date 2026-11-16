@@ -1794,3 +1794,44 @@ and tags `photos_error`; the entries serializer carries `photos` through, skips
 (`source`, `title_verbatim`) stay on every entry in this tree, so the contract
 test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 (11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.
+
+## Graft 2026-11-16: 133 outbound privacy rule, cm041/assistant_api
+
+Tree: cm041/assistant_api. Upstream CM041 PR carries the same hunks in
+`assistant_api/ical-server.py` and `assistant_api/derived_preferences.py`.
+Hunks are re-applied here by hand, not by `patch`: at the pin the vendored
+people_search and commitments_list have different surrounding text, so
+`git apply` refuses. Every changed line is textually identical to upstream.
+
+Regeneration REFUSED, measured 2026-11-16:
+`CM041=<CM041 checkout> scripts/regenerate_divergence_patch.sh cm041/assistant_api`
+returned rc=1: "The SOURCE has advanced past the pin" (688463bb), with
+unshipped commits a1a1252 (#228) and 5e205a8 (#273) touching this tree. This
+is a re-pin question, not a graft to record, so the patch file is NOT
+regenerated here. Retire this record by moving pinned_sha (scripts/sync_vendor.sh)
+and re-applying the graft on the new base.
+
+Edits, all on the outbound path (served to the assistant for channel replies
+or briefs). Rule: pass only L1, L2 and untagged. L0, L3 and unparseable values
+are withheld.
+
+- `ical-server.py`: new `_OUTBOUND_PRIVACY_LEVELS` and `_outbound_level_ok()`
+  before `people_search`.
+- `ical-server.py` `people_search`: person gate uses `_outbound_level_ok`
+  (was: withhold L3 only).
+- `ical-server.py` `commitments_list`: per-row gate uses `_outbound_level_ok`
+  (was: withhold L3 only). `_commitment_privacy_level` is kept for the
+  `privacy_level` field of served rows.
+- `ical-server.py` `api_reply_debt`: debts filtered by `_outbound_level_ok`
+  before the count, brief line and limit are applied.
+- `derived_preferences.py` `SERVED_PRIVACY_LEVELS`: `("L0","L1","L2")` becomes
+  `("L1","L2")`.
+
+Known residual, not changed here: people_search still serves explicit L0 facts
+on an otherwise-served person (`_filter_qdrant_facts` keeps them). The
+reply-debt detector's dataclass default is L2, so an untagged thread cannot be
+told apart from L2 at that seam.
+
+Test: `tests/test_133_outbound_levels.py`, 15 pass on this tree. Measured on
+CM041 origin/main (the upstream pre-graft file): 9 fail, 6 pass. Wired in
+`.github/workflows/cm041-133-outbound-privacy.yml`.

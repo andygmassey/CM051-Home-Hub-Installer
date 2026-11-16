@@ -2290,6 +2290,20 @@ def _filter_qdrant_facts(facts, owner_level=None):
     return pwg_privacy.filter_l3_facts(facts, owner_level)
 
 
+# 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
+# channel replies or briefs, or sent off the box, passes ONLY L1, L2 and
+# untagged. L0 (owner-private on the PWG scale), L3 and any value that does
+# not parse are withheld. Untagged passes, as these readers always did.
+_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
+
+
+def _outbound_level_ok(raw):
+    """True when a raw privacy value may leave the box (see rule above)."""
+    if raw is None or str(raw).strip() == "":
+        return True
+    return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
+
+
 def people_search(query, limit=10, timeout=30):
     """Semantic search across the Qdrant people collection.
 
@@ -2365,13 +2379,12 @@ def people_search(query, limit=10, timeout=30):
         # sender id or bulk mailbox is not found by search either.
         if _is_non_human_person(p, dn):
             continue
-        # Person-level L3 (F5): an L3-classified person must not surface in
-        # search at all. Only an EXPLICIT L3 person-tag drops the person
-        # here -- an untagged person is still searchable (search coverage
-        # must not collapse for the many points that predate the
-        # privacy_level default), and their individual facts are still
-        # fail-closed filtered below. Default person tag today is L2.
-        if pwg_privacy.parse_privacy_level(p.get("privacy_level")) == "L3":
+        # Person-level outbound gate (133): a person tagged L0 or L3, or with
+        # an unparseable tag, must not surface in search. An untagged person
+        # is still searchable (search coverage must not collapse for the many
+        # points that predate the privacy_level default), and their individual
+        # facts are still fail-closed filtered below.
+        if not _outbound_level_ok(p.get("privacy_level")):
             continue
         entry = {
             "name": dn,
@@ -8173,10 +8186,10 @@ def commitments_list(owner=None, due_before=None, status="open",
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
             continue
-        # Second line of defence behind the CM048 writer's L3 guards. Untagged
-        # legacy rows resolve to the default level and are kept; a tagged but
-        # unparseable level resolves to L3 (fail closed) and is dropped.
-        if _commitment_privacy_level(r.get("plevel")) == "L3":
+        # 133 outbound gate: this list is read by the assistant's promise
+        # filter for channel replies and briefs. L0, L3 and unparseable
+        # levels are withheld; untagged is served at the default level.
+        if not _outbound_level_ok(r.get("plevel")):
             continue
         deadline = r.get("deadline", "")
         if due_norm:
@@ -8332,6 +8345,12 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
 
     try:
         debts = service.compute_reply_debts(**kwargs)
+        # 133 outbound gate: the brief line and debts are sent to the
+        # assistant for channel replies. Withhold L0, L3 and unparseable
+        # threads before anything is counted or named.
+        debts = [d for d in debts if _outbound_level_ok(
+            d.get("privacy_level") if isinstance(d, dict)
+            else getattr(d, "privacy_level", None))]
         if limit is not None and limit >= 0:
             debts = debts[:limit]
         payload = service.reply_debt_payload(debts)
