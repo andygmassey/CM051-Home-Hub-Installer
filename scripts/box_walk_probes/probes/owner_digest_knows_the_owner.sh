@@ -59,11 +59,21 @@ run_probe() {
         printf '%s\n' "${_oes_out}" | sed 's/^/  own-end: /'
         _oes_before="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES before=\([0-9]*\).*/\1/p' | tail -1)"
         _oes_after="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES after=\([0-9]*\).*/\1/p' | tail -1)"
-        if [ "${_oes_after:-x}" = "0" ]; then
-            probe_note "owner-employer seed removed at this probe's own end (before=${_oes_before:-?}, after=0)"
+        # Archie's ruling: a removal that is not confirmed is a CLEANUP FAILED error on the
+        # real-data box, printed to stderr and reflected in the cleanup step's exit status.
+        # The probe's verdict below is NOT changed by it.
+        . "${_HERE}/lib/owner_seed_cleanup.sh"
+        _oc="$(owner_seed_cleanup_verdict "${_oes_before:-}" "${_oes_after:-}")"; _ocrc=$?
+        printf '%s\n' "${_oc}" | sed 's/^/  own-end: /'
+        if [ "${_ocrc}" -ne 0 ]; then
+            # Archie's ruling: an unconfirmed removal on the real-data box is an ERROR and a
+            # non-zero cleanup status. It does not change the verdict below.
+            OWNER_SEED_CLEANUP_RC=1
+            printf '%s\n' "${_oc}" >&2
         else
-            probe_note "owner-employer seed NOT confirmed removed at this probe's own end (before=${_oes_before:-?}, after=${_oes_after:-unreadable}); owner_knowledge_score will refuse while it is live"
+            OWNER_SEED_CLEANUP_RC=0
         fi
+        probe_note "owner-employer seed cleanup status: rc=${OWNER_SEED_CLEANUP_RC}"
     fi
 
     case "${rc}" in
