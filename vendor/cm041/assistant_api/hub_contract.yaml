@@ -405,8 +405,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "install.sh"
   },
@@ -3342,8 +3343,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -5296,8 +5298,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

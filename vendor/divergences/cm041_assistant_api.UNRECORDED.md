@@ -2193,3 +2193,12 @@ index c21e3eeb..8e88ddad 100644
 - 26 pass in the graft run (`PYTHONPATH=vendor`, venv with pyoxigraph,
   sandboxed HOME). Full vendored suite result is recorded in the PR body.
 - Wired by `.github/workflows/cm041-133-outbound-privacy.yml`.
+
+## CI round 2026-11-16: commitments gate explicit, untagged label, contract and fixtures
+
+Same file, same tree (cm041/assistant_api). Three edits to `commitments_list`, mirrored byte-for-byte in CM041 #278:
+
+- The 133 gate is written explicitly at its call site: L0 and L3 are withheld, and so is a tagged value that does not parse. `_outbound_level_ok` keeps the same rule. The explicit form is needed because `tests/test_every_outbound_graph_reader_filters_l3.py` reads the function body for an L3 vocabulary (`"L3"`, `is_l3`, `filter_l3_facts`, `_effective_privacy_level`) and found none, so it went RED at `commitments_list` (run 43855072334, job 133257132684). The equivalence is checked by the same cases the 133 tests already pin.
+- An untagged row keeps the default `"L2"` label, as before (`test_vendored_cm041_revendor_07a22b4c_routes.py::test_commitments_carry_a_per_row_privacy_level`). It is still counted under `legacy_untagged`, so it is not claimed as tagged.
+- `hub_contract.yaml` regenerated from `ostler-ai/ostler-assistant @ hub-v0.5.42` (837650cf): the commitments top level drops `privacy_level` and gains `withheld` and `legacy_untagged`. The `contract-is-current` gate was STALE on this.
+- `tests/fixtures/meeting_brief_real_hub/commitments.user.json` regenerated (the top level changes as above). `rich.timeline.json` also changes: a last-email-contact marker, which origin/main ALSO drifts on (control: `capture --check` on origin/main 35f485a8 reports `rich.timeline.json` drift), and the conversation event's `privacy_level` L1 from the timeline emit.

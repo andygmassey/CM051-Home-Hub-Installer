@@ -8201,7 +8201,13 @@ def commitments_list(owner=None, due_before=None, status="open",
         # and briefs, so only L1, L2 and untagged may leave. An L0 row is
         # not outbound-safe. The withheld block has no L0 key, so it is
         # counted under "unknown" (the outbound view cannot name it).
-        if not _outbound_level_ok(r.get("plevel")):
+        # 133 outbound gate, explicit at this call site. L0 and L3 are
+        # withheld, and so is a tagged value that does not parse. Untagged is
+        # served at the default level. Same rule as _outbound_level_ok.
+        plevel_raw = r.get("plevel")
+        plevel = pwg_privacy.parse_privacy_level(plevel_raw)
+        if plevel in ("L0", "L3") or (
+                plevel is None and str(plevel_raw or "").strip()):
             withheld["unknown"] += 1
             continue
         commitments.append({
@@ -8210,7 +8216,10 @@ def commitments_list(owner=None, due_before=None, status="open",
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
-            "privacy_level": pwg_privacy.parse_privacy_level(r.get("plevel")),
+            # An untagged row is served at the default L2 label, as before,
+            # and is counted under legacy_untagged. It is not claimed tagged.
+            "privacy_level": (pwg_privacy.parse_privacy_level(r.get("plevel"))
+                              or "L2"),
             "_created": r.get("createdAt", ""),
         })
 
