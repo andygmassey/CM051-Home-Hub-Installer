@@ -406,11 +406,17 @@ def _brief_via_copy(markers):
     import wow_moments as wm
     import smart_prefs as sp
     out = {"job": None, "deleted": None}
-    prompt = wm._morning_prompt()
-    if not prompt:
-        return None, "no morning-brief job in ~/.ostler/assistant-config/config.toml", out
     admin = wm._secret("zeroclaw_admin_token")
     auth = {"Authorization": "Bearer " + admin} if admin else {}
+    prompt = wm._morning_prompt()
+    if not prompt:
+        # The job can live in the gateway's runtime store rather than config.toml
+        # (measured on the walk box: config.toml has none, GET /api/cron lists it).
+        _c, listing = wm._http("GET", wm.GATEWAY + "/api/cron", headers=auth)
+        rows = listing if isinstance(listing, list) else (listing or {}).get("jobs") or []
+        prompt = next((r.get("prompt") for r in rows if isinstance(r, dict) and r.get("id") == "morning-brief"), None)
+    if not prompt:
+        return None, "no morning-brief job in config.toml or in GET /api/cron", out
     t = time.localtime(time.time() + sp.BRIEF_LEAD_S)
     expr = "%d %d %d %d *" % (t.tm_min, t.tm_hour, t.tm_mday, t.tm_mon)
     name = "no-l3-walk-probe-brief-" + uuid.uuid4().hex[:8]
@@ -611,11 +617,6 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
             fx["graph_before"] = _count_subjects(subjects)
             _delete_subjects(subjects)
             fx["graph_after"] = _count_subjects(subjects)
-        fx["stamp_after"] = _count_stamp(stamp)
-        fx["total_after"] = _count_total()
-        # positive control for the stamp query: the same query on a stamp that IS
-        # live must be non-zero, or "0 after" proves nothing.
-        fx["control_known_live"] = _count('?s ?p ?o FILTER(CONTAINS(STR(?o), "https://schema.ostler.ai/ontology#"))')
     except Exception as exc:  # noqa: BLE001
         fx["graph_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:150])
         _note("graph teardown FAILED: " + fx["graph_error"])
@@ -631,6 +632,17 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
             td[key] = t
         except Exception as exc:  # noqa: BLE001
             td[key] = {"id": cid, "parsed": False, "raw": "%s: %s" % (type(exc).__name__, str(exc)[:150])}
+    # 4. LAST: the independent "stamp anywhere" count, after every writer's rows are
+    # gone (the pwg-convo rows carry the stamp too; measured 2026-11-16 before this
+    # move: 20 stamp rows were still there at the old position).
+    try:
+        fx["stamp_after"] = _count_stamp(stamp)
+        fx["total_after"] = _count_total()
+        # positive control for the stamp query: the same shape of query on text that
+        # IS live must be non-zero, or "0 after" proves nothing.
+        fx["control_known_live"] = _count('?s ?p ?o FILTER(CONTAINS(STR(?o), "https://schema.ostler.ai/ontology#"))')
+    except Exception as exc:  # noqa: BLE001
+        fx["graph_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:150])
     return td
 
 
