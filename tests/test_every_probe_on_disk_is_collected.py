@@ -174,6 +174,9 @@ EXEMPT: dict[str, str] = {
         "tests/test_the_walk_seeds_the_preference_pair.sh, which fails if the "
         "runner stops sourcing it, stops calling preference_seed_apply, or "
         "moves the call below the phase-2 loop.",
+    "lib/walk_box_identity.sh": (
+        "a sourced helper (walk_box_declare_synthetic), not a probe: owner_knowledge_score stages it "
+        "to the box and calls the function; it is judged by tests/test_walk_box_declares_only_walk_accounts.py"),
     "lib/conversation_seed.sh":
         "a sourced library, not a probe: run_box_walk.sh sources it between "
         "phase 1 and phase 2, after the other two seeds, and calls "
