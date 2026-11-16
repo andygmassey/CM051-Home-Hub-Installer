@@ -8428,7 +8428,9 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         # 133 outbound gate: the brief line and debts are sent to the
         # assistant for channel replies. Withhold L0, L3 and unparseable
         # threads before anything is counted or named.
-        debts = [d for d in debts if _outbound_level_ok(
+        # In-place: DebtList carries .excluded/.names_degraded/.sources/.channels,
+        # and rebinding to a plain list drops them (payload reads None).
+        debts[:] = [d for d in debts if _outbound_level_ok(
             d.get("privacy_level") if isinstance(d, dict)
             else getattr(d, "privacy_level", None))]
         if limit is not None and limit >= 0:
