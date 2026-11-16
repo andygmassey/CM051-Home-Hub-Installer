@@ -77,7 +77,9 @@ printf '%s' "$2" > "$FAKE_BODY_OUT"
 printf '%s\n<<CALL>>\n' "$2" >> "$FAKE_LOG"
 case "$2" in
   *"test -f"*"conversation-seed-residue"*) echo "${FAKE_MARKER:-RESIDUE_MARKER_ABSENT}"; exit 0 ;;
-  *"conversation_id="*"conversation-seed-residue"*) echo RESIDUE_MARKER_WRITTEN; exit 0 ;;
+  *"conversation_id="*"conversation-seed-residue"*)
+    if [ "$FAKE_MODE" = "refuse_marker" ]; then echo "refused"; exit 1; fi
+    echo RESIDUE_MARKER_WRITTEN; exit 0 ;;
 esac
 case "$FAKE_MODE" in
   ok)        printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW removed 1\n' ;;
@@ -86,6 +88,7 @@ case "$FAKE_MODE" in
   coachcan)  printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW CANNOT-RUN: encrypted\n' ;;
   coachleft) printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\nCOACH_ROW left: the delete did not remove the row (after=1)\n' ;;
   empty)     : ;;
+  refuse_marker) printf 'RESIDUE_QDRANT 2\\nRESIDUE_GRAPH 0\\nCOACH_ROW removed 1\\n' ;;
   *)         printf 'RESIDUE_QDRANT 0\nRESIDUE_GRAPH 0\n' ;;
 esac
 exit "${FAKE_RC:-0}"
@@ -166,6 +169,12 @@ def marker_cases():
         bad.append("a failed forget must write the residue marker on the box")
     if "RESIDUE MARKER written" not in out:
         bad.append("a failed forget must say the marker was written")
+    # O7: a marker write that is refused (fake box answers without RESIDUE_MARKER_WRITTEN) must say so loudly
+    _rcs, out_refused, _b = forget("refuse_marker")
+    if "RESIDUE NOT RECORDED" not in out_refused:
+        bad.append("O7: a refused marker write must print RESIDUE NOT RECORDED")
+    if "RESIDUE MARKER written" in out_refused:
+        bad.append("O7: a refused marker write must not claim the marker was written")
     _rcs, out, _b = forget("ok")
     if "RESIDUE_MARKER_CLEARED" not in FORGET_CALLS[0] or "rm -f" not in FORGET_CALLS[0]:
         bad.append("a verified clean forget must clear the marker")

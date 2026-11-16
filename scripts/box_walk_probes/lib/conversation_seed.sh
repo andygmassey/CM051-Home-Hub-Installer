@@ -1122,7 +1122,7 @@ fi
         _cs_mk="$(_cs_box_exec "mkdir -p \"\$HOME/.ostler/walks\" && printf 'conversation_id=%s\\n' $(_cs_q "${CONVERSATION_SEED_ID}") > \"\$HOME/.ostler/walks/conversation-seed-residue.json\" && echo RESIDUE_MARKER_WRITTEN" 2>&1)"
         case "${_cs_mk}" in
             *RESIDUE_MARKER_WRITTEN*) printf '  RESIDUE MARKER written: the next seeded run is refused until a verified forget clears it.\n' ;;
-            *) printf '  ERROR: CLEANUP FAILED. The residue marker could NOT be written; the next seed would not be refused.\n' ;;
+            *) printf '  ERROR: CLEANUP FAILED. RESIDUE NOT RECORDED: the residue marker could not be written (box unreachable or the write refused). The next seed will NOT be refused; the rows may stay on the box.\n' ;;
         esac
     else
         printf 'CLEANUP STATUS: verified\n'
