@@ -1798,8 +1798,8 @@ test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 ## subscription_gate.py: grafted from CM052 (CM051 #3574), .patch hunks superseded
 
 `vendor/cm041/assistant_api/subscription_gate.py` is now grafted from CM052
-`src/cm052/subscription_gate.py` at merge `3cd5629c` (CM052 #21), byte-identical.
-sha256: `9f60a86eec131b76efd1f5d93f9a58f8000743c849031ac613eb7ebb7238e03c`.
+`src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21), byte-identical.
+sha256: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161`.
 
 The hunks in `vendor/divergences/cm041_assistant_api.patch` that touch
 `subscription_gate.py` (the `+++ b/subscription_gate.py` block, around line 16225)

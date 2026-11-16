@@ -35,12 +35,12 @@ makes `test_default_episodic_root_lives_under_home_ostler` fail (rc 1).
 Tree `cm052_ai_conversations` keeps its pin at `1ec05783` (no resync). The gate is
 grafted into two vendored paths, byte-identical to the merged upstream file:
 
-- source: CM052 `src/cm052/subscription_gate.py` at merge `3cd5629c` (CM052 #21)
-- sha256 of the upstream file: `9f60a86eec131b76efd1f5d93f9a58f8000743c849031ac613eb7ebb7238e03c`
+- source: CM052 `src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21)
+- sha256 of the upstream file: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161`
 - sha256 of `vendor/cm052_ai_conversations/src/cm052/subscription_gate.py`: same value
 - sha256 of `vendor/cm041/assistant_api/subscription_gate.py` (vendor-only row, VENDOR_ONLY.tsv): same value
 - digest pin in `tests/test_g7_gate_copies_are_one.py` set to that value
 
 The tree's other files are NOT resynced: `catchup.py` exists here and not upstream,
 and `cli.py`, `schemas.py`, `wire.py`, `pyproject.toml` differ from upstream at
-`3cd5629c`. The full resync is a 134 backlog item, with `catchup.py` upstreamed first.
+`fd7bf5c02f58`. The full resync is a 134 backlog item, with `catchup.py` upstreamed first.

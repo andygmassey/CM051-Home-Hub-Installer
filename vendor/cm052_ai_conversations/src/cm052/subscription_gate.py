@@ -1078,11 +1078,14 @@ def _main(argv: list) -> int:
     return EXIT_PAUSED
 
 
+# Name the vendored callers import (install.sh, the CM041 and CM052 test
+# suites). Same function; the old name is kept so a re-vendor does not break
+# the installer's import line. Defined ABOVE the __main__ guard: the guard
+# exits, so a definition after it is unreachable when run as a script
+# (verify_no_defs_after_main_guard.py).
+activate_first_month_free = activate_included_pro
+
+
 if __name__ == "__main__":
     sys.exit(_main(sys.argv[1:]))
 
-
-# Name the vendored callers import (install.sh, the CM041 and CM052 test
-# suites). Same function; the old name is kept so a re-vendor does not break
-# the installer's import line. Signature gains included_plan, nothing else.
-activate_first_month_free = activate_included_pro
