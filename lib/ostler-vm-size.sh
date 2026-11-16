@@ -296,7 +296,9 @@ ostler_vm_install_start() {
         "$_c" start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk "$OSTLER_VM_DISK_GIB" || return 1
         ostler_vm_mark_owned "created by the Ostler installer's colima start"
     elif ostler_vm_is_owned; then
-        "$_c" start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk "$OSTLER_VM_DISK_GIB" || return 1
+        # --disk only on CREATE: colima cannot shrink a disk, so passing it to an
+        # existing owned VM would break its start whenever the tier changes.
+        "$_c" start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" || return 1
     else
         "$_c" start || return 1
     fi
