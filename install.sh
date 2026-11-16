@@ -15099,7 +15099,7 @@ else
             # uninstaller's colima block).
             _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
             if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
-            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the 2 CPU / 4 GiB floor"; ostler_vm_install_start() { OSTLER_VM_RECORD_LINE="VM size record skipped (sizing table missing)"; if colima list 2>/dev/null </dev/null | awk 'NR>1 && $1=="default"{f=1} END{exit f?0:1}'; then colima start; else colima start --cpu 2 --memory 4 --disk 30; fi 2>>"${INSTALL_LOG:-/dev/null}" && docker info &>/dev/null 2>&1; }; fi  # i18n-exempt
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the 2 CPU / 4 GiB floor"; ostler_vm_install_start() { OSTLER_VM_RECORD_LINE="VM size record skipped (sizing table missing)"; if colima list 2>/dev/null </dev/null | awk 'NR>1 && $1=="default"{f=1} END{exit f?0:1}'; then colima start; else colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30; fi 2>>"${INSTALL_LOG:-/dev/null}" && docker info &>/dev/null 2>&1; }; fi  # i18n-exempt
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0

@@ -57,7 +57,7 @@ FALLBACK="${FALLBACK%; fi}"   # the closing fi of the if/else is outside the els
 if [ -z "$FALLBACK" ]; then bad "install.sh fallback line not found (grep returned nothing)"; else ok "install.sh fallback line found"; fi
 warn() { :; }; info() { :; }; INSTALL_LOG=/dev/null
 SCRIPT_DIR="$W/no-lib-here"
-run_fallback() { _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; eval "$FALLBACK"; ostler_vm_install_start; }
+run_fallback() { _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2; eval "$FALLBACK"; ostler_vm_install_start; }  # the floor is the line-15100 defaults install.sh sets before the branch
 
 reset
 run_fallback; rc=$?
