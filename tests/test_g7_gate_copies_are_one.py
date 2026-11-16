@@ -41,7 +41,7 @@ COPIES = (
     REPO / "vendor" / "cm052_ai_conversations" / "src" / "cm052" / "subscription_gate.py",
 )
 FDA_GATE = COPIES[0]
-PINNED_SHA256 = "cc5b8989c9e5d8cd8af5b0ef2ff589e8276dd36c51b85635cf76f9923b3ac14d"
+PINNED_SHA256 = "b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161"
 
 
 def _env(state: Path) -> dict:
@@ -57,7 +57,7 @@ def _check(state: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _activate(state: Path, purchase: datetime) -> None:
     code = ("import sys, importlib.util as u; s=u.spec_from_file_location('g', sys.argv[1]); "
-            "m=u.module_from_spec(s); s.loader.exec_module(m); m.activate_first_month_free(sys.argv[2])")
+            "m=u.module_from_spec(s); s.loader.exec_module(m); m.activate_first_month_free(sys.argv[2], licence_tier_state='known')")
     subprocess.run([sys.executable, "-c", code, str(FDA_GATE), purchase.isoformat()],
                    check=True, env=_env(state), timeout=60)
 

@@ -2293,3 +2293,14 @@ recorded divergences from the source, not byte-SAME.
 Golden `tests/fixtures/pagination_golden_preferences.json`: the only changes
 are two added top-level keys, `withheld` and `legacy_untagged`. No existing key
 changed or was removed; `interests` (57 records) is identical.
+
+## subscription_gate.py: grafted from CM052 (CM051 #3574), .patch hunks superseded
+
+`vendor/cm041/assistant_api/subscription_gate.py` is now grafted from CM052
+`src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21), byte-identical.
+sha256: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161`.
+
+The hunks in `vendor/divergences/cm041_assistant_api.patch` that touch
+`subscription_gate.py` (the `+++ b/subscription_gate.py` block, around line 16225)
+record the OLD gate and are SUPERSEDED by this graft. A sync_vendor.sh run must not
+reapply them. No patch regeneration in 133.
