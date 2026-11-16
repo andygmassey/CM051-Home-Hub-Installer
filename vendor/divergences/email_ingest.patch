@@ -199,7 +199,7 @@
      exit 0
  fi
  
-@@ -89,25 +233,64 @@
+@@ -89,18 +233,53 @@
  # 2. Hand the mbox to CM046's email adapter -> CM048
  # ---------------------------------------------------------------------------
  
@@ -260,20 +260,35 @@
      rc=$?
      log "ERROR: pwg-email-ingest failed (exit $rc); mbox preserved at $MBOX."
      exit "$rc"
- }
+@@ -108,6 +287,25 @@
  
  log "ingested $MBOX successfully"
+ 
++# RECEIPTS (flag-off by default, 134 release). OSTLER_RECEIPTS_ENABLED=1 runs the email receipt extractor
++# over the same mbox and hands each receipt to the receipts core as a Check row (never filed by the
++# extractor). A failure here never fails the mail tick.
++if [ "${OSTLER_RECEIPTS_ENABLED:-0}" = "1" ]; then
++    if [ -n "${OSTLER_RECEIPTS_CLI_DIR:-}" ] && [ -n "${OSTLER_RECEIPTS_EXTRACTOR_DIR:-}" ]; then
++        if (cd "$OSTLER_RECEIPTS_EXTRACTOR_DIR" && PYTHONPATH="$OSTLER_RECEIPTS_EXTRACTOR_DIR" "${OSTLER_PYTHON:-python3}" -m src.receipts --input "$MBOX" --store "$OSTLER_DIR/state/receipts_store.jsonl" --to-receipts-core "$OSTLER_RECEIPTS_CLI_DIR"); then
++            log "receipts handed to the receipts core"
++        else
++            log "WARNING: receipts handoff failed; the mail tick is unaffected"
++        fi
++    else
++        log "WARNING: OSTLER_RECEIPTS_ENABLED=1 but the receipts core or extractor dir is unset; receipts skipped"
++    fi
++fi
 +_SETTLING_TICK_READ="$(grep -c '^From ' "$MBOX" 2>/dev/null || true)"
 +case "${_SETTLING_TICK_READ:-}" in ''|*[!0-9]*) _SETTLING_TICK_READ=0 ;; esac
 +_report_email_settling "$_SETTLING_TICK_READ"
- 
++
 +
  # ---------------------------------------------------------------------------
  # 3. Mark first_ingest_complete_ts (#260)
  # ---------------------------------------------------------------------------
 --- a/INSTALL_SNIPPET.sh
 +++ b/INSTALL_SNIPPET.sh
-@@ -94,10 +94,55 @@
+@@ -94,10 +94,62 @@
  esc_home="$(printf '%s' "$EMAIL_INGEST_HOME_RESOLVED"        | sed 's/[&/\]/\\&/g')"
  esc_logs="$(printf '%s' "$LOGS_DIR"                          | sed 's/[&/\]/\\&/g')"
  
@@ -319,8 +334,15 @@
 +# PWG_EMAIL_INGEST_PATH is rendered before OSTLER_PYTHON_PATH purely for
 +# readability; the two placeholders share no common substring so the
 +# order is byte-safe either way.
++# Receipts (flag-off). The plist carries OSTLER_RECEIPTS_ENABLED=0; the two dirs are rendered here.
++RECEIPTS_CLI_DIR_VALUE="${OSTLER_RECEIPTS_CLI_DIR:-$EMAIL_INGEST_HOME_RESOLVED/receipts_core}"
++RECEIPTS_EXTRACTOR_DIR_VALUE="${OSTLER_RECEIPTS_EXTRACTOR_DIR:-$EMAIL_INGEST_HOME_RESOLVED/receipts_extractor}"
++esc_rcli="$(printf '%s' "$RECEIPTS_CLI_DIR_VALUE"      | sed 's/[&/\]/\\&/g')"
++esc_rext="$(printf '%s' "$RECEIPTS_EXTRACTOR_DIR_VALUE" | sed 's/[&/\]/\\&/g')"
  sed \
 +    -e "s/OSTLER_ASSISTANT_BINARY/$esc_assistant/g" \
++    -e "s/RECEIPTS_CLI_DIR_PATH/$esc_rcli/g" \
++    -e "s/RECEIPTS_EXTRACTOR_DIR_PATH/$esc_rext/g" \
      -e "s/OSTLER_BIN/$esc_bin/g" \
      -e "s/OSTLER_HOME/$esc_home/g" \
      -e "s/OSTLER_LOGS/$esc_logs/g" \
@@ -329,7 +351,7 @@
      "$EMAIL_INGEST_PLIST_SRC" > "$RENDERED_PLIST"
  
  chmod 0644 "$RENDERED_PLIST"
-@@ -109,11 +154,50 @@
+@@ -109,11 +161,50 @@
  LABEL="com.creativemachines.ostler.email-ingest"
  DOMAIN="gui/$(id -u)"
  
@@ -394,7 +416,7 @@
      </array>
  
      <!--
-@@ -78,6 +79,40 @@
+@@ -78,6 +79,46 @@
      <string>OSTLER_LOGS/email-ingest.err</string>
  
      <!--
@@ -429,6 +451,12 @@
 +        <string>OSTLER_PYTHON_PATH</string>
 +        <key>PWG_EMAIL_INGEST</key>
 +        <string>PWG_EMAIL_INGEST_PATH</string>
++        <key>OSTLER_RECEIPTS_ENABLED</key>
++        <string>0</string>
++        <key>OSTLER_RECEIPTS_CLI_DIR</key>
++        <string>RECEIPTS_CLI_DIR_PATH</string>
++        <key>OSTLER_RECEIPTS_EXTRACTOR_DIR</key>
++        <string>RECEIPTS_EXTRACTOR_DIR_PATH</string>
 +    </dict>
 +
 +    <!--

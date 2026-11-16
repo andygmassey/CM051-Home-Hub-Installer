@@ -1163,6 +1163,30 @@ targets:
           - $(SRCROOT)/../vendor/cm021
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cm021
+      - name: Bundle receipts core and extractor (134, flag-off) into Resources
+        script: |
+          set -euo pipefail
+          # Both trees ship even though the feature is flag-off: OSTLER_RECEIPTS_ENABLED=0 in the plist means
+          # nothing calls them until a walk turns it on. install.sh sets OSTLER_RECEIPTS_CLI_DIR to
+          # ${SCRIPT_DIR}/receipts_core, so the copy lands at Resources/receipts_core/src/receipts.
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          for pair in "receipts_core:${SRCROOT}/../vendor/receipts_core" "receipts_extractor:${SRCROOT}/../vendor/receipts_extractor"; do
+            name="${pair%%:*}"; src="${pair#*:}"
+            if [ ! -f "${src}/src/receipts/__init__.py" ]; then
+              echo "error: ${src}/src/receipts missing" >&2; exit 1
+            fi
+            rm -rf "${DEST}/${name}"
+            mkdir -p "${DEST}/${name}/src"
+            cp -R "${src}/src/receipts" "${DEST}/${name}/src/receipts"
+            find "${DEST}/${name}" -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+            /usr/bin/xattr -cr "${DEST}/${name}"
+          done
+        inputFiles:
+          - $(SRCROOT)/../vendor/receipts_core
+          - $(SRCROOT)/../vendor/receipts_extractor
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/receipts_core
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/receipts_extractor
       - name: Bundle imessage-bridge LaunchAgent + producer into Resources
         script: |
           set -euo pipefail
