@@ -19,6 +19,8 @@ on:
     paths:
       - 'install.sh'
       - 'tests/test_dedupe_deps_reach_the_consumer_venv.sh'
+      - 'tests/test_upg_repair_pref_subjects.sh'
+      - 'vendor/cm019_preferences/services/ingest/src/repair_pref_subjects.py'
       - 'install.sh.strings.en-GB.sh'
       - 'lib/progress_emitter.sh'
       - 'lib/write_pipeline_signals.py'
