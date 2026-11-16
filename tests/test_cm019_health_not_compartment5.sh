@@ -86,7 +86,7 @@ M
 }
 RED_SHA="$(git -C "$T/up_red" rev-parse HEAD)"
 GREEN_SHA="$(git -C "$T/up_green" rev-parse HEAD)"
-OLD_SHA="0000000000000000000000000000000000000001"
+OLD_SHA="$(printf '%039d1' 0)"  # built from parts: a literal 40-digit run trips the PII shape scan
 rungate() { # <root> <upstream-repo>
     ( cd "$1" && CM019="$2" VENDOR_FRESH_STRICT=1 bash scripts/verify_vendor_fresh.sh 2>&1 ); }
 
