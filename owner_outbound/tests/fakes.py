@@ -29,6 +29,12 @@ class FakeStore:
     def count_rows_for(self, person_uri):
         return sum(1 for k in self.rows if k[0] == person_uri)
 
+    def person_uris(self):
+        return sorted({k[0] for k in self.rows})
+
+    def commit(self):
+        pass
+
 
 class FakeGraph:
     """Stands in for the people graph side of forget-person (a separate store)."""

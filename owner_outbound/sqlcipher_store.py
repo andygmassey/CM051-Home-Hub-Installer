@@ -62,12 +62,17 @@ class SqlCipherStore:
             "updated_at=excluded.updated_at",
             (person_uri, channel, row.get("last_owner_sent_at"), row["owner_sent_count"],
              row["group_sent_count"], row.get("source_id"), row.get("updated_at")))
-        self._conn.commit()
 
     def delete_rows_for(self, person_uri):
         cur = self._conn.execute("DELETE FROM owner_outbound WHERE person_uri=?", (person_uri,))
-        self._conn.commit()
         return cur.rowcount
+
+    def person_uris(self):
+        return [r[0] for r in self._conn.execute(
+            "SELECT DISTINCT person_uri FROM owner_outbound").fetchall()]
+
+    def commit(self):
+        self._conn.commit()
 
     def count_rows_for(self, person_uri):
         return self._conn.execute(
