@@ -1,0 +1,7 @@
+# Container VM size tiers, as lib/ostler-vm-size.sh (OSTLER_VM_SIZE_TABLE) has them.
+# Columns: min_host_gib vm_memory_gib vm_cpus. Highest band first, last row is the floor.
+# Identical in both repos. Read by oa src/main.rs (HOST_TIERS).
+32 10 5
+24 8 4
+16 6 3
+0 4 2

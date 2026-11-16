@@ -124,7 +124,7 @@ def evaluate(record_text: Optional[str], list_json: Optional[str]) -> dict[str, 
     running = parse_running(list_json)
     if recorded is None:
         return {"state": "unrecorded", "recorded": None, "running": running,
-                "text": "Background engine: size not recorded (update Ostler to record it)"}
+                "text": "Background engine: VM size record missing, sized from host"}
     if running is None:
         return {"state": "unknown", "recorded": recorded, "running": None,
                 "text": "Background engine: couldn't check the running size"}
