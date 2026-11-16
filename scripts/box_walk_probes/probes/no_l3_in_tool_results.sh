@@ -76,6 +76,24 @@ decide() {
 }
 
 self_test() {
+    # A FAILING fake box run must come out CANNOT-RUN (exit 78), never PASS or
+    # FAIL. Run in a subshell so probe_cannot_run's exit stays contained.
+    ( box_reachable() { return 0; }
+      box_run() { echo "fake box: seed exploded" >&2; return 1; }
+      OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
+    local fake_rc=$?
+    probe_examined 1 "failing fake box run"
+    [ "${fake_rc}" -eq 78 ] || {
+        probe_pass "SELF-TEST BROKEN: a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
+    }
+    # An empty capture (box run ok, no output) must also be CANNOT-RUN.
+    ( box_reachable() { return 0; }
+      box_run() { return 0; }
+      OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
+    fake_rc=$?
+    [ "${fake_rc}" -eq 78 ] || {
+        probe_pass "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
+    }
     python3 "${_JUDGE}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "judge cases"
         probe_pass "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
@@ -111,14 +129,40 @@ run_probe() {
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
     local remote cap
     remote="/tmp/ostler-probe-no-l3-$$.py"
-    box_run "printf %s '$(base64 < "${_BOXSCRIPT}" | tr -d '\n')' | base64 -d > ${remote}" >/dev/null 2>&1 \
+    _no_l3_box_capture "printf %s '$(base64 < "${_BOXSCRIPT}" | tr -d '\n')' | base64 -d > ${remote}" "" \
         || probe_cannot_run "could not stage the seed and reader on the box"
     cap="$(mktemp)"
-    box_run "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}; rm -f ${remote}" > "${cap}" 2>/dev/null
-    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
-        || { rm -f "${cap}"; probe_cannot_run "the box-side seed and reader returned no capture"; }
     trap 'rm -f "${cap}"' EXIT
+    _no_l3_box_capture "OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' /usr/bin/python3 ${remote}; rm -f ${remote}" "${cap}" \
+        || probe_cannot_run "the box-side seed and reader failed; its stderr is above"
+    _no_l3_capture_ok "${cap}" \
+        || probe_cannot_run "the box-side seed and reader returned an empty or non-JSON capture (see the stderr above)"
     decide "${cap}"
+}
+
+# THE ONLY WAY A BOX RUN IS CAPTURED. stderr is kept in a file and printed on
+# failure, never discarded: a failed seed or teardown must read as a failure,
+# not as an empty capture. Returns the box command's exit status.
+_no_l3_box_capture() {
+    local cmd="$1" out="$2" errf rc
+    errf="$(mktemp)"
+    if [ -n "${out}" ]; then
+        box_run "${cmd}" > "${out}" 2> "${errf}"
+    else
+        box_run "${cmd}" > /dev/null 2> "${errf}"
+    fi
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "box run failed rc=${rc}; stderr:" >&2
+        sed 's/^/  | /' "${errf}" >&2
+    fi
+    rm -f "${errf}"
+    return "${rc}"
+}
+
+# A capture is usable only if it is non-empty JSON.
+_no_l3_capture_ok() {
+    [ -s "$1" ] && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1"
 }
 
 probe_main "$@"
