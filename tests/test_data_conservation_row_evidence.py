@@ -60,6 +60,11 @@ def fake_http(url, body=None, headers=None, form=None, timeout=60):
 
 
 def fake_sparql(q, hdr):
+    # The aggregate queries (CM051 #3555 people facts) answer with a bound "n", as the real store does.
+    if "COUNT(" in q and "displayName" in q:
+        return [{"n": {"value": str(len(GRAPH_PERSONS))}}]
+    if "COUNT(" in q and "mergedInto" in q:
+        return [{"n": {"value": "0"}}]
     if "displayName" in q and "Person" in q:
         return [{"p": {"value": s}, "d": {"value": n}} for s, n in GRAPH_PERSONS]
     return []

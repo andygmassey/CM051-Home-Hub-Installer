@@ -44,28 +44,25 @@ def verdict(rid, facts):
     return dc.adjudicate_row(row(rid), facts)["verdict"]
 
 
-# ---- (ii) people/all: SHOWN summed over every source --------------------------
+# ---- (ii) people/shown: SHOWN = wiki People pages, less the product's declared skips ----
+# (replaces the old people/all row, which summed overlapping sources; CM051 #3555)
 people = {
-    "hyd.people.item_count": 5000, "hyd.contacts.item_count": 2000,
-    "q.people.total": 7000, "x.class.Person": 7000,
-    "w.shown.people.source=fda_people_index": 5000,
-    "w.shown.people.source=icloud_contacts": 2000,
+    "cnt.loaded": 95, "cnt.merged.fold_people": 5,
+    "cnt.skip.empty_profile": 3, "cnt.skip.org_as_person": 2, "cnt.skip.junk_single_token": 0,
+    "w.pages.People": 90,
 }
-people["w.shown.people.source_sum"] = dc.shown_source_sum(people, "people")
-check("the source sum adds every people source (={})".format(people["w.shown.people.source_sum"]),
-      people["w.shown.people.source_sum"] == 7000)
-check("people/all reads CONSERVED when every source is shown (fda 5000 + icloud 2000 = stored 7000): {}".format(
-    verdict("people/all", people)), verdict("people/all", people) == "CONSERVED")
+check("people/shown is not a loss when every gap is a declared skip (EXPLAINED): {}".format(
+    verdict("people/shown", people)), verdict("people/shown", people) in ("CONSERVED", "EXPLAINED"))
 
-# the same facts with one source genuinely missing from the wiki must still be LOST
-missing = dict(people, **{"w.shown.people.source=icloud_contacts": 0})
-missing["w.shown.people.source_sum"] = dc.shown_source_sum(missing, "people")
-check("an unexplained shown loss in one source is still LOST: {}".format(verdict("people/all", missing)),
-      verdict("people/all", missing) == "LOST")
+# one page genuinely missing from the wiki, no declared reason, must still be LOST
+missing = dict(people, **{"w.pages.People": 89})
+check("an unexplained shown loss is still LOST: {}".format(verdict("people/shown", missing)),
+      verdict("people/shown", missing) == "LOST")
 
-# absent, never zero: no source group measured means the sum is absent
-check("no measured source group gives an absent sum, not 0",
-      dc.shown_source_sum({"q.people.total": 7000}, "people") is None)
+# absent counts file: no product facts, so NOT-MEASURED, never a pass
+absent = {"w.pages.People": 90}
+check("no product counts file gives NOT-MEASURED, not a pass: {}".format(verdict("people/shown", absent)),
+      verdict("people/shown", absent) == "NOT-MEASURED")
 
 # ---- (iii) whatsapp/people: cross-run, so NOT-MEASURED ----------------------
 wa = {"log.whatsapp_people_added": 467, "hyd.whatsapp.item_count": 293, "doctor.whatsapp.item_count": 293}
@@ -80,7 +77,7 @@ check("a cross-run row alone makes the probe CANNOT-RUN (78), not FAIL: {} {}".f
 # A real LOST elsewhere still dominates
 lost_facts = dict(missing, **{"log.whatsapp_people_added": 467, "hyd.whatsapp.item_count": 293,
                              "doctor.whatsapp.item_count": 293})
-rows, counts = dc.adjudicate({"rows": [row("people/all"), row("whatsapp/people")]}, lost_facts)
+rows, counts = dc.adjudicate({"rows": [row("people/shown"), row("whatsapp/people")]}, lost_facts)
 word, code = dc.overall(rows, counts)
 check("a LOST row still makes the whole probe FAIL, even beside a cross-run row: {} {}".format(word, code),
       word == "FAIL" and code == 1)
