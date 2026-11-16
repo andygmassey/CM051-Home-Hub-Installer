@@ -175,6 +175,13 @@ jobs:
           bash tests/test_pgrep_no_match_does_not_fabricate_a_done.sh
           bash tests/test_total_steps_dynamic.sh
 
+      # #3551: the install.sh apply branch of the two-subject pref repair (PWG #478).
+      - name: The pref-subject repair applies once, marks, and refuses without a marker (#3551)
+        if: always()
+        run: |
+          set -euo pipefail
+          bash tests/test_upg_repair_pref_subjects.sh
+
       # #640: the abort-close is fallible and sits BEFORE the guard it protects,
       # so a failure inside it destroyed the only terminal marker the run makes.
       - name: An abort must still report when its own step-close fails (#640)

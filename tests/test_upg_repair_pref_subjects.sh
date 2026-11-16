@@ -31,10 +31,10 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0)); body = self.rfile.read(n).decode()
         if self.path == "/query":
-            rows = [{"s": {"value": NODE}, "subj": {"value": v}} for v in ("Synthetic Widget (Deluxe Series)", "Synthetic Widget (Dlx. Ser.)")]
+            rows = [{"s": {"value": NODE}, "subj": {"value": v}} for v in ("synthetic-widget-deluxe-series", "synthetic-widget-dlx-ser")]
             return self._send(200, json.dumps({"results": {"bindings": rows}}))
         if self.path.startswith("/collections/"):
-            return self._send(200, json.dumps({"result": [{"payload": {"subject": "Synthetic Widget (Deluxe Series)"}}]}))
+            return self._send(200, json.dumps({"result": [{"payload": {"subject": "synthetic-widget-deluxe-series"}}]}))
         if self.path == "/update":
             with open(UPD, "a") as fh: fh.write(body + "\n---\n")
             if MODE == "refuse":
@@ -67,7 +67,7 @@ grep -q "pref-subject repair dry run (rc=0): two-subject nodes: 1 fixable" "$LOG
 grep -q "pref-subject repair: applied; marker written" "$LOG" || { echo "FAIL: apply not logged"; cat "$LOG"; exit 1; }
 [ -f "$MARK" ] || { echo "FAIL: marker not written"; exit 1; }
 grep -q "DELETE DATA" "$UPD" || { echo "FAIL: no DELETE DATA reached the store"; exit 1; }
-grep -q "Dlx. Ser." "$UPD" || { echo "FAIL: the non-matching subject was not the one deleted"; exit 1; }
+grep -q "synthetic-widget-dlx-ser" "$UPD" || { echo "FAIL: the non-matching subject was not the one deleted"; exit 1; }
 echo "PASS apply branch: dry run, delete of the non-matching subject, marker"
 
 # Second run: marker present, no second update.
