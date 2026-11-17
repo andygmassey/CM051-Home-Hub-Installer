@@ -3,7 +3,7 @@
 ``_timeline_from_graph(outbound=True)`` applies the fail-closed L3 filter
 (``pwg_privacy.is_l3``) to each meeting: its own level and EACH attendee's,
 most-restrictive wins, a missing meeting level inherits the attendee's (never
-L1), unparseable or nothing-at-all -> hidden. Since Archie's 2026-11-17 ruling
+L1), unparseable or nothing-at-all -> hidden. Since the 2026-11-17 review ruling
 the Timeline obeys the request's destination (undeclared = unknown) and the
 ``outbound`` flag changes nothing; owner_local sees every level, labelled.
 
