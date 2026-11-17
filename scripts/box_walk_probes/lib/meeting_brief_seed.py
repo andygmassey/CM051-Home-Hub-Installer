@@ -75,7 +75,12 @@ def sparql(today=ANCHOR, with_named_graph=True):
         <urn:ostler:todoText> "Share the workshop deck with Alexandra" ;
         <urn:ostler:owner> "user" ; <urn:ostler:ownerDisplay> "Sam" ;
         <urn:ostler:status> "open" ; <urn:ostler:deadline> "2030-01-31" ;
-        <urn:ostler:todoCreatedAt> "{d(10)}T09:00:00Z" .
+        <urn:ostler:todoCreatedAt> "{d(10)}T09:00:00Z" ; <urn:ostler:privacyLevel> "L2" .
+    <urn:ostler:todo/t4> a <urn:ostler:OutstandingTodo> ;
+        <urn:ostler:aboutPerson> <urn:ostler-walk-fixture:alexandra> ;
+        <urn:ostler:todoText> "Private todo that must never be served" ;
+        <urn:ostler:owner> "user" ; <urn:ostler:status> "open" ; <urn:ostler:deadline> "2030-02-14" ;
+        <urn:ostler:todoCreatedAt> "{d(8)}T09:00:00Z" ; <urn:ostler:privacyLevel> "L3" .
     <urn:ostler:todo/t2> a <urn:ostler:OutstandingTodo> ;
         <urn:ostler:aboutPerson> <urn:ostler-walk-fixture:alexandra> ;
         <urn:ostler:todoText> "Share the venue shortlist" ;

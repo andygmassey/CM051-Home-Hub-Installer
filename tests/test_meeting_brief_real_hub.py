@@ -97,6 +97,18 @@ class Calendar(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+
+def person_contract_violations(rows):
+    """Rows that break the person contract: a person on a row whose effective
+    level is not L0-L2 (L3, untagged or unparseable). Pure, so a mutant can
+    be fed straight in."""
+    bad = []
+    for r in rows or []:
+        if "person" in r and str(r.get("privacy_level", "")).upper() not in ("L0", "L1", "L2"):
+            bad.append(r)
+    return bad
+
+
 def serve(handler):
     port = _free_port()
     srv = ThreadingHTTPServer(("127.0.0.1", port), handler)
@@ -248,8 +260,21 @@ def main():
                       len(todos) == 2 and all(k in t for t in todos for k in ("text", "owner", "deadline")))
                 check("a done todo is not listed as open", not any("contract" in t["text"] for t in todos))
                 cm = hub.get("/api/v1/commitments?status=open")
-                check("commitments rows have no person field (so they cannot be attributed to a contact)",
-                      cm["commitments"] and not any(k in r for r in cm["commitments"] for k in ("with", "person", "counterparty", "about")))
+                # Archie 2026-11-18: a commitment may carry a person ONLY when its
+                # effective level is L0-L2 (owner_own_brief). L3, untagged and
+                # legacy-L0 commitments carry NO person and NO text, and are counted.
+                check("commitments: a served row carries a person only at L0-L2",
+                      not person_contract_violations(cm["commitments"]))
+                check("commitments: the L3 todo is withheld and counted, its text never served",
+                      cm.get("withheld", {}).get("l3", 0) >= 1 and not any(
+                          "must never be served" in r.get("action", "") for r in cm["commitments"]))
+                check("commitments: the untagged todo is withheld and counted as unknown",
+                      cm.get("withheld", {}).get("unknown", 0) >= 1)
+                # Control: the predicate must fire on a leak, or the check above is blind.
+                leaked = [dict(r, person="Alexandra Patel", privacy_level="L3")
+                          for r in cm["commitments"][:1]] or [{"person": "x", "privacy_level": "L3"}]
+                check("CONTROL: the person predicate goes red when an L3 row carries a person",
+                      bool(person_contract_violations(leaked)))
                 blob = json.dumps([rich, tl, none_tl, up_, cm])
                 for g in ("first_contact", "contact_frequency", "mutual_contacts", "org_contacts",
                           "meeting_count", "awaiting_reply", "first_seen", "known_since"):
