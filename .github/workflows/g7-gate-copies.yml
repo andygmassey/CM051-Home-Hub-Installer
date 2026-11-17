@@ -13,6 +13,9 @@ on:
       - 'vendor/cm041/assistant_api/subscription_gate.py'
       - 'vendor/cm052_ai_conversations/src/cm052/subscription_gate.py'
       - 'tests/test_g7_gate_copies_are_one.py'
+      - 'tests/test_ai_conversations_source_default_pin.py'
+      - 'vendor/cm052_ai_conversations/src/cm052/privacy_scale_canonical.tsv'
+      - 'vendor/cm052_ai_conversations/src/cm052/source_defaults.py'
       - '.github/workflows/g7-gate-copies.yml'
   push:
     branches: [main]
@@ -45,3 +48,13 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_g7_gate_copies_are_one.py -v -rs
+      # Same job, second vendored-tree pin: the [source_default] table and its reader.
+      - name: ai_conversations source_default pin
+        run: |
+          n="$(python -m pytest tests/test_ai_conversations_source_default_pin.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 1 ]; then
+            echo "REFUSING: expected at least 1 collected test, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_ai_conversations_source_default_pin.py -v -rs
