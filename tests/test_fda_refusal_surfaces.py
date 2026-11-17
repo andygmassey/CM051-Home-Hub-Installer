@@ -27,6 +27,7 @@ from __future__ import annotations
 import errno
 import importlib
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -43,6 +44,13 @@ if os.geteuid() == 0:
     print("CANNOT-RUN: running as root; chmod 000 cannot simulate a refusal", file=sys.stderr)
     sys.exit(2)
 sys.path.insert(0, str(vendor))
+
+# The refusal paths write settling_progress.d shards under
+# $OSTLER_STATE_DIR (else ~/.ostler/state). Run in a private home so they
+# never touch the operator's real one (2026-11-17: they did).
+_SANDBOX = Path(tempfile.mkdtemp(prefix="fda-refusal-home-"))
+os.environ["HOME"] = str(_SANDBOX)
+os.environ["OSTLER_STATE_DIR"] = str(_SANDBOX / ".ostler" / "state")
 
 PASS = FAIL = 0
 
@@ -233,4 +241,5 @@ print("RESULT: %d passed, %d failed" % (PASS, FAIL))
 if PASS == 0:
     print("CANNOT-RUN: nothing was measured", file=sys.stderr)
     sys.exit(2)
+shutil.rmtree(_SANDBOX, ignore_errors=True)
 sys.exit(1 if FAIL else 0)
