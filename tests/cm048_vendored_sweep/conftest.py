@@ -112,3 +112,21 @@ if _pkg is not None and getattr(_pkg, "__OSTLER_TEST_STUB__", False):
     _db_key.resolve_db_key = lambda *a, **k: types.SimpleNamespace(key=None, source="test-stub", reason="")
     sys.modules["ostler_security.db_key"] = _db_key
     _pkg.db_key = _db_key
+
+
+# CM051 PORT OF UPSTREAM (CM048 tests/conftest.py, fixture added in CM048 #98,
+# 05affaf). Step 07 and the Reminders gate read the owner's minor flag from the
+# store (src/minors.py, vendored by the 134 re-sync dd620a4d) with a POST to
+# /query, and FAIL CLOSED when it cannot be read. That read is a SELECT, not a
+# topic write, but the counting _Counter in these tests counts every POST, so
+# without this fixture an L3 conversation looks like it wrote. Tests that are
+# not about the flag see an EMPTY, read-only index: no POST, no store touched.
+import pytest as _pytest_minor_flag
+
+
+@_pytest_minor_flag.fixture(autouse=True)
+def _minor_flag_sees_no_minors(monkeypatch):
+    from src import minors
+
+    monkeypatch.setattr(minors, "load", lambda url: minors.MinorIndex())
+    yield
