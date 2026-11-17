@@ -54,3 +54,7 @@ The verifier PASS path reports tier_state `absent` for every production licence 
 - digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
 
 Tree `cm052_ai_conversations`: `vendor/cm052_ai_conversations/src/cm052/subscription_gate.py` re-grafted byte-identical. Tree pin stays `1ec05783`.
+
+## 2026-11-17 (ORM, 134 CB134-FRESH): every edit above is now IN the patch
+
+The tree was re-pinned to CM052 main f0b7b277 with vendored bytes unchanged and `vendor/divergences/cm052_ai_conversations.patch` regenerated against that pin (4 modified files, 1 vendor-only new file: `catchup.py`). The ~/Ostler path edits, the watermark graft and the not-taken G7 / Slack / owner-chat-pages features are recorded there as diff, not here as prose. `VENDOR_FRESH_STRICT=1 verify_vendor_fresh.sh` reports OK cm052_ai_conversations at f0b7b277.

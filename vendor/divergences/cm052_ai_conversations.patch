@@ -1,6 +1,13 @@
-diff --git b/src/cm052/catchup.py b/src/cm052/catchup.py
-new file mode 100644
-index 00000000..0e07ee85
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,7 +18,6 @@
+ 
+ [project.scripts]
+ pwg-ai-convo = "src.cm052.cli:main"
+-ostler-slack-import = "src.cm052.slack.cli:main"
+ 
+ [tool.setuptools.packages.find]
+ where = ["."]
 --- /dev/null
 +++ b/src/cm052/catchup.py
 @@ -0,0 +1,118 @@
@@ -122,15 +129,123 @@ index 00000000..0e07ee85
 +
 +def adapters():
 +    return [AIConversationsAdapter()]
-diff --git a/src/cm052/cli.py b/src/cm052/cli.py
-index 5431a38f..350fc701 100644
 --- a/src/cm052/cli.py
 +++ b/src/cm052/cli.py
-@@ -343,6 +343,24 @@ def _emit_json(counts: dict, *, enabled: bool) -> None:
-         print(json.dumps(counts))
+@@ -51,12 +51,6 @@
+   start sensibly (e.g. ``CM052_USER_EMAIL`` unset, which the wire
+   requires; or an unwritable state directory).
+ 
+-- ``5`` / ``6``: single-source runs only (an owner-initiated import):
+-  refused without Pro (``first_import.EXIT_PAUSED_NOT_PRO``, the shared
+-  refusal copy is printed) / could not check Pro (``EXIT_COULD_NOT_CHECK``,
+-  "Try again"). ``--source all`` (both scheduled runs) pauses with exit 0,
+-  a log line per source and ``entitlement_status.json`` in the state dir.
+-
+ Per-conversation failures are caught and counted; one bad transcript
+ never aborts the run.
+ """
+@@ -71,7 +65,6 @@
+ from datetime import datetime, timedelta, timezone
+ from pathlib import Path
+ 
+-from . import first_import as fi
+ from . import wire
+ from .schemas import Conversation
+ from .unifier import (
+@@ -100,78 +93,6 @@
  
  
-+def process_one(conv: Conversation) -> str:
+ _SOURCE_CHOICES = ("claude_code", "chatgpt", "gateway", "all")
+-
+-
+-# PRO RULE FOR AI CAPTURE (Andy, 2026-10-19). Same rule as every source:
+-# the FIRST import of an export file per source is free, with or without Pro;
+-# re-imports, later exports and every ongoing capture (a watcher over a live
+-# store) are Pro. ``first_import.entry_gate`` is the one shared helper.
+-#
+-# A source is an EXPORT source when the owner downloads a file from the
+-# vendor and drops it in. Every other source is ongoing capture. An unknown
+-# subtype is ongoing capture, i.e. Pro only: fail closed, never free.
+-_EXPORT_SOURCES = frozenset({"chatgpt"})
+-
+-# Owner-facing names for the shared copy. Unknown subtypes fall back to a
+-# generic label rather than leaking an internal key into customer copy.
+-_SOURCE_LABELS = {
+-    "chatgpt": "ChatGPT",
+-    "claude_code": "Claude Code",
+-    "gateway": "Ostler",
+-}
+-
+-# Ongoing capture: the pause text Andy approved (with Archie, 2026-10-19).
+-# Exact, line break included; only {source} is substituted.
+-PAUSED_SYNC_TEMPLATE = (
+-    "Keeping {source} up to date automatically is part of Ostler Pro.\n"
+-    "Everything you've already imported stays here, and you can still search it."
+-)
+-# Buttons shown with ANY Pro pause, same as the second-import message
+-# (coordinator, delegated by Andy 19 Oct). "Not now" dismisses until the next
+-# pause event and never repeats within a day: that is the UI's job (Doctor,
+-# iOS); this module only names them in the status record.
+-PAUSED_SYNC_ACTIONS = ("Upgrade to Pro", "Not now")
+-
+-_STATUS_FILENAME = "entitlement_status.json"
+-
+-
+-def _label(subtype: str) -> str:
+-    return _SOURCE_LABELS.get(subtype, "AI")
+-
+-
+-def _refusal_for(subtype: str) -> str:
+-    if subtype in _EXPORT_SOURCES:
+-        return fi.refusal_text(_label(subtype))
+-    return PAUSED_SYNC_TEMPLATE.format(source=_label(subtype))
+-
+-
+-def _gate(subtype: str) -> "fi.GateDecision":
+-    """One entry-gate decision per source per run. Never raises: an
+-    unexpected failure is ``could_not_check`` (CANNOT-RUN), never a grant
+-    and never a refusal."""
+-    try:
+-        return fi.entry_gate(subtype, export_import=subtype in _EXPORT_SOURCES)
+-    except Exception as exc:  # pragma: no cover - defensive
+-        log.warning("Pro check failed for %s: %s", subtype, type(exc).__name__)
+-        return fi.GateDecision(False, "could_not_check")
+-
+-
+-def _write_status(state_dir: Path, sources: dict) -> None:
+-    """Per-source capture state for the Doctor: counts and the owner-facing
+-    sentence, never conversation content. Best effort: a status write must
+-    not fail the run."""
+-    payload = {
+-        "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+-        "sources": sources,
+-    }
+-    try:
+-        state_dir.mkdir(parents=True, exist_ok=True)
+-        path = state_dir / _STATUS_FILENAME
+-        tmp = path.with_suffix(".json.tmp")
+-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+-        tmp.replace(path)
+-    except OSError as exc:
+-        log.warning("Could not write capture status: %s", exc)
+ 
+ 
+ def _ai_adapters(source: str = "all") -> list[tuple]:
+@@ -423,22 +344,20 @@
+ 
+ 
+ def process_one(conv: Conversation) -> str:
+-    """Hand ONE conversation to the wire through the same entry gate as
+-    ``run``, and name the outcome: ``"posted"``, ``"l3_skipped"`` or
+-    ``"paused"`` (refused or could not check Pro; nothing staged). Used by
+-    CM051's background catch-up (vendored ``catchup.py``), which holds its
+-    walk on ``"paused"``. Never spends the free import: only ``run`` marks
+-    it, after a clean whole-export hand-off. Raises on transport failure,
+-    exactly as ``wire.post`` does."""
+-    decision = _gate(conv.provenance.source_subtype)
+-    if not decision.allowed:
+-        return "paused"
+-    result = wire.post(conv, free_import=decision.is_free_import)
 +    """Hand ONE conversation to the wire and name the outcome.
 +
 +    The single per-conversation step, shared by ``run`` and the background
@@ -140,69 +255,467 @@ index 5431a38f..350fc701 100644
 +    exactly as ``wire.post`` does.
 +    """
 +    result = wire.post(conv)
-+    if isinstance(result, dict):
+     if isinstance(result, dict):
 +        if result.get("reason") == "privacy_level_l3":
 +            return "l3_skipped"
-+        if result.get("reason") == "subscription_inactive":
-+            return "paused"
-+    return "posted"
-+
-+
- def run(args: argparse.Namespace) -> int:
-     """Core orchestration. Returns the process exit code."""
-     state_path = (
-@@ -413,6 +431,7 @@ def run(args: argparse.Namespace) -> int:
-     posted = 0
+         if result.get("reason") == "subscription_inactive":
+             return "paused"
+-        if result.get("reason") == "privacy_level_l3" or result.get("gist_level") == "L3":
+-            return "l3_skipped"
+     return "posted"
+ 
+ 
+@@ -470,12 +389,10 @@
+     processed: dict = state["processed"]
+ 
+     try:
+-        everything = _discover(0, args.source)
++        conversations = _discover(args.since_days, args.source)
+     except Exception as exc:  # pragma: no cover - defensive
+         log.error("Discovery failed: %s", exc, exc_info=True)
+         return 1
+-    cutoff = _since_cutoff(args.since_days)
+-    conversations = [c for c in everything if _within_since(c, cutoff)]
+ 
+     discovered = len(conversations)
+     pending = [c for c in conversations if _is_new_or_changed(c, processed)]
+@@ -486,39 +403,6 @@
+         discovered,
+         len(pending),
+     )
+-
+-    # Entry gate, once per source per run, BEFORE anything is read into the
+-    # wire. A held conversation is not touched and its watermark does not
+-    # move, so it is processed on the first run after the owner has Pro.
+-    decisions: dict[str, fi.GateDecision] = {}
+-    per_source: dict[str, dict] = {}
+-    if not args.dry_run:
+-        # Gate every source with something new, including export sources
+-        # whose only new conversations are older than the clamp window.
+-        candidates = pending + [
+-            c for c in everything
+-            if c.provenance.source_subtype in _EXPORT_SOURCES
+-            and not _within_since(c, cutoff)
+-            and _is_new_or_changed(c, processed)
+-        ]
+-        for conv in candidates:
+-            sub = conv.provenance.source_subtype
+-            if sub not in decisions:
+-                decisions[sub] = _gate(sub)
+-                per_source[sub] = {"delivered": 0, "failed": 0, "held": 0}
+-        # A FREE first import takes the WHOLE export, not just the clamp
+-        # window: the background catch-up walks older conversations later,
+-        # and by then the taster is spent, so without this the older half
+-        # of the owner's free import would be refused.
+-        free = {s for s, d in decisions.items() if d.is_free_import}
+-        if free:
+-            seen = {c.conversation_id for c in pending}
+-            pending += [
+-                c for c in everything
+-                if c.provenance.source_subtype in free
+-                and c.conversation_id not in seen
+-                and _is_new_or_changed(c, processed)
+-            ]
+ 
+     if not pending:
+         # Clean no-op. Empty-by-design (no sources) and "nothing new"
+@@ -531,11 +415,6 @@
+             except OSError as exc:
+                 log.error("Could not write state file %s: %s", state_path, exc)
+                 return 1
+-            # Nothing is waiting, so nothing is paused: clear a pause the
+-            # Doctor would otherwise keep showing (for example after the owner
+-            # removed the export that was held).
+-            if (state_path.parent / _STATUS_FILENAME).exists():
+-                _write_status(state_path.parent, {})
+         log.info("Nothing to process. Done.")
+         _emit_json(
+             {
+@@ -544,8 +423,6 @@
+                 "written": 0,
+                 "l3_skipped": 0,
+                 "failed": 0,
+-                "paused": 0,
+-                "could_not_check": 0,
+             },
+             enabled=args.json,
+         )
+@@ -555,7 +432,6 @@
      l3_skipped = 0
      errors = 0
-+    paused = 0
+     paused = 0
+-    could_not_check = 0
  
      for conv in pending:
          if args.dry_run:
-@@ -424,7 +443,7 @@ def run(args: argparse.Namespace) -> int:
+@@ -566,24 +442,13 @@
+                 conv.last_activity,
              )
              continue
+-        sub = conv.provenance.source_subtype
+-        decision = decisions[sub]
+-        tally = per_source[sub]
+-        if not decision.allowed:
+-            tally["held"] += 1
+-            if decision.reason == "could_not_check":
+-                could_not_check += 1
+-            else:
+-                paused += 1
+-            continue
          try:
--            result = wire.post(conv)
+-            result = wire.post(conv, free_import=decision.is_free_import)
 +            outcome = process_one(conv)
          except Exception as exc:
              # One bad transcript must not abort the run. Log with the
              # conversation id + traceback and leave the watermark
-@@ -439,7 +458,15 @@ def run(args: argparse.Namespace) -> int:
+             # unadvanced for this id so a later run retries it.
+             errors += 1
+-            tally["failed"] += 1
+             log.warning(
+                 "Failed to process %s (%s): %s",
+                 conv.conversation_id,
+@@ -593,64 +458,23 @@
              )
              continue
  
--        if isinstance(result, dict) and result.get("reason") == "privacy_level_l3":
+-        if isinstance(result, dict) and result.get("reason") == "subscription_inactive":
+-            # The wire's own G7 said no (the subscription lapsed between the
+-            # entry gate and this post). Nothing was staged: this is NOT
+-            # handled, so the watermark must not move. It used to, which
+-            # marked every conversation done for ever while paused.
 +        if outcome == "paused":
 +            # The wire's G7 said no (subscription inactive). Nothing was
 +            # staged: this is NOT handled, so the watermark must not move.
 +            # It used to, which marked every conversation done for ever while
 +            # paused (CM052 781e5643 #18, watermark half backported for
 +            # v1.0.111; the rest of #18 is the held G7 feature).
-+            paused += 1
-+            continue
+             paused += 1
+-            tally["held"] += 1
+             continue
+-        # ``l3_skipped`` keeps its installer-facing name and now means "L3:
+-        # bundle written by CM048, gist sinks skipped" (wire returns
+-        # ``gist_level``); the legacy short-circuit reason is still honoured.
+-        if isinstance(result, dict) and (
+-            result.get("reason") == "privacy_level_l3"
+-            or result.get("gist_level") == "L3"
+-        ):
 +        if outcome == "l3_skipped":
              l3_skipped += 1
          else:
              posted += 1
-@@ -457,10 +484,11 @@ def run(args: argparse.Namespace) -> int:
+-        tally["delivered"] += 1
+         # Advance the watermark only on a successful (non-raising)
+         # process, whether the gist arm posted or was L3-skipped: both
+         # outcomes mean the conversation has been durably handled.
+         processed[conv.conversation_id] = conv.last_activity
+ 
+-    # Spend the free import only after a clean hand-off that delivered
+-    # something: a failed or partial first try keeps the taster.
+-    for sub, decision in decisions.items():
+-        tally = per_source[sub]
+-        if decision.is_free_import and tally["delivered"] > 0 and tally["failed"] == 0:
+-            try:
+-                fi.mark_first_import(sub)
+-            except OSError as exc:
+-                log.warning("Could not record the free %s import: %s", sub, exc)
+-
+-    status_sources: dict[str, dict] = {}
+-    for sub, decision in decisions.items():
+-        tally = per_source[sub]
+-        if decision.allowed:
+-            st = "free_import" if decision.is_free_import else "ok"
+-            message = None
+-        elif decision.reason == "could_not_check":
+-            st, message = "could_not_check", fi.COULD_NOT_CHECK_TEXT
+-        else:
+-            st, message = "paused_not_pro", _refusal_for(sub)
+-        if tally["held"] and decision.allowed:
+-            # Allowed at the gate, refused by the wire's G7 mid-run.
+-            st, message = "paused_not_pro", _refusal_for(sub)
+-        if message:
+-            # One line per source per run, never one per conversation.
+-            log.warning(
+-                "Paused %s (%s): %d conversation(s) waiting. %s",
+-                sub, st, tally["held"], message.replace("\n", " "),
+-            )
+-        status_sources[sub] = {"state": st, "waiting": tally["held"], "message": message,
+-                               "actions": list(PAUSED_SYNC_ACTIONS) if st == "paused_not_pro" else []}
+-    if status_sources:
+-        _write_status(state_path.parent, status_sources)
+-
+     if not args.dry_run:
+         state["last_run"] = datetime.now(timezone.utc).isoformat()
+         try:
+@@ -660,32 +484,13 @@
              return 1
  
      log.info(
--        "Done. discovered=%d posted=%d l3_skipped=%d errors=%d",
+-        "Done. discovered=%d posted=%d l3_skipped=%d errors=%d paused=%d could_not_check=%d",
 +        "Done. discovered=%d posted=%d l3_skipped=%d paused=%d errors=%d",
          discovered,
          posted,
          l3_skipped,
-+        paused,
-         errors,
+-        errors,
+         paused,
+-        could_not_check,
++        errors,
      )
+-
+-    # Exit code. The scheduled runs (the hourly aiconv tick and the
+-    # install-time drain) both pass ``--source all``, and launchd's last exit
+-    # code drives the Doctor's failing-routine card, so a Pro pause there is
+-    # exit 0 with the status file and log line above: paused, never crashed.
+-    # A single-source run is an owner-initiated import and speaks the shared
+-    # contract: 6 could not check (CANNOT-RUN), 5 refused, printed copy.
+-    rc = 0
+-    if args.source != "all" and errors == 0:
+-        if could_not_check:
+-            print(fi.COULD_NOT_CHECK_TEXT)
+-            rc = fi.EXIT_COULD_NOT_CHECK
+-        elif paused:
+-            for sub, entry in status_sources.items():
+-                if entry["state"] == "paused_not_pro":
+-                    print(entry["message"])
+-            rc = fi.EXIT_PAUSED_NOT_PRO
+-
      _emit_json(
-@@ -471,6 +499,7 @@ def run(args: argparse.Namespace) -> int:
+         {
+             "discovered": discovered,
+@@ -694,16 +499,15 @@
              "ingested": posted + l3_skipped,
              "written": posted,
              "l3_skipped": l3_skipped,
-+            "paused": paused,
-             "failed": errors,
+-            "failed": errors,
+             "paused": paused,
+-            "could_not_check": could_not_check,
++            "failed": errors,
          },
          enabled=args.json,
+     )
+     # Per-conversation errors are non-fatal: they are tallied and the
+     # affected ids stay un-watermarked for retry. The run itself
+     # succeeded.
+-    return rc
++    return 0
+ 
+ 
+ def main(argv: Iterable[str] | None = None) -> int:
+--- a/src/cm052/schemas.py
++++ b/src/cm052/schemas.py
+@@ -23,10 +23,7 @@
+ from .provenance import ConversationProvenance
+ 
+ 
+-# ``participant`` is another human in a multi-party human channel (Slack,
+-# 2026-10-19): not the owner, not an assistant. Such messages carry a
+-# ``speaker`` display label, which the wire renders in place of the role.
+-Role = Literal["user", "assistant", "system", "tool", "participant"]
++Role = Literal["user", "assistant", "system", "tool"]
+ Channel = Literal["spoken", "email", "im", "sms", "manual"]
+ 
+ 
+@@ -49,7 +46,6 @@
+     content: str
+     timestamp: str | None = None
+     line_index: int = 0
+-    speaker: str | None = None
+ 
+     def to_dict(self) -> dict:
+         return asdict(self)
+@@ -113,7 +109,6 @@
+                     content=m["content"],
+                     timestamp=m.get("timestamp"),
+                     line_index=int(m.get("line_index", 0)),
+-                    speaker=m.get("speaker"),
+                 )
+                 for m in data.get("messages") or []
+             ],
+--- a/src/cm052/wire.py
++++ b/src/cm052/wire.py
+@@ -337,7 +337,7 @@
+ 
+     body_lines: list[str] = [""]
+     for msg in conv.messages:
+-        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
++        speaker = _speaker_label(msg.role, user_label, assistant_label)
+         ts_suffix = f" _({msg.timestamp})_" if msg.timestamp else ""
+         body_lines.append(f"**{speaker}:**{ts_suffix} {msg.content}".rstrip())
+         body_lines.append("")
+@@ -355,14 +355,6 @@
+     base = root or _ai_conversations_root()
+     date_part = _format_started_at(conv)[:10] or "unknown"
+     return base / date_part / f"{_safe_id(conv.conversation_id)}.md"
+-
+-
+-# Sources whose readable copy is THIS episodic file (2026-10-19): external AI
+-# apps, and the owner's own chats with Ostler (the Hub gateway, channel
+-# "manual"). CM048 keeps the gist for both and writes no bundle for them, so
+-# without this file the owner's Ostler chats had no readable transcript
+-# anywhere. Human-channel conversations stay out: CM048's bundle is theirs.
+-EPISODIC_SOURCE_KINDS = frozenset({"external_llm", "zeroclaw_gateway"})
+ 
+ 
+ def stage_episodic(
+@@ -380,10 +372,9 @@
+     source -- human-channel conversations live in CM048's tier-1
+     markdown store, not here.
+     """
+-    if conv.provenance.source_kind not in EPISODIC_SOURCE_KINDS:
++    if conv.provenance.source_kind != "external_llm":
+         raise ValueError(
+-            "stage_episodic only persists AI conversations (external_llm, "
+-            "zeroclaw_gateway); "
++            "stage_episodic only persists external_llm conversations; "
+             f"got source_kind={conv.provenance.source_kind!r}"
+         )
+     target = episodic_path(conv, root=root)
+@@ -426,7 +417,7 @@
+ 
+     body_lines: list[str] = []
+     for msg in conv.messages:
+-        speaker = msg.speaker or _speaker_label(msg.role, user_label, assistant_label)
++        speaker = _speaker_label(msg.role, user_label, assistant_label)
+         body_lines.append(f"**{speaker}:** {msg.content}")
+         body_lines.append("")
+ 
+@@ -449,21 +440,7 @@
+     participant_kind = (
+         "ai" if conv.provenance.source_kind == "external_llm" else "human"
+     )
+-    meta = dict(conv.metadata) if isinstance(conv.metadata, dict) else {}
+-    # Multi-party human sources (Slack, 2026-10-19) hand richer participant
+-    # rows: ``{"id", "display", "role", "handle"}``. ``handle`` is the key
+-    # CM048's participant-identity bridge derives the Person URI from
+-    # (ingest._participant_identifier), so an author with a visible email
+-    # links to the SAME Person node the contacts ingest made, and an author
+-    # without one gets no handle and therefore no fabricated node.
+-    details = meta.pop("participant_details", None)
+-    if isinstance(details, list) and details:
+-        participants = [dict(d) for d in details if isinstance(d, dict)]
+-    else:
+-        participants = [
+-            {"id": p, "display": p, "role": "other"} for p in conv.participants
+-        ]
+-    out = {
++    return {
+         "conversation_id": conv.conversation_id,
+         "date": (conv.created_at or conv.last_activity)[:10],
+         "source": conv.provenance.source_subtype,
+@@ -473,17 +450,12 @@
+         # extracted facts at this level (L2 -> searchable + assistant-answerable;
+         # L3 is short-circuited before POST so it never reaches here).
+         "privacy_level": _privacy_level(conv, "gist"),
+-        "participants": participants,
++        "participants": [
++            {"id": p, "display": p, "role": "other"} for p in conv.participants
++        ],
+         "provenance": conv.provenance.to_dict(),
+-        "extra": meta,
++        "extra": dict(conv.metadata),
+     }
+-    # CM048's channel adapters read ``source_app`` at the TOP level only
+-    # (``_imessage_adapter`` defaults it to "messages" otherwise), so a Slack
+-    # thread would be labelled as a Messages conversation without this.
+-    source_app = meta.get("source_app")
+-    if isinstance(source_app, str) and source_app.strip():
+-        out["source_app"] = source_app.strip()
+-    return out
+ 
+ 
+ def stage(conv: Conversation, outbox_root: Path | None = None) -> tuple[Path, Path]:
+@@ -508,7 +480,6 @@
+     endpoint: str | None = None,
+     timeout: float = 30.0,
+     episodic_root: Path | None = None,
+-    free_import: bool = False,
+ ) -> dict:
+     """Stage the CM048 transcript pair, optionally persist the episodic
+     artefact, and POST the paths to CM048.
+@@ -520,10 +491,8 @@
+     the CM048 fact-extraction path -- the gist path is still the
+     reliable one downstream consumers depend on.
+ 
+-    L3 (superseded 2026-10-19, see the comment at the gist-level check): an
+-    L3 conversation IS posted, with ``privacy_level: L3`` in its metadata;
+-    CM048 writes the bundle and skips the gist sinks. The 2026-05-08 text
+-    below described the old short-circuit: CM048's
++    L3 short-circuit (Lester audit lift, 2026-05-08): a conversation
++    classified ``privacy_level: L3`` does NOT POST to CM048. CM048's
+     pipeline embeds extracted facts into Qdrant for vector search;
+     embedding L3 content would defeat the "private by default"
+     contract -- the only way to read back an L3 fact would still be
+@@ -553,10 +522,7 @@
+     validation, never lock the customer out on infrastructure failure
+     we cannot observe).
+     """
+-    # ``free_import``: the caller's entry gate (``first_import.entry_gate``)
+-    # granted this run the one-off free export import. Only that decision
+-    # may pass it; every other caller leaves it False and G7 applies here.
+-    if not free_import and not is_active_or_grace():
++    if not is_active_or_grace():
+         log.info(
+             "Subscription inactive -- pausing conversation-memory "
+             "processing. New conversations will resume on "
+@@ -570,7 +536,7 @@
+         }
+     transcript_path, metadata_path = stage(conv, outbox_root=outbox_root)
+     episodic_target: Path | None = None
+-    if conv.provenance.source_kind in EPISODIC_SOURCE_KINDS:
++    if conv.provenance.source_kind == "external_llm":
+         try:
+             episodic_target = stage_episodic(conv, root=episodic_root)
+         except Exception as exc:
+@@ -588,22 +554,26 @@
+                 exc,
+                 exc_info=True,
+             )
+-    # L3 GOES TO CM048 TOO (Archie ruling on CM052 #16, 2026-10-19). The L3
+-    # rule is "no Qdrant / Oxigraph", not "no files". This used to return here
+-    # without POSTing, so an L3 human conversation got NO 4-artefact bundle at
+-    # all: the customer marked it private and it vanished. CM048 is where the
+-    # rule is enforced: ``privacy.infer`` honours an explicit
+-    # ``metadata.privacy_level`` first, ``processor`` skips step 07 (gist
+-    # sinks), name resolution and every store read for L3, and step 09 still
+-    # writes summary/todos/transcript. The level travels in the POSTed
+-    # metadata (``render_metadata``), and ``gist_level`` is returned so callers
+-    # can still count L3 conversations.
++    # The CM048 POST embeds the *gist* (extracted facts) for vector search, so
++    # the gist level gates it. Option A: gist defaults L2 -> POST happens. A
++    # per-conversation L3 override (or Option B keeping gist L2) is respected
++    # here. Episodic (the transcript artefact) still landed above regardless.
+     gist_level = _privacy_level(conv, "gist")
+     if gist_level == "L3":
+         log.info(
+-            "L3: posting %s to CM048 for its bundle; CM048 skips the gist sinks",
++            "L3 short-circuit: skipping CM048 POST for %s "
++            "(episodic artefact still landed at %s)",
+             conv.conversation_id,
++            episodic_target if episodic_target else "<not external_llm>",
+         )
++        return {
++            "status": "skipped",
++            "reason": "privacy_level_l3",
++            "conversation_id": conv.conversation_id,
++            "episodic_path": (
++                str(episodic_target) if episodic_target else None
++            ),
++        }
+     # The Hub API reads ``transcript`` (text) and ``metadata`` (object); a
+     # body carrying only the paths is a 400 "Missing 'transcript' field".
+     # The paths stay alongside for any consumer that already reads them.
+@@ -621,14 +591,4 @@
+     with httpx.Client(timeout=timeout) as client:
+         response = client.post(url, json=payload, headers=headers)
+         response.raise_for_status()
+-        result = response.json()
+-    # Below L3 the caller gets CM048's response untouched (existing
+-    # contract). For L3 it is annotated so a caller can still count L3
+-    # conversations, which it used to do from the short-circuit dict.
+-    if gist_level == "L3":
+-        if not isinstance(result, dict):
+-            result = {"response": result}
+-        result["gist_level"] = "L3"
+-        if episodic_target is not None:
+-            result.setdefault("episodic_path", str(episodic_target))
+-    return result
++        return response.json()
