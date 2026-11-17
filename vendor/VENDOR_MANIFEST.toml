@@ -474,7 +474,8 @@ vendor_path      = "vendor/cm021"
 source_repo      = "$CM021"
 source_path      = "."
   # REFRESHED 2026-11-17 (ORM, 134 CB134-FRESH, Archie ruling A): pin e1eefb3d -> b9d8cf70 (email-intelligence main). NO hold_ack. Vendored BYTES UNCHANGED: of the 9 upstream commits only 4 touch the vendored file-set; 17875eb9 a719e402 e43d2cce were already grafted, and caa165f7 (settling wiring) stays DELIBERATELY NOT TAKEN (one emails producer, lib/settling_progress.sh), now recorded as a reversal in vendor/divergences/cm021.patch instead of an ack. f2716d80 and the four receipts commits (ca9d5501 0a9eb838 d74055d1 b9d8cf70) touch no vendored file. The retired hold_ack_reason is in git history at the parent of this commit.
-  pinned_sha = "b9d8cf70d62b6c56313a69935f56e5d76c5516f9"
+  # RE-PINNED 2026-11-17 (134 PII unblock): b9d8cf70 -> 415d06aa (email-intelligence #15, draft: comment-only, the owner named by role, subject-line examples described). Vendored cli.py comments scrubbed the same way; patch regenerated, rebuild verified.
+  pinned_sha = "415d06aa325c01648e948d4d7d76f35900a81850"
   divergence_patch = "vendor/divergences/cm021.patch"
   unrecorded_divergence = "vendor/divergences/cm021.UNRECORDED.md"  # DECLARED 2026-10-10 (F7, walk #16): the address-shape rule in automated_sender_reason; not in the patch
   shipping_bugfixes_grafted = true

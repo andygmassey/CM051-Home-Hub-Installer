@@ -165,10 +165,13 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -299,6 +248,130 @@
- )
- 
- 
+@@ -296,9 +245,133 @@
+     r"(^|[._+-])(no[._-]?reply|do[._-]?not[._-]?reply|notifications?|alerts?|"
+     r"news(letters?)?|marketing|mailer[._-]?daemon|postmaster|bounces?|"
+     r"promo(tions?)?|offers?|deals|digest|updates?|info)([._+-]|$)"
++)
++
++
 +# F7 (walk #16): Quidco and HSBC Hong Kong became People because their mail
 +# carried NO list header this parser sees, and neither the local part
 +# ("quidco", "onlineservices") nor the display name ("Quidco", "HSBC Hong
@@ -230,7 +233,7 @@
 +
 +# An organisation writing from a personal-looking address still names itself
 +# as one: "... support team", "<shop> customer service", "<name> ltd".
-+# Andy's v1.0.106 walk: 42 email-only Persons survived the header rules
++# The owner's v1.0.106 walk: 42 email-only Persons survived the header rules
 +# because their mail carried no list or bulk header. The display name is the
 +# last signal left, so read it. Deliberately conservative: an org WORD, an
 +# all-caps brand token, or a long CJK-only company name. An address is never
@@ -246,14 +249,14 @@
 +    r"technology|technologies|software|network|telecom|properties|realty|"
 +    r"notice|warning|maintenance|disruption|outage)\b",
 +    re.I,
-+)
+ )
 +_DOMAIN_NAME_RE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|net|org|io|co|uk|hk|de|fr)$", re.I)
 +_ROLE_LOCAL_RE = re.compile(
 +    r"^(support|help(desk)?|team|hello|contact|sales|billing|enquiries|customerservice)$"
 +)
 +_CJK_ONLY_RE = re.compile(r"^[\u3400-\u9fff\s]{5,}$")
-+
-+
+ 
+ 
 +_ORG_WORD_RE = re.compile(r"^(" + _ORG_NAME_RE.pattern.split("\\b(", 1)[1].rsplit(")\\b", 1)[0] + r")$", re.I)
 +_NAME_WORD_RE = re.compile(r"^[A-Z][a-z]+(?:[-'][A-Za-z]+)*\.?$")
 +_SEGMENT_SPLIT_RE = re.compile(r"\s+[|/\u2013\u2014-]\s+|\s*[,;(]\s*|\s+at\s+|\s+@\s+")
@@ -296,7 +299,7 @@
  def automated_sender_reason(email: FastEmail) -> Optional[str]:
      """Why this message is machine or bulk mail, or None for a person.
  
-@@ -317,13 +390,19 @@
+@@ -317,7 +390,13 @@
      local = (email.from_address or "").split("@", 1)[0].lower()
      if _AUTOMATED_LOCAL_RE.search(local):
          return "local-part"
@@ -311,14 +314,6 @@
  
  
  # --- A From-header display name is not necessarily a name (CM051 #2544) ---
- #
--# Andy's v1.0.106 walk: People rows named "A Special Offer from ExampleInsure",
--# "Your ExampleInsure Voucher Is Here", "Claim Your Example Points",
-+# The v1.0.106 walk: People rows named after marketing subject lines (an
-+# offer from an insurer, a voucher notice, a points claim) and
- # "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
- # display-name slot of the From header; the bug is that nothing downstream
- # ever asked whether the text SITTING in that slot reads as a human name.
 @@ -337,7 +416,58 @@
  _SENDER_ID_RE = re.compile(r"^#?[A-Z][A-Z0-9]{3,10}$")
  _VIA_RE = re.compile(r"\bvia\b")
@@ -327,7 +322,7 @@
 +# header was quoted badly: a leading/trailing run of tildes, straight or smart
 +# quotes, and backslashes. A clean human display name never carries these, so
 +# both their PRESENCE (a refusal signal) and their removal (for a clean write)
-+# are handled here. Andy's #30 console walk: a People node named
++# are handled here. The owner's #30 console walk: a People node named
 +# ``~~\"Unusual sign-in on your iCloud.`` -- an Apple security-notification
 +# SUBJECT, with ``~~`` and a backslash-quote leaked into the display name --
 +# defeated the sentence-opener arm below because the junk sat before the first
@@ -363,7 +358,7 @@
 +def _is_gibberish_name(name: str) -> bool:
 +    """True when a name carries a token that is a letter+digit MASH inside one
 +    word (``Qzr5531tb``, ``07alex``, ``Pvo2217sd``, ``Kjv3``, ``Wq7b``) --
-+    an extraction artefact, never a human-name token. Anchored on Andy's #30
++    an extraction artefact, never a human-name token. Anchored on the owner's #30
 +    walk-shaped examples ("07alex Qzr5531tb", "58mxtb Pvo2217sd", ...). The length>=4
 +    floor keeps real alphanumerics that are not names off the hook of a false
 +    positive the other way ("O2", "3M", "B2B" are short and not person names
@@ -378,21 +373,12 @@
  def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> bool:
      """True when a From-header display name is shaped like marketing/subject
      copy or an SMS-style alphanumeric sender id, not a human name.
-@@ -348,7 +478,7 @@
- 
-       * SENTENCE OPENERS -- starts with a word a human name never starts
-         with ('A ', 'Your ', 'Claim ', ...). Anchored at the START so a real
--        person's title-bearing signature ("Sarah Example, Your Account
-+        person's title-bearing signature ("Jane Doe, Your Account
-         Manager") is untouched: 'Your' is the THIRD word there, not the
-         first.
-       * SENDER-ID SHAPE -- a single token (no spaces) that EITHER starts
 @@ -394,18 +524,31 @@
      n = (name or "").strip()
      if not n:
          return False
 -    lowered = n.lower()
-+    # (Andy #30) Escaping artefacts a clean human name never carries are
++    # (the owner's #30) Escaping artefacts a clean human name never carries are
 +    # themselves a refusal signal -- and they can sit BEFORE the first word and
 +    # shield a sentence-opener from the match below (``~~"Unusual sign-in...``).
 +    # Refuse on the artefact, and evaluate the remaining arms against the
@@ -404,7 +390,7 @@
      if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
          return True
 -    if " " not in n:
-+    # (Andy #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
++    # (the owner's #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
 +    # is an extraction artefact, not a human name. Multi-word, so it slips past
 +    # the single-token sender-id arm below; caught here.
 +    if _is_gibberish_name(probe):
@@ -579,9 +565,9 @@
      out = []
      for b in body.get("results", {}).get("bindings", []):
          out.append((b["p"]["value"], b["o"]["value"]))
-     return out
- 
- 
++    return out
++
++
 +def _initials(name: str) -> str:
 +    """Initials only, so a dry run can show WHO would go without naming them."""
 +    return "".join(w[0] for w in (name or "").split() if w)[:4] or "?"
@@ -625,9 +611,9 @@
 +                continue
 +            seen.add(iri)
 +            out.append((iri, name or addr, why))
-+    return out
-+
-+
+     return out
+ 
+ 
 +def _sparql_select_vars(endpoint: str, query: str, names: tuple, timeout: float = 20.0) -> list:
 +    import httpx
 +    response = httpx.post(
@@ -732,7 +718,7 @@
 +                else:
 +                    # Write a CLEAN name: strip any stray quoting/escaping
 +                    # artefact a badly-quoted From header leaked in, so a kept
-+                    # name never carries `~~` / `\"` into the wiki (Andy #30).
++                    # name never carries `~~` / `\"` into the wiki (the owner's #30).
 +                    raw_name = clean_display_name(raw_name)
                  query = _build_upsert(
 -                    person_iri=_safe_person_iri(addr),
@@ -740,10 +726,11 @@
                      email=addr,
                      name=raw_name,
                      last_contact_iso=last_contact_iso,
-@@ -743,18 +952,6 @@
+@@ -742,18 +951,6 @@
+                     result["errors"].append(type(exc).__name__)
  
      result["people_extracted"] = len(seen_emails)
- 
+-
 -    # Final settling tick: clamp done to total so the panel reads 100% on
 -    # completion even if the pre-scan under-counted slightly (mixed encodings
 -    # in the mbox can shift the boundary predicate by a message or two).
@@ -755,10 +742,9 @@
 -        needs_source=False,
 -        started_at=settling_started_at,
 -    )
--
+ 
      elapsed = time.time() - started
      _stderr(
-         f"pwg-email-ingest: processed mbox in {elapsed:.1f}s; "
 @@ -850,17 +1047,32 @@
                          break
                      head += line
