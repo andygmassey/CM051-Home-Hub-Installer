@@ -1384,6 +1384,44 @@ path-drift it was written for stays held by `test_reader_path_equals_writer_path
   ical-server; 3 of its reader cases fail on the pre-graft file with 500.
 - Owed upstream to CM041 so the two converge. Retire on a re-pin that carries it.
 
+## A deceased person keeps their page but loses every act prompt (CM051, 2026-10-19, CM041 #222)
+
+Tree `cm041/assistant_api`. Files: `vendor/cm041/assistant_api/ical-server.py`
+(new helpers `_PersonSuppression`, `_load_person_suppression`,
+`_try_load_person_suppression`, `_apply_person_suppression`,
+`_suppressed_slug_tail`, `_DECEASED_OMIT_KEYS`; edits in `people_search`,
+`person_context`, `person_enrichment`, `person_timeline`, `people_list`,
+`api_reply_debt`, `api_suggestions`, `commitments_list`) and the new contract
+fixture `vendor/cm041/assistant_api/tests/fixtures/deceased_person_contract.json`.
+
+A SuggestionSuppression with reason "deceased" now marks the person
+`deceased: true` + `suggestions_suppressed: true` on owner views and strips
+last contact, recency, birthday and warmth; per-channel last-contact timeline
+markers go, meetings and conversations stay. Reply debt and open commitments
+drop suppressed counterparties. Fail closed when the record cannot be read.
+The commitments join is unscoped `(...)` here, matching this tree's own
+commitments query, never `read_across_graphs` (held, board row 2213).
+
+- Proof: `tests/test_cm041_deceased_person_surfaces.py` drives the real
+  vendored handlers; 10 of 11 fail on the pre-graft file, 10 of 10 mutants red.
+- Same change upstream as CM041 #222. Retire on a re-pin that carries it; add
+  #222's squash sha to this tree's hold_ack_shas when it merges.
+
+### Same graft, round 2: keyed on the person, not the name slug (CM041 #222 red-team)
+
+Functions `api_people_suppress_suggestions` (rewritten) and
+`_suppressed_identity_index` (now a view of the new `_suppression_detail`),
+plus helpers `_suppression_name_key`, `_suppression_safe_uri`,
+`_identifiers_held_outside`. The slug folds accents, so a slug-keyed record
+marked a living namesake deceased. Records now carry `pwg:suppressedPerson`
+and `pwg:suppressedName`; a slug naming two people is a 409; a legacy
+slug-only record counts only while its slug names one person.
+`tests/test_cm041_deceased_excluded_from_proactive_surfaces.py`'s sharing
+probe rows now carry the holder node (sharing is judged by node).
+
+- Proof: `tests/test_cm041_suppression_keys_on_the_person_not_the_name.py`,
+  13 of 14 fail on the round-1 file; 6 of 6 mutants red.
+
 ## A stale local store says so, and one event is one row (CM051, 2026-10-19, the Mini16 morning brief)
 
 Tree `cm041/assistant_api`. NEW CM051-side behaviour in `ical-server.py`; CM041 main has no local-store calendar path to carry it. `build_calendar_response` and `fetch_recent_emails` already reported `local_store_age_seconds` and nothing acted on it: on 2026-10-19 the Hub served a 45-hour-old calendar (163617s) as a 200 with `degraded` unset, and the brief presented it as today's. Both now mark the body `degraded: true` and `stale: true`, with a one-line reason in `errors`, once the store is older than three writer intervals (`local_store_stale_after_s()`, three times `OSTLER_FDA_RERUN_INTERVAL_S`, default 3 hours). The events are still served; the reader decides. Dedup moved from the `(summary, start)` set to `collapse_duplicate_events`, which also folds two rows with the same start, end and calendar whose titles are two spellings of one event (a shared 4+ character token carrying a digit, or the shorter title's significant words all in the longer), keeping the longer title: one flight with two titles reached the brief as "a related event at the same time".

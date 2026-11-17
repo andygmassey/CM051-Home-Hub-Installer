@@ -1,0 +1,31 @@
+{
+  "_doc": "Contract for a person the owner marked deceased (CM041 SuggestionSuppression, suppressReason \"deceased\", case-insensitive). Emitted on /people, /people/search, /people/context, /api/v1/people/{slug}/enrichment and /api/v1/person/{slug}/timeline (person). Consumers: CM031 iOS People views, ostler-assistant chat context. A do-not-suggest person (any other reason) carries suggestions_suppressed only and keeps every field. When the record cannot be read, every person on that response carries suppression_check \"unavailable\" and none of must_not_have. Synthetic cast only.",
+  "deceased_person": {
+    "example": {
+      "name": "Margaret Jones",
+      "slug": "margaret-jones",
+      "relationship": "Mother",
+      "deceased": true,
+      "suggestions_suppressed": true
+    },
+    "must_have": {
+      "deceased": true,
+      "suggestions_suppressed": true
+    },
+    "must_not_have": [
+      "last_contact", "last_contact_by_source", "last_contact_ts",
+      "months_since_contact", "days_since_contact", "days_since",
+      "recency", "birthday", "next_birthday", "days_until", "age",
+      "turning", "relationship_signal", "relationship_strength",
+      "strength", "warmth", "fading"
+    ]
+  },
+  "do_not_suggest_person": {
+    "example": {"name": "Jane Doe", "slug": "jane-doe", "suggestions_suppressed": true, "last_contact": "2025-09-01"},
+    "must_have": {"suggestions_suppressed": true},
+    "must_not_have": ["deceased"]
+  },
+  "suppression_unavailable": {
+    "must_have": {"suppression_check": "unavailable"}
+  }
+}
