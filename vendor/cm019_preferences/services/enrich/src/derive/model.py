@@ -103,8 +103,23 @@ PRIVACY_ORDER = {"L0": 0, "L1": 1, "L2": 2, "L3": 3}
 
 
 def max_privacy(levels) -> str:
-    """The highest of the given levels ("" entries ignored; "" if none)."""
-    known = [l for l in levels if l in PRIVACY_ORDER]
+    """The privacy level a derived node inherits from its evidence. FAIL CLOSED.
+
+    "" and None are unstated (behavioural evidence has no level) and are
+    ignored, as before. Anything else that is not on the scale is an
+    unparseable or unknown-scale level, and so is L0: on the PWG scale L0 is
+    OWNER-PRIVATE, and PRIVACY_ORDER ranks it lowest, so a max over the known
+    levels let owner-L0 evidence plus L2 come out L2 and reach the Hub.
+    Any such level makes the node L3 (never served, never briefed). Otherwise
+    the highest known level wins; "" if nothing was stated.
+    """
+    known = []
+    for l in levels:
+        if l is None or l == "":
+            continue
+        if not isinstance(l, str) or l == "L0" or l not in PRIVACY_ORDER:
+            return "L3"
+        known.append(l)
     return max(known, key=PRIVACY_ORDER.__getitem__) if known else ""
 
 
