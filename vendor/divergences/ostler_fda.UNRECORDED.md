@@ -458,3 +458,7 @@ group entries by that hash: exactly one takes that chat id's `group:<id>` labels
 `OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
 one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
 `is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).
+
+## 2026-11-17 (ORM, 134 CB134-FRESH): re-pinned to HR015 4905dfe6, patch regenerated
+
+Every vendored edit described above is now recorded as diff in `vendor/divergences/ostler_fda.patch` (19 modified, 14 vendor-only files), regenerated against the new pin from the vendored tree after a 3-way re-apply. See the manifest comment on the `ostler_fda` row for what was taken, kept and left source-only. `VENDOR_FRESH_STRICT=1 verify_vendor_fresh.sh`: OK ostler_fda at 4905dfe6.

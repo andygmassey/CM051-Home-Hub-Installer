@@ -806,7 +806,18 @@ def emit_mbox(
     backward: list[EmlxMeta] = []
     new_oldest_edge = oldest_edge
     if not backfill_complete and oldest_edge is not None and not is_seeding_tick:
-        chunk_floor = oldest_edge - _days(backfill_chunk_days)
+        # Step to the next OLDER message actually present, not blindly one
+        # fixed chunk back: a single mis-dated header (a 1970 epoch Date is
+        # real) used to cost ~56 years of EMPTY 30-day chunks, one tick each.
+        # The chunk is `backfill_chunk_days` wide measured from the newest
+        # message older than the edge, so every backward tick carries at least
+        # one message and the sweep ends when none older remains.
+        older = [p.received_at for p in discovered
+                 if p.received_at is not None and p.received_at < oldest_edge]
+        if older:
+            chunk_floor = max(older) - _days(backfill_chunk_days)
+        else:
+            chunk_floor = oldest_edge
         backward = [
             p for p in discovered
             if p.received_at is not None
@@ -856,7 +867,11 @@ def emit_mbox(
         and oldest_edge is not None
         and (
             mailbox_floor is None
-            or (new_oldest_edge is not None and new_oldest_edge <= mailbox_floor)
+            or new_oldest_edge is None
+            or not any(
+                p.received_at is not None and p.received_at < new_oldest_edge
+                for p in discovered
+            )
         )
     ):
         new_backfill_complete = True
