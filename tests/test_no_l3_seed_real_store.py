@@ -421,6 +421,45 @@ class SeedMainEndToEnd(unittest.TestCase):
             ox.NamedNode("urn:ostler:live/item-1"), None, None, None))), 1, "live row lost")
 
 
+class SeedRefusesAmbientStore(unittest.TestCase):
+    """An ambient OSTLER_OXIGRAPH_URL with no NO_L3_SEED_OXIGRAPH_URL must refuse, rc 5,
+    before any write. The mutant (guard removed) exits non-zero but not with 5."""
+
+    def _run(self, env_extra):
+        import pyoxigraph as ox
+        import subprocess
+        store = _live_store(ox)
+        before = len(_visible(store))
+        seed_dir = _stage(SEED_SRC.read_text(encoding="utf-8")).parent
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("OSTLER_OXIGRAPH_URL", "NO_L3_SEED_OXIGRAPH_URL")}
+        env.update({"HOME": tempfile.mkdtemp(prefix="no_l3_refuse_home_"),
+                    "PYTHONPATH": os.pathsep.join([str(ROOT / "vendor" / "cm048_pipeline"),
+                                                   str(ROOT / "vendor")])})
+        env.update(env_extra)
+        with _Shim(store) as shim:
+            env = {k: (shim.url if v == "SHIM" else v) for k, v in env.items()}
+            p = subprocess.run([sys.executable, str(seed_dir / "no_l3_graph_seed.py"),
+                                json.dumps(dict(PAYLOAD, post=True))], env=env,
+                               capture_output=True, text=True, timeout=240, cwd=str(seed_dir))
+        return p, store, before
+
+    def test_ambient_store_setting_is_refused_before_any_write(self):
+        p, store, before = self._run({"OSTLER_OXIGRAPH_URL": "SHIM"})
+        print("\n[refusal] rc=%d stderr=%r" % (p.returncode, p.stderr.strip()[:160]))
+        self.assertEqual(p.returncode, 5, "an ambient store setting must refuse with rc 5")
+        out = json.loads(p.stdout.strip().splitlines()[-1])
+        self.assertTrue(out["refused"])
+        self.assertEqual(out["teardown_sparql"], [])
+        self.assertEqual(len(_visible(store)), before, "the refused run wrote to the store")
+
+    def test_both_variables_set_runs_against_the_dedicated_store(self):
+        p, store, before = self._run({"OSTLER_OXIGRAPH_URL": "http://127.0.0.1:9",
+                                      "NO_L3_SEED_OXIGRAPH_URL": "SHIM"})
+        self.assertEqual(p.returncode, 0, p.stderr.strip()[-300:])
+        self.assertNotEqual(len(_visible(store)), before, "nothing reached the dedicated store")
+
+
 def _nt_literal(lit):
     """A pyoxigraph literal as SPARQL/N-Triples text (for the pre-load only)."""
     v = lit.value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")

@@ -76,9 +76,11 @@ def build(payload):
     from src.settings import Settings
 
     settings = Settings(user_id=payload["owner"])
-    # The store the seed writes to. Unset on the box (the CM048 default, localhost:7878);
-    # the end-to-end test points it at a local shim. A dedicated name, not
-    # OSTLER_OXIGRAPH_URL, so no ambient CM048 setting can retarget the probe's writes.
+    # The store the seed writes to. It is set by NO_L3_SEED_OXIGRAPH_URL alone. Fail
+    # closed: if OSTLER_OXIGRAPH_URL is ambient and the dedicated name is not set, main()
+    # refuses (rc 5, before any write). Settings(user_id=...) built here does not read
+    # OSTLER_OXIGRAPH_URL today (only load_settings does, at settings.py:235), but the
+    # refusal does not depend on that: an ambient CM048 setting never picks the target.
     if os.environ.get("NO_L3_SEED_OXIGRAPH_URL"):
         settings.oxigraph_url = os.environ["NO_L3_SEED_OXIGRAPH_URL"]
     stamp = payload["stamp"]
@@ -246,8 +248,22 @@ class SeedRejected(RuntimeError):
     """The store refused the Turtle itself (nothing of the seed landed)."""
 
 
+def refusal_reason(environ):
+    """Why the seed must not run, or None. Fail closed on an ambient store setting."""
+    if environ.get("OSTLER_OXIGRAPH_URL") and not environ.get("NO_L3_SEED_OXIGRAPH_URL"):
+        return ("OSTLER_OXIGRAPH_URL is set but NO_L3_SEED_OXIGRAPH_URL is not: refusing, so "
+                "no ambient CM048 setting can choose the store the seed writes to")
+    return None
+
+
 def main():
     payload = json.loads(sys.argv[1])
+    reason = refusal_reason(os.environ)
+    if reason:
+        print("refused: " + reason, file=sys.stderr)
+        print(json.dumps({"refused": True, "rc": 5, "reason": reason, "posted": False,
+                          "teardown_sparql": []}))
+        return 5
     ingest, settings, ttl, subjects, writes, slugs = build(payload)
     graph = f"urn:ostler:user/{settings.user_id}"
     out = {"subjects": subjects, "bytes": len(ttl), "posted": False, "topic_slugs": slugs,
