@@ -274,7 +274,7 @@ fi
 # it from the heredoc and run the vector through the shipped functions. A
 # verifier that always returned true would sail through cases 1-5 (they only
 # watch it refuse) and die here.
-sed -n "/^[[:space:]]*_lic_detail=.*<<'OSTLER_LICENCE_VERIFY_PY'$/,/^OSTLER_LICENCE_VERIFY_PY$/p" \
+sed -n "/^[[:space:]]*_lic_py_src=.*<<'OSTLER_LICENCE_VERIFY_PY'$/,/^OSTLER_LICENCE_VERIFY_PY$/p" \
     "$INSTALL_SH" | sed '1d;$d' > "${WORK}/shipped_verifier.py"
 
 if [[ ! -s "${WORK}/shipped_verifier.py" ]]; then

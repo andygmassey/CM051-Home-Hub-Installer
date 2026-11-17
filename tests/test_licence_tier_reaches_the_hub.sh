@@ -280,7 +280,7 @@ FAR_FUTURE="2099-01-01T00:00:00Z"
 #
 # Run against the verifier EXTRACTED FROM install.sh, not a copy of it. A copy
 # is a different artefact and would keep passing after install.sh regressed.
-sed -n "/^[[:space:]]*_lic_detail=.*<<'OSTLER_LICENCE_VERIFY_PY'\$/,/^OSTLER_LICENCE_VERIFY_PY\$/p" \
+sed -n "/^[[:space:]]*_lic_py_src=.*<<'OSTLER_LICENCE_VERIFY_PY'\$/,/^OSTLER_LICENCE_VERIFY_PY\$/p" \
     "$INSTALL_SH" | sed '1d;$d' > "${WORK}/shipped_verifier.py"
 
 if [[ ! -s "${WORK}/shipped_verifier.py" ]]; then
