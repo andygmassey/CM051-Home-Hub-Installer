@@ -406,7 +406,7 @@ source_repo      = "$CM041"
 source_path      = "pwg_privacy.py"
   pinned_sha = "f2ef7891a554d395f17e8c316e2d3a35b6b96d40"
   divergence_patch = ""
-  unrecorded_divergence = "vendor/divergences/cm041_pwg_privacy.UNRECORDED.md"  # REVISED 2026-11-17 (per-request destination, CM041 531ac94; canonical scale, CM041 866a7aa; see the Revision section). 2026-11-17: #3582 effective_level graft, file is no longer byte-identical to the pin (see that file). PREVIOUS: 2026-11-16: the #275 provenance_verdict graft (cm041/pwg_privacy) is recorded in the "Graft 2026-11-16" section of that file. File is byte-identical to CM041 f473c9f; pin is f2ef7891.
+  unrecorded_divergence = "vendor/divergences/cm041_pwg_privacy.UNRECORDED.md"  # REVISED 2026-11-17 (owner_local legacy-guard exemption, CM041 cf443dc; per-request destination, CM041 531ac94; canonical scale, CM041 866a7aa; see the Revision section). 2026-11-17: #3582 effective_level graft, file is no longer byte-identical to the pin (see that file). PREVIOUS: 2026-11-16: the #275 provenance_verdict graft (cm041/pwg_privacy) is recorded in the "Graft 2026-11-16" section of that file. File is byte-identical to CM041 f473c9f; pin is f2ef7891.
 # SCOPING, NOT STALENESS. This tree's SUBJECT is one file, pwg_privacy.py, but
 # its vendor_path has to be the shared vendor/cm041 ROOT (see the note below for
 # why). vlib_vendor_diff walks vendor_path, so with `exclude = []` it walked all

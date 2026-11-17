@@ -2406,3 +2406,5 @@ Revision (CM041 866a7aa, canonical scale): `_outbound_level_ok`, `_fact_outbound
 Tree: cm041/assistant_api (canonical re-graft, CM041 866a7aa).
 
 Revision (CM041 531ac94, per-request destination). Tree: cm041/assistant_api. The Handler gains `_destination`, `_declare_destination` and the `do_GET`/`do_POST` calls (the text is byte-identical to CM041 531ac94). Every response carries `X-Ostler-Served-For` through the `end_headers` override, which is in this vendored copy. `_filter_qdrant_facts`, `_outbound_level_ok` and `_fact_outbound_ok` are byte-identical to CM041 531ac94. `people_search` and `api_preferences_derived` are surgical edits: the destination parameter and its call sites only. The vendored copy keeps its own name-rule drift. `test_prop_outbound_privacy_gates.py` takes the 866a7aa-to-531ac94 hunk. `derived_preferences.py` (pwg_privacy import) is byte-identical to CM041 531ac94.
+
+Revision (CM041 cf443dc). Tree: cm041/assistant_api. No change to this tree in cf443dc; the helper it imports changed (owner_local exemption), see the pwg_privacy record.

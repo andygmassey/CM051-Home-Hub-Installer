@@ -15,3 +15,5 @@ Revision (CM041 866a7aa, canonical scale): the file is replaced by the CM041 866
 Tree: cm041/pwg_privacy (canonical re-graft, CM041 866a7aa).
 
 Revision (CM041 531ac94, per-request destination). Tree: cm041/pwg_privacy. The file is byte-identical to CM041 531ac94: `DESTINATIONS` is now owner_local, owner_channel, cloud, others, export; the table has owner_local (L3 labelled); an undeclared or unknown destination is cloud; `resolve_destination` is added; `ROUTE_DESTINATION` is removed.
+
+Revision (CM041 cf443dc, owner_local exemption). Tree: cm041/pwg_privacy. The file is byte-identical to CM041 cf443dc: owner_local is exempt from legacy_l0_guard, and served_label returns "private" for owner_local L3 and legacy L0.

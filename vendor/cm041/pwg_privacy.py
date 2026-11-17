@@ -21,7 +21,9 @@ is the only decider.
     L2     full         full           no        no        no
     L3     labelled     no             no        no        no
 
-  owner_local   = the Hub UI, and the owner-scoped bearer once it lands.
+  owner_local   = the Hub UI, and the owner-scoped bearer once it lands. It is
+                  EXEMPT from legacy_l0_guard, and shows L3 and legacy L0 labelled
+                  "private" (``served_label``).
   owner_channel = the owner's own brief and own-channel replies.
   cloud         = a cloud model.   others = other people.   export = any file.
 
@@ -238,9 +240,23 @@ def outbound_ok(record, owner_level=None, destination=DEFAULT_DESTINATION,
     level = effective_level(record, owner_level)
     if level is ABSENT:
         return bool(legacy_absent_serves)
-    if legacy_l0_guard(record):
+    # owner_local is EXEMPT from the legacy guard: legacy L0 meant owner-private,
+    # which is exactly what the owner's own Hub UI is for (Archie, 2026-11-17).
+    if destination != "owner_local" and legacy_l0_guard(record):
         return False
     return may_leave(level, destination) in SERVING_VERDICTS
+
+
+def served_label(record, owner_level=None, destination=DEFAULT_DESTINATION):
+    """The label a served owner_local item carries: "private" for an L3 item, or
+    an unmigrated legacy L0 (owner-private). None for anything else, and for
+    every other destination (those never see these items)."""
+    if resolve_destination(destination) != "owner_local":
+        return None
+    level = effective_level(record, owner_level)
+    if level == "L3" or (level == "L0" and legacy_l0_guard(record)):
+        return "private"
+    return None
 
 
 def filter_outbound_facts(facts, owner_level=None, destination=DEFAULT_DESTINATION):
