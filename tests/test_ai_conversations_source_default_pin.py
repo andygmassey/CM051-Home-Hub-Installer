@@ -13,13 +13,14 @@ sys.path.insert(0, str(REPO_ROOT / "vendor" / "cm052_ai_conversations" / "src"))
 from cm052 import source_defaults as sd  # noqa: E402
 from cm052 import wire  # noqa: E402
 
-PINNED_SHA256 = "3f17bcebba9ea788e77c1c63789f324fb1fc44d83bfdf0b1f869c74bdacb2196"
+PINNED_SHA256 = "8d281defd7214ca59decc795a5408c7054ddd50dfa5a71eb1c1f52861104c88d"
 
 
 def test_vendored_table_digest_is_pinned():
     assert hashlib.sha256(sd._TSV.read_bytes()).hexdigest() == PINNED_SHA256
 
 
-def test_ai_conversations_row_is_locked_l3_and_matches_transcript_default():
-    assert sd.default_level("ai_conversations") == "L3"
+def test_ai_conversations_row_is_l2_and_transcript_stays_l3():
+    # Andy 11-16 ("Keep 11-16"): AI conversations default L2; floor + classifier raise sensitive items.
+    assert sd.default_level("ai_conversations") == "L2"
     assert wire._ARTEFACT_DEFAULT_ENV["transcript"][1] == "L3"
