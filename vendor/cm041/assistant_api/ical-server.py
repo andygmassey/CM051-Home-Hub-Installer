@@ -2313,7 +2313,7 @@ def _outbound_level_ok(record):
     value. No level under any spelling is ABSENT: untagged passes.
     """
     level = pwg_privacy.effective_level(record)
-    return level == "ABSENT" or level in _OUTBOUND_PRIVACY_LEVELS
+    return level is pwg_privacy.ABSENT or level in _OUTBOUND_PRIVACY_LEVELS
 
 
 def _fact_outbound_ok(fact):

@@ -2396,3 +2396,5 @@ Three hand edits in vendor/cm041/assistant_api/ical-server.py, each byte-identic
 Test edit: vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py. Two `@pytest.mark.xfail(strict=True)` markers removed (the two multi-spelling leaks). `_truth_must_serve` now treats an unparseable present spelling as withholding (fail closed), per the UNREADABLE ordering in CM041 eee9b72.
 
 Reverted-graft check: with the pre-graft ical-server and pwg_privacy, both flipped tests go red (2 failed).
+
+Revision (CM041 1e1523f): `_outbound_level_ok` tests the `ABSENT` sentinel by identity (`pwg_privacy.ABSENT`), not the string. Function text is byte-identical to CM041 1e1523f.

@@ -21,6 +21,19 @@ which is the leak class Archie caught. An untagged fact is only visible
 when an owning node supplies a parseable, non-L3 level for it to inherit;
 with no parseable signal anywhere the fact is hidden.
 
+OUTBOUND RULE (Archie, CM041 #295, 2026-11-17). Two classes of caller:
+
+  * OUTBOUND = any route or caller NOT proven owner-local. Today that is
+    EVERY Hub API route. Outbound readers withhold L0, L3 and UNREADABLE,
+    and serve L1, L2 and ABSENT (untagged). This is the 133 strict design.
+  * OWNER-LOCAL is ONLY two surfaces: (a) requests carrying the owner-scoped
+    bearer, once the 134 owner scope and audience marker land; (b) surfaces
+    on the owner's own Hub UI. Only these may read L0 and L3.
+
+``effective_level`` returns the strictest class across every spelling. A
+missing tag is the ``ABSENT`` sentinel (identity, never the string); a
+present-but-unparseable tag is ``"UNREADABLE"``.
+
 VENDORING NOTE: both ``assistant_api/ical-server.py`` and
 ``meeting_syncer/brief.py`` import this module. If EITHER is vendored
 downstream (e.g. CM051 ``vendor/cm041/``), THIS FILE MUST BE VENDORED
@@ -46,12 +59,22 @@ PRIVACY_PREDICATES = (
     "urn:ostler:privacyLevel",
 )
 
+class _Absent:
+    """Typed sentinel for 'no privacy tag at all'. Compare by identity."""
+    __slots__ = ()
+
+    def __repr__(self):
+        return "ABSENT"
+
+
+ABSENT = _Absent()
+
 # Strictness, least to most restrictive. ABSENT (no spelling present) is the
 # untagged case. An UNREADABLE value may be a corrupted STRICTER label, so it
 # outranks L1 and L2 and is never ignored: junk beside a valid level fails
 # closed. L0 and L3 are withheld too, and rank above L2. Order fixed by Archie
 # (CM041 #295 review): ABSENT < L1 < L2 < L0 < UNREADABLE < L3.
-_STRICT_RANK = {"ABSENT": 0, "L1": 1, "L2": 2, "L0": 3, "UNREADABLE": 4, "L3": 5}
+_STRICT_RANK = {ABSENT: 0, "L1": 1, "L2": 2, "L0": 3, "UNREADABLE": 4, "L3": 5}
 
 
 def parse_privacy_level(value):
@@ -69,14 +92,15 @@ def parse_privacy_level(value):
 def _classify_value(value):
     """One raw spelling's value -> 'L0'..'L3', 'UNREADABLE' or 'ABSENT'."""
     if value is None or str(value).strip() == "":
-        return "ABSENT"
+        return ABSENT
     return parse_privacy_level(value) or "UNREADABLE"
 
 
 def effective_level(record, owner_level=None):
     """The STRICTEST privacy class across EVERY spelling a record carries.
 
-    Returns one of "L0", "L1", "L2", "L3", "UNREADABLE" or "ABSENT".
+    Returns one of "L0", "L1", "L2", "L3", "UNREADABLE" or the ``ABSENT``
+    sentinel (test with ``is ABSENT``).
 
     ``record`` may be:
       * a dict: every key in FACT_PRIVACY_KEYS is read, not the first hit;
@@ -105,7 +129,7 @@ def effective_level(record, owner_level=None):
     if owner_level is not None:
         values.append(owner_level)
     if not values:
-        return "ABSENT"
+        return ABSENT
     return max((_classify_value(v) for v in values), key=_STRICT_RANK.__getitem__)
 
 
@@ -122,19 +146,22 @@ def is_l3(record, owner_level=None):
     if given) is L3, UNREADABLE, or ABSENT (no tag at all). L0, L1 and L2 are
     served here; outbound readers apply their own, narrower, rule on top.
     """
-    return effective_level(record, owner_level) in ("L3", "UNREADABLE", "ABSENT")
+    level = effective_level(record, owner_level)
+    return level is ABSENT or level in ("L3", "UNREADABLE")
 
 
 def sparql_effective_level(subject_var="s", out_var="effLevel"):
     """SPARQL subquery: one row per subject, carrying its strictest class.
 
     Insert as a group pattern, e.g. ``OPTIONAL { {sparql} }`` or
-    ``{ {sparql} }``. Binds ``?<subject_var>`` and ``?<out_var>`` (one of
-    L0..L3, UNREADABLE, ABSENT). Reads the default graph AND every named
-    graph (UNION), so it works inside a ``GRAPH ?g`` read; a subject with
-    no privacy triple at all has no row (join with OPTIONAL and treat the
-    missing binding as ABSENT). The rank mapping mirrors _STRICT_RANK
-    exactly; tests/test_privacy_effective_level.py runs both on one store.
+    ``{ {sparql} }``. Binds ``?<subject_var>`` and ``?<out_var>`` to one of
+    "L0".."L3" or "UNREADABLE". It NEVER emits an absent marker: a subject
+    whose tags are all blank, or that has no privacy triple, has NO row.
+    Map the missing binding with ``effective_level(None)``, which returns the
+    ``ABSENT`` sentinel. Reads the default graph AND every named graph
+    (UNION), so it works inside ``GRAPH ?g``. The rank mapping mirrors
+    _STRICT_RANK exactly; tests/test_privacy_effective_level.py runs both on
+    one store.
     """
     s = subject_var
     preds = ", ".join(f"<{p}>" for p in PRIVACY_PREDICATES)
@@ -145,7 +172,7 @@ def sparql_effective_level(subject_var="s", out_var="effLevel"):
     name = (r'BIND(REPLACE(UCASE(STR(?_pv)), "\\s", "") AS ?_pn)')
     level = (
         'IF(?_mr = 5, "L3", IF(?_mr = 4, "UNREADABLE", IF(?_mr = 3, "L0", '
-        'IF(?_mr = 2, "L2", IF(?_mr = 1, "L1", "ABSENT")))))'
+        'IF(?_mr = 2, "L2", IF(?_mr = 1, "L1", "UNREADABLE")))))'
     )
     return (
         "{ SELECT ?%(s)s (%(level)s AS ?%(out)s) WHERE { "
@@ -153,7 +180,7 @@ def sparql_effective_level(subject_var="s", out_var="effLevel"):
         "{ ?%(s)s ?_pp ?_pv . } UNION { GRAPH ?_pg { ?%(s)s ?_pp ?_pv . } } "
         "FILTER(?_pp IN (%(preds)s)) "
         "%(name)s BIND(%(rank)s AS ?_rk) "
-        "} GROUP BY ?%(s)s } }"
+        "} GROUP BY ?%(s)s HAVING (MAX(?_rk) > 0) } }"
     ) % {"s": s, "out": out_var, "level": level, "preds": preds,
          "name": name, "rank": rank}
 
