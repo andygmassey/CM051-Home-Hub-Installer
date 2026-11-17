@@ -45,7 +45,12 @@ os.environ["OSTLER_HOME"] = str(WORK / "home")
 os.environ["OSTLER_DIR"] = str(WORK / "home")
 os.environ["OSTLER_MAIL_DIR"] = str(WORK / "nomail")
 os.environ["OSTLER_FORGET_TOMBSTONE_FILE"] = str(WORK / "forgotten.json")
-os.environ["OSTLER_IDENTIFIER_QUALITY_STATE"] = str(WORK / "iq.json")
+# HOME and OSTLER_STATE_DIR too: identifier_quality writes
+# $OSTLER_STATE_DIR (else ~/.ostler/state)/non_identifying_identifiers.json and
+# reads no OSTLER_IDENTIFIER_QUALITY_STATE, so without these the run wrote the
+# operator's real state dir (2026-11-17).
+os.environ["HOME"] = str(WORK / "home")
+os.environ["OSTLER_STATE_DIR"] = str(WORK / "home" / ".ostler" / "state")
 os.environ["OSTLER_PERSON_DELETION_LOG"] = str(WORK / "deletions.jsonl")
 
 

@@ -1665,6 +1665,43 @@ entries:
       kind: box_walk_probe
       probe: "l3_not_prefetched"
 
+  # ADVISORY (scripts/walk_promote_scope.tsv, no_l3_in_tool_results row). The probe
+  # cannot PASS on a box by design: the outbound arm reads CANNOT-RUN "on box; PROVEN
+  # by composition" because 133 has no capture hook for the tool result the daemon
+  # feeds the model.
+  - id: box-walk-no-l3-in-tool-results
+    title: "advisory: L0 and L3 never reach an outbound path (timeline API labels every event, reply-debt and brief withhold L0 and L3), L2 control present"
+    incident: >-
+      133 privacy rule: outbound passes only L1, L2 and untagged; L0, L3 and
+      unparseable are withheld. Seeds a synthetic L2 control, L0 and L3 through
+      CM048's own serialisers and the shipped pwg-convo writer, then reads the
+      timeline (API arm: every event carries its own privacy_level), reply-debt
+      and the morning-brief copy (delivery none). The timeline's outbound arm is
+      CANNOT-RUN on box and PROVEN by composition (arm (a) labels, oa's boundary
+      filter drops what the label withholds). CAVEAT (Archie): the wiki, mirror
+      and docker-volume removal paths read 0 -> 0 on the box in run 11 because no
+      compile or fda tick fell inside the window; they are proven by self-tests
+      only, not by a live removal.
+      COMPOSITION (O21, ORM register ~/walkdriver/ORM_BACKLOG_133.md; declared by
+      ORM, the oa citations were not re-run here): the outbound arm is
+      "CANNOT-RUN on box; PROVEN by composition", not PASS, via (i) BOX: the API
+      arm PASS in run 11 (L0, L2 and L3 labelled correctly); (ii) CODE:
+      event_may_leave on the call path at
+      crates/zeroclaw-tools/src/pwg_person_timeline.rs:348 in oa proof source
+      fbeb0126f; (iii) UNIT: the oa tests
+      summarise_timeline_withholds_l0_and_l3_on_every_event_type,
+      summarise_timeline_renders_a_meeting_only_with_an_explicit_non_l3_level and
+      execute_drops_l3_and_unlabelled_meetings_end_to_end (their mutant claim is
+      #729/#730's); (iv) BOX: prose secondary, no L0 or L3 marker in any reply.
+      EXPIRY (launch directive item 5, a non-blocking row expires after ONE cut):
+      blocking from v1.0.134 or on removal of the outbound CANNOT.
+      On the 133 walk, a FAIL on any product arm (API, reply_debt, brief, tool
+      responses) or on any teardown line is a STOP that Archie rules on, not an
+      advisory note.
+    proof:
+      kind: box_walk_probe
+      probe: "no_l3_in_tool_results"
+
   - id: box-walk-chat-reminder-routes-to-home
     title: "box-walk probe must PASS: chat_reminder_routes_to_home"
     incident: >-

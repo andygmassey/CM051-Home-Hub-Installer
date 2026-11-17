@@ -405,8 +405,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "install.sh"
   },
@@ -565,7 +566,9 @@
     "decisions",
     "degraded",
     "error",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "install.sh"
   },
@@ -1836,8 +1839,10 @@
    "response_fields": [
     "count",
     "degraded",
+    "legacy_untagged",
     "reason",
-    "topics"
+    "topics",
+    "withheld"
    ],
    "source": "install.sh"
   },
@@ -1862,9 +1867,11 @@
     "degraded",
     "error",
     "label",
+    "legacy_untagged",
     "mentions",
     "reason",
-    "slug"
+    "slug",
+    "withheld"
    ],
    "source": "install.sh"
   },
@@ -3342,8 +3349,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -3513,7 +3521,9 @@
     "decisions",
     "degraded",
     "error",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4114,9 +4124,11 @@
     "degraded",
     "generated_at",
     "interests",
+    "legacy_untagged",
     "reason",
     "schema_version",
-    "source_path"
+    "source_path",
+    "withheld"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -4383,8 +4395,10 @@
    "response_fields": [
     "count",
     "degraded",
+    "legacy_untagged",
     "reason",
-    "topics"
+    "topics",
+    "withheld"
    ],
    "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
   },
@@ -5296,8 +5310,9 @@
     "commitments",
     "count",
     "degraded",
-    "privacy_level",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -5488,7 +5503,9 @@
     "decisions",
     "degraded",
     "error",
-    "reason"
+    "legacy_untagged",
+    "reason",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6267,9 +6284,11 @@
     "degraded",
     "generated_at",
     "interests",
+    "legacy_untagged",
     "reason",
     "schema_version",
-    "source_path"
+    "source_path",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6514,8 +6533,10 @@
    "response_fields": [
     "count",
     "degraded",
+    "legacy_untagged",
     "reason",
-    "topics"
+    "topics",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },
@@ -6539,9 +6560,11 @@
     "degraded",
     "error",
     "label",
+    "legacy_untagged",
     "mentions",
     "reason",
-    "slug"
+    "slug",
+    "withheld"
    ],
    "source": "vendor/cm041/assistant_api/ical-server.py"
   },

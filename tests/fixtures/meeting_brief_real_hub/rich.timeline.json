@@ -4,6 +4,7 @@
     {
       "channel": "conversation",
       "conversation_id": "conv-1",
+      "privacy_level": "L1",
       "summary": "",
       "title": "Conversation",
       "type": "conversation",

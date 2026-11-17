@@ -3021,8 +3021,8 @@ _ostler_licence_refuse() {
 # must not silently become a window that never ends.
 OSTLER_LICENCE_TIER=""
 OSTLER_LICENCE_TIER_STATE="unverified"
-OSTLER_LICENCE_EXPIRES_AT=""
-export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE OSTLER_LICENCE_EXPIRES_AT
+OSTLER_LICENCE_EXPIRES_AT=""; OSTLER_LICENCE_PLAN=""
+export OSTLER_LICENCE_TIER OSTLER_LICENCE_TIER_STATE OSTLER_LICENCE_EXPIRES_AT OSTLER_LICENCE_PLAN
 
 if [[ "${OSTLER_DEV:-0}" == "1" || "$ALLOW_UNLICENSED" == "1" ]]; then
     # Loud on purpose, three times, matching the --allow-plaintext
@@ -3094,7 +3094,7 @@ else
     # below. Captured explicitly with `|| rc=$?` because `set -e` would
     # otherwise abort here and the customer would see nothing at all.
     _lic_rc=0
-    _lic_detail="$("$_lic_python" - "$OSTLER_LICENCE_FILE" "$_lic_pubkey" <<'OSTLER_LICENCE_VERIFY_PY'
+    _lic_py_src="$(cat <<'OSTLER_LICENCE_VERIFY_PY'
 # Verify a CM050 v1 licence file. Mirrors, decision for decision,
 # gui/OstlerInstaller/Auth/LicenseVerifier.swift:
 #
@@ -3317,7 +3317,7 @@ def resolve_tier(doc):
 
 
 def main():
-    path, pubkey_hex = sys.argv[1], sys.argv[2]
+    path, pubkey_hex, mode = sys.argv[1], sys.argv[2], (sys.argv[3] if len(sys.argv) > 3 else "")  # mode "plan": see the PASS path
     if not os.path.isfile(path):
         return RC_MISSING
     try:
@@ -3385,7 +3385,7 @@ def main():
         if expires < now:
             # The customer already knows the date; support needs it to
             # renew them.
-            sys.stdout.write(doc["update_window_expires_at"])
+            if mode != "plan": sys.stdout.write(doc["update_window_expires_at"])
             return RC_EXPIRED
     # THE PASS PATH NOW CARRIES THE TIER OUT, and that is the whole
     # point of HR015 #928: before this, a licence could carry a tier,
@@ -3417,7 +3417,7 @@ def main():
     # must be able to tell the difference.
     tier, tier_state = resolve_tier(doc)
     stamp = doc["update_window_expires_at"] if expires is not None else "unparseable"
-    sys.stdout.write("%s %s %s" % (tier_state, stamp, tier))
+    sys.stdout.write(("" if doc.get("plan") not in ("founding", "ff", "standard") else doc["plan"]) if mode == "plan" else "%s %s %s" % (tier_state, stamp, tier))
     return RC_OK
 
 
@@ -3429,7 +3429,7 @@ try:
 except Exception:
     sys.exit(RC_INTERNAL)
 OSTLER_LICENCE_VERIFY_PY
-)" || _lic_rc=$?
+)"; _lic_detail="$("$_lic_python" -c "$_lic_py_src" "$OSTLER_LICENCE_FILE" "$_lic_pubkey")" || _lic_rc=$?
 
     case "$_lic_rc" in
         0)  _ostler_licence_restrict_mode
@@ -3439,8 +3439,8 @@ OSTLER_LICENCE_VERIFY_PY
             # whitespace, and the heredoc emits the literal token
             # "unparseable" rather than a stamp it could not read.
             #
-            # A verifier that somehow printed nothing leaves the state
-            # at "unverified" rather than inventing "absent". Those are
+            OSTLER_LICENCE_PLAN="$("$_lic_python" -c "$_lic_py_src" "$OSTLER_LICENCE_FILE" "$_lic_pubkey" plan)" || OSTLER_LICENCE_PLAN=""  # plan: empty on any failure, never a default
+            # A verifier that printed nothing leaves the state at "unverified" rather than inventing "absent". Those are
             # different claims and only one of them is true.
             if [[ -n "$_lic_detail" ]]; then
                 OSTLER_LICENCE_TIER_STATE="${_lic_detail%% *}"
@@ -3493,7 +3493,7 @@ OSTLER_LICENCE_VERIFY_PY
         14) _ostler_licence_refuse "This licence expired on ${_lic_detail}." ;;        # i18n-exempt
         *)  _ostler_licence_refuse "The licence could not be checked." ;;              # i18n-exempt
     esac
-    unset _lic_python _lic_pubkey _lic_rc _lic_detail
+    unset _lic_python _lic_pubkey _lic_rc _lic_detail _lic_py_src
 fi
 
 # Test-only stop. Placed AFTER the gate, so it can only ever STOP the
@@ -42671,7 +42671,7 @@ activate_first_month_free(
     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     licence_tier=_tier,
     licence_tier_state=_tier_state,
-    licence_expires_at=_lic_expiry,
+    licence_expires_at=_lic_expiry, included_plan=(os.environ.get('OSTLER_LICENCE_PLAN') or None),
 )
 " 2>&1; then
     ok "$MSG_OK_FIRST_MONTH_FREE_ACTIVATED"
