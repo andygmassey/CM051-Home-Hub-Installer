@@ -491,6 +491,127 @@ def _today() -> datetime:
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
 
+# ── Declared destination, by model route (Archie ruling, 2026-11-18) ───────
+#
+# Every gated reader read is declared with X-Ostler-Destination, never left
+# undeclared (undeclared reads as the strictest row and the digest goes empty).
+# CONTEXT.md is injected into the system prompt of whichever model answers, so
+# the declaration follows the route the model takes:
+#   every configured model is on this Mac  -> owner_own_brief
+#   any cloud model reachable, or unknown  -> cloud_model
+# Unknown means: no readable config, no fallback, a model with no loopback
+# base_url, a ":cloud" model, a model route, or a named fallback that is not a
+# loopback model. Fail closed to cloud_model.
+DESTINATION_HEADER = "X-Ostler-Destination"
+DEST_ON_BOX = "owner_own_brief"
+DEST_CLOUD = "cloud_model"
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0")
+_DESTINATION_CACHE: list[str] = []
+
+
+def _parse_toml(text: str) -> dict:
+    """Parse the assistant config. tomllib when present (3.11+); otherwise a
+    minimal reader for the tables the route needs. A value it cannot read is
+    kept as its raw text, so a list or a table that is not understood makes
+    the route fail closed rather than read as on-box."""
+    try:
+        import tomllib  # type: ignore[import-not-found]
+        return tomllib.loads(text)
+    except ImportError:
+        pass
+    root: dict = {}
+    cur = root
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[[") and line.endswith("]]"):
+            # Array of tables: record that the name exists, as a list.
+            parts = line[2:-2].strip().split(".")
+            node = root
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node.setdefault(parts[-1], []).append({})
+            cur = node[parts[-1]][-1]
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            node = root
+            for part in line[1:-1].strip().split("."):
+                node = node.setdefault(part.strip().strip('"'), {})
+            cur = node
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            value = value.strip()
+            if value[:1] in ('"', "'") and value[-1:] == value[:1] and len(value) >= 2:
+                cur[key.strip().strip('"')] = value[1:-1]
+            else:
+                cur[key.strip().strip('"')] = value   # raw: list, number, bool
+    return root
+
+
+def _is_loopback_base(url: object) -> bool:
+    from urllib.parse import urlparse
+    if not isinstance(url, str) or not url.strip():
+        return False
+    host = (urlparse(url.strip()).hostname or "").lower()
+    return host in _LOOPBACK_HOSTS
+
+
+def route_destination(config_text: str | None) -> str:
+    """The destination the digest declares, given the assistant config text.
+    Pure: no I/O. None means the config could not be read."""
+    if config_text is None:
+        return DEST_CLOUD
+    try:
+        cfg = _parse_toml(config_text)
+    except Exception:  # noqa: BLE001 - any parse failure is an unknown route
+        return DEST_CLOUD
+    providers = cfg.get("providers")
+    if not isinstance(providers, dict):
+        return DEST_CLOUD
+    if providers.get("model_routes"):
+        return DEST_CLOUD   # a route can point at any model, so it is unknown
+    models = providers.get("models")
+    fallback = providers.get("fallback")
+    if not isinstance(models, dict) or not models:
+        return DEST_CLOUD
+    if not isinstance(fallback, str) or fallback not in models:
+        return DEST_CLOUD
+    for name, entry in models.items():
+        if not isinstance(entry, dict):
+            return DEST_CLOUD
+        if not _is_loopback_base(entry.get("base_url")):
+            return DEST_CLOUD
+        model = entry.get("model")
+        if not isinstance(model, str) or model.strip().endswith(":cloud"):
+            return DEST_CLOUD
+    reliability = cfg.get("reliability")
+    if isinstance(reliability, dict):
+        named = reliability.get("fallback_providers")
+        if named not in (None, "", "[]"):
+            if not isinstance(named, list):
+                return DEST_CLOUD
+            for item in named:
+                if item not in models or not _is_loopback_base(models[item].get("base_url")):
+                    return DEST_CLOUD
+    return DEST_ON_BOX
+
+
+def declared_destination() -> str:
+    """The destination for this run, computed once from the assistant config."""
+    if not _DESTINATION_CACHE:
+        path = _assistant_config_path()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            text = None
+        dest = route_destination(text)
+        _DESTINATION_CACHE.append(dest)
+        _note_read(f"destination {dest} (route from {_tilde(path)})")
+    return _DESTINATION_CACHE[0]
+
+
 def _get_json(path: str) -> dict | None:
     """GET a JSON endpoint on the local ical-server.
 
@@ -502,7 +623,7 @@ def _get_json(path: str) -> dict | None:
     "returns None" is not the same thing as "there is nothing there".
     """
     url = f"{BASE_URL}{path}"
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", DESTINATION_HEADER: declared_destination()}
     token = service_token()
     if token:
         # Both accepted forms, matching upstream. The ical-server's
