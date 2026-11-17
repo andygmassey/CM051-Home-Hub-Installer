@@ -1018,7 +1018,23 @@ fi
 # It even printed the zero. That is the vacuous pass this script exists to
 # prevent, in the script itself. Measured 2026-08-10 with a synthetic registry:
 # --only on a real id exits 0/1 correctly; --only on an unknown id exits 0 green.
-if [ -n "$ONLY" ] && ! cut -f1 "$work/gates.tsv" | grep -qxF "$ONLY"; then
+# THE SECOND INSTANCE OF THE CLASS IN THIS FILE, and it is the same one that
+# produced `printf: write error: Broken pipe` plus eight false NO ROWs on the
+# CM051 v1.0.69 tag. See tests/test_the_row_lookup_does_not_sigpipe_its_producer.sh.
+#
+# `grep -qxF` exits the instant it matches, closing the pipe while `cut` is
+# still writing. `cut` takes EPIPE, the `set -o pipefail` at the top of this
+# file promotes that to the PIPELINE's status, and the `!` inverts it: an id
+# that IS in the registry is reported as matching nothing, the gate prints
+# PARSE ERROR and exits 2, and the cut stops on a typo that is not there.
+#
+# Latent until the registry outgrows the pipe buffer, and it grows by one row
+# per cut. 28 gates today.
+#
+# `grep -c` must consume all input to produce a count, so it cannot
+# short-circuit. POSIX, unlike the herestring, which matters because this file
+# is executed by shells this repo does not choose.
+if [ -n "$ONLY" ] && [ "$(cut -f1 "$work/gates.tsv" | grep -cxF -- "$ONLY")" -eq 0 ]; then
 	red "PARSE ERROR: --only '$ONLY' matches no gate in the registry."
 	dim "Running nothing and reporting green is how a skipped gate becomes a passing one."
 	dim "Known ids:"
