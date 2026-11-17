@@ -119,6 +119,28 @@ IMESSAGE_CFG = (
 NO_CHANNEL_CFG = '[gateway]\nport = 8000\n'
 GATE_SRC = ROOT / "vendor/cm041/assistant_api/subscription_gate.py"
 
+# The owner's clock. The sender renders a meeting's time on the owner's LOCAL
+# clock (install.sh _when: astimezone()), so the expected nudge time must be
+# computed on that same clock, never read from the fixture's UTC
+# start_formatted. Before this, the nudge rows passed only on a host whose
+# system zone is UTC (the CI runner) and failed at every hour on a Mac in any
+# other zone. The sender's env is pinned to this zone so the result does not
+# depend on the host; the default is a non-whole-hour offset so a UTC render,
+# or one that drops the minutes of the offset, cannot pass. Override with
+# OSTLER_TEST_OWNER_TZ (any POSIX TZ string) to sweep the owner's clock.
+OWNER_TZ = os.environ.get("OSTLER_TEST_OWNER_TZ") or "XXX-05:45"
+
+
+def owner_clock(start_iso):
+    """HH:MM of an ISO instant on OWNER_TZ, read by a separate interpreter
+    through time.localtime (the sender uses datetime.astimezone)."""
+    code = ("import sys, time, datetime\n"
+            "t = datetime.datetime.fromisoformat(sys.argv[1]).timestamp()\n"
+            "print(time.strftime('%H:%M', time.localtime(t)))\n")
+    out = subprocess.run([sys.executable, "-c", code, start_iso], capture_output=True, text=True,
+                         env={"PATH": os.environ["PATH"], "TZ": OWNER_TZ}, timeout=30)
+    return out.stdout.strip()
+
 
 def stage_gate(home, state):
     """Stage the canonical gate where the sender looks for it, and write the
@@ -171,6 +193,7 @@ def run_sender(script_text, hub, announce_port, composer, workdir, token=True,
         "OSTLER_BRIEF_COMPOSER": str(composer),
         "OSTLER_BRIEF_OWNER_NAME": "Sam",
         "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+        "TZ": OWNER_TZ,
     }
     res = subprocess.run(["bash", str(script)], env=env, capture_output=True, timeout=120)
     log_file = home / ".ostler/logs/meeting-brief-sender.log"
@@ -360,6 +383,12 @@ def main():
 
                 print("-- 6 attendee-less: a timed meeting with no attendees gets a one-line nudge --")
                 base = seed.calendar_events()[0]
+                nudge_at = owner_clock(base["start"])
+                print(f"   owner TZ={OWNER_TZ} start={base['start']} owner clock={nudge_at}")
+                check("CONTROL: the owner's clock is read (HH:MM) and differs from the UTC time in the fixture",
+                      re.fullmatch(r"\d\d:\d\d", nudge_at) is not None
+                      and (nudge_at != base["start_formatted"] or OWNER_TZ != "XXX-05:45"),
+                      f"{nudge_at!r} vs {base['start_formatted']!r}")
                 Calendar.extra = [{"uid": "fixture-uid-solo", "summary": "Dentist", "start": base["start"],
                                    "start_formatted": base["start_formatted"], "location": "", "attendees": []},
                                   {"uid": "fixture-uid-allday", "summary": "Bank holiday", "start": base["start"][:10],
@@ -377,7 +406,7 @@ def main():
                     rc, sent, log = run_sender(script, hub, ann_port, composer, work)
                     by_uid = {s["meeting_uid"]: s["message"] for s in sent}
                     check("the sender sends the nudge 'You have <title> at <time>.' for it",
-                          by_uid.get("fixture-uid-solo") == f"You have Dentist at {base['start_formatted']}.",
+                          by_uid.get("fixture-uid-solo") == f"You have Dentist at {nudge_at}.",
                           str(by_uid.get("fixture-uid-solo")))
                     check("the three attendee meetings are still sent with the composer (4 in all)",
                           rc == 0 and len(sent) == 4 and len(calls.read_text().splitlines()) == 3,
@@ -406,7 +435,7 @@ def main():
                     rc, sent, log = run_sender(script, hub, ann_port, composer, work)
                     by_uid7 = {s["meeting_uid"]: s["message"] for s in sent}
                     check("CONTROL: a busy solo timed event is still nudged in the same run",
-                          by_uid7.get("fixture-uid-busy-solo") == f"You have Dentist at {base['start_formatted']}.",
+                          by_uid7.get("fixture-uid-busy-solo") == f"You have Dentist at {nudge_at}.",
                           str(by_uid7))
                     check("DECLINED: a solo timed event the owner declined is not nudged",
                           "fixture-uid-declined" not in by_uid7, str(sorted(by_uid7)))
