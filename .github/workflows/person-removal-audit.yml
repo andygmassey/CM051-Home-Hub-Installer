@@ -99,8 +99,8 @@ jobs:
             echo "::error::a test wrote outside its sandbox (rc $rc)"
             exit 1
           fi
-          if [ "${got:-0}" -ne 8 ]; then
-            echo "::error::expected 8 arms, saw ${got:-0}"
+          if [ "${got:-0}" -ne 9 ]; then
+            echo "::error::expected 9 arms, saw ${got:-0}"
             exit 1
           fi
           echo "home-guard arms passed: ${got}"

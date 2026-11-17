@@ -50,6 +50,12 @@ def _verdict(path):
         return None
     if _sandbox and (rp == _sandbox[0] or rp.startswith(_sandbox[0] + os.sep)):
         return None
+    # CPython's own bytecode cache (``__pycache__/*.pyc`` and its ``.pyc.<id>``
+    # temp) is written beside whatever module is imported, including the
+    # interpreter's stdlib on a CI runner (/opt/hostedtoolcache/...). It is the
+    # interpreter's state, never the operator's (2026-11-17, #3585 CI).
+    if "__pycache__" in rp.split(os.sep):
+        return None
     if rp == REPO or rp.startswith(REPO + os.sep):
         return None
     if rp == REAL_HOME or rp.startswith(REAL_HOME + os.sep):

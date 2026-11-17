@@ -107,3 +107,15 @@ def test_guard_refuses_and_fails_a_write_under_the_real_home(tmp_path):
     finally:
         import shutil
         shutil.rmtree(fake_real, ignore_errors=True)
+
+
+def test_guard_verdicts_bytecode_cache_and_real_home():
+    """Bytecode caches anywhere are allowed; the real home's .ostler never is.
+    (CI, 2026-11-17: the guard failed two arms on stdlib .pyc writes under
+    /opt/hostedtoolcache.)"""
+    import conftest
+    assert conftest._verdict("/opt/toolcache/lib/python3.12/dbm/__pycache__/ndbm.cpython-312.pyc") is None
+    assert conftest._verdict("/opt/toolcache/lib/python3.12/dbm/__pycache__/ndbm.cpython-312.pyc.1239") is None
+    state = os.path.join(conftest.REAL_HOME, ".ostler", "state", "forgotten_people.json")
+    assert conftest._verdict(state) == "REAL_HOME"
+    assert conftest._verdict(os.path.join(conftest.REAL_HOME, "__pycache_not__", "x")) == "REAL_HOME"
