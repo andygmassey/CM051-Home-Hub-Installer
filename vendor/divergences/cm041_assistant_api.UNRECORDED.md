@@ -2298,7 +2298,7 @@ changed or was removed; `interests` (57 records) is identical.
 
 `vendor/cm041/assistant_api/subscription_gate.py` is now grafted from CM052
 `src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21), byte-identical.
-sha256: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161`.
+sha256: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`.
 
 The hunks in `vendor/divergences/cm041_assistant_api.patch` that touch
 `subscription_gate.py` (the `+++ b/subscription_gate.py` block, around line 16225)
@@ -2372,3 +2372,13 @@ CM051-local harness changes (test file only, not the server):
 
 Wired into `.github/workflows/cm041-133-outbound-privacy.yml`; collected floor 70.
 Two `strict` xfails in the property file are open CM041 bugs, not 133 checks.
+
+## 2026-11-17 (absent-tier fix, the 133 Box finding): gate re-grafted, digest re-pinned
+
+The verifier PASS path reports tier_state `absent` for every production licence (CM050 mintLicense emits no `tier`). The gate counted only known and unknown as signed, so no founding or ff buyer got an included window. Fixed at the source: CM052 PR #26, head `31153f67c`, merged as the same bytes. Both vendored copies are byte-identical to it.
+
+- sha256 now: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
+- previous: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161` (CM052 `fd7bf5c02`)
+- digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
+
+Tree `cm041/assistant_api`: `vendor/cm041/assistant_api/subscription_gate.py` re-grafted byte-identical (vendor-only row in VENDOR_ONLY.tsv).
