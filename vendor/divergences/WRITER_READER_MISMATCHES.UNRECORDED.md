@@ -1905,3 +1905,15 @@ Its request URL is also in installer Q11 (`install.sh`), which the drift test ch
   documented Settings > Data Controls > Export data).
 - No upstream patch: the row lives only in CM051 until the same change lands in the
   Doctor source table. Re-vendor must keep this row or the drift test goes red.
+
+## doctor: proxy pins the privacy destination (agent/proxy.py), 2026-11-17
+
+`agent/proxy.py` (tree is regenerate-forbidden, so recorded here):
+
+- new constants `DESTINATION_HEADER`, `DESTINATION_QUERY_PARAM`, `PROXIED_DESTINATION = "owner_own_brief"` and helper `_strip_destination_query`;
+- `_filter_request_headers` drops any inbound `X-Ostler-Destination` and sets `owner_own_brief`;
+- `proxy_request` forwards the query with every `destination=` pair removed.
+
+Why (CM041 #296, Archie 2026-11-17): the ical-server serves `owner_local` (L3 and untagged, labelled private) only to a loopback peer. Port 8089 is tailscale-served as raw TCP, so tailnet devices reach this proxy, and through it the ical-server, as 127.0.0.1. Without this a tailnet caller could claim `owner_local` with one header or one query parameter. Until the owner-scoped bearer lands every proxied request is the owner's own brief.
+
+Tests: `tests/test_doctor_proxy_pins_the_privacy_destination.py` drives the real `proxy_request` against an httpx MockTransport upstream (5 tests, including a planted pass-through mutant that must fail). No upstream patch: the Doctor source has no destination handling yet.

@@ -127,8 +127,14 @@ class _FakeHubHandler(BaseHTTPRequestHandler):
             return False
         return raw[len(prefix):].strip() == self.expected_token
 
+    # Every /api/v1 GET's declared privacy destination, in arrival order.
+    seen_destinations: list = []
+
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler's spelling
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/v1/"):
+            type(self).seen_destinations.append(
+                (path, self.headers.get("X-Ostler-Destination")))
 
         # Public, exactly as the real server has it: _PUBLIC_GET_PATHS.
         if path == "/health":
@@ -292,6 +298,21 @@ def test_context_md_written_with_valid_token(hub, tmp_path):
     assert result.returncode == _EXIT_OK, (
         f"expected clean exit, got {result.returncode}\nstderr={result.stderr}"
     )
+
+
+def test_every_hub_read_declares_owner_own_brief(hub, tmp_path):
+    """The digest is the owner's own brief (CM041 #296, Archie 2026-11-17).
+    An undeclared read is "unknown" at the Hub, the strictest row, which drops
+    every L1/L2 item. Every /api/v1 GET must declare owner_own_brief. RED on
+    the pre-change _get_json, which sent no destination header at all."""
+    _FakeHubHandler.seen_destinations.clear()
+    _run(hub, tmp_path / "workspace", token=_GOOD_TOKEN)
+    seen = list(_FakeHubHandler.seen_destinations)
+    assert len(seen) >= 5, "the digest made too few Hub reads to judge: %r" % seen
+    paths = {p for p, _ in seen}
+    assert "/api/v1/timeline" in paths and "/api/v1/commitments" in paths, paths
+    undeclared = [(p, d) for p, d in seen if d != "owner_own_brief"]
+    assert not undeclared, "Hub reads without owner_own_brief: %r" % undeclared
 
 
 def test_the_digest_names_exactly_one_route_to_the_graph(hub, tmp_path):

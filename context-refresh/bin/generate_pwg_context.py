@@ -491,6 +491,9 @@ def _today() -> datetime:
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
 
+HUB_DESTINATION = "owner_own_brief"
+
+
 def _get_json(path: str) -> dict | None:
     """GET a JSON endpoint on the local ical-server.
 
@@ -502,7 +505,11 @@ def _get_json(path: str) -> dict | None:
     "returns None" is not the same thing as "there is nothing there".
     """
     url = f"{BASE_URL}{path}"
-    headers = {"Accept": "application/json"}
+    # The digest is the owner's own brief (Archie 2026-11-17): every read
+    # declares owner_own_brief, so the Hub serves L0-L2 and never L3. An
+    # undeclared read is "unknown", the strictest row, and drops L1/L2.
+    headers = {"Accept": "application/json",
+               "X-Ostler-Destination": HUB_DESTINATION}
     token = service_token()
     if token:
         # Both accepted forms, matching upstream. The ical-server's
