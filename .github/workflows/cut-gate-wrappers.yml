@@ -34,6 +34,9 @@ on:
       # Caught by verify_invoked_tests_are_watched.py on this very PR.
       - 'scripts/new_cut.sh'
       - 'tests/test_new_cut_guard_scoped_is_not_started.sh'
+      - 'tests/test_cut_paperwork_says_the_owner.sh'
+      - 'scripts/owner_scrub.py'
+      - 'scripts/carry_cut_manifest.sh'
       - 'tests/test_new_cut_checks_what_preflight_checks.sh'
       - 'tests/test_new_cut_covers_every_pretag_gate.sh'
       - 'scripts/verify_bom_rows_are_in_the_pin.sh'
@@ -778,6 +781,11 @@ jobs:
       - name: new_cut.sh -- a SCOPED cut is not a STARTED cut
         if: always()
         run: bash tests/test_new_cut_guard_scoped_is_not_started.sh
+
+      # CUT PAPERWORK SAYS "THE OWNER" (Archie 2026-11-17).
+      - name: cut paperwork carries 0 owner-name occurrences
+        if: always()
+        run: bash tests/test_cut_paperwork_says_the_owner.sh
 
       # NEW_CUT.SH MUST CHECK WHAT THE PREFLIGHT CHECKS.
       #

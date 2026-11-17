@@ -93,7 +93,10 @@ done < <(ls cuts 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | sort -t. -k1
 echo "[new-cut] previous cut: $PREV"
 
 mkdir -p "$NEW" || die "cannot create $NEW"
-cp "cuts/$PREV/cut.env" "$NEW/cut.env" || die "cannot copy cut.env"
+# cut.env is CARRIED from the previous cut, comments verbatim, so any owner
+# name in a comment propagated by copy. Archie 2026-11-17: emit "the owner".
+# rc 2 (inventory unreadable) aborts: a scrub that could not look is not clean.
+python3 -I "$REPO/scripts/owner_scrub.py" < "cuts/$PREV/cut.env" > "$NEW/cut.env" || die "owner scrub of cut.env failed or could not run (needs ~/.ostler-operator-pii.toml)"
 
 BARE="${VERSION#v}"
 # Rewrite EXACTLY the three assignment lines. Anchored to line start so a
