@@ -36,7 +36,22 @@ VALID_PRIVACY_LEVELS = frozenset({"L0", "L1", "L2", "L3"})
 # Privacy-level keys a per-fact dict might carry. A Qdrant payload fact
 # stores it snake-cased; an Oxigraph-mirrored fact could arrive under any
 # of these spellings. All are checked.
-FACT_PRIVACY_KEYS = ("privacy_level", "privacyLevel", "level")
+FACT_PRIVACY_KEYS = ("privacy_level", "privacyLevel", "privacy", "level")
+
+# Every spelling a record-level privacy value is written under. Readers MUST
+# go through effective_level(); reading one key (or one predicate) and
+# stopping at the first hit is the leak this module exists to prevent.
+PRIVACY_PREDICATES = (
+    "https://schema.ostler.ai/ontology#privacyLevel",   # pwg:privacyLevel
+    "urn:ostler:privacyLevel",
+)
+
+# Strictness, least to most restrictive. ABSENT (no spelling present) is the
+# untagged case. An UNREADABLE value may be a corrupted STRICTER label, so it
+# outranks L1 and L2 and is never ignored: junk beside a valid level fails
+# closed. L0 and L3 are withheld too, and rank above L2. Order fixed by Archie
+# (CM041 #295 review): ABSENT < L1 < L2 < L0 < UNREADABLE < L3.
+_STRICT_RANK = {"ABSENT": 0, "L1": 1, "L2": 2, "L0": 3, "UNREADABLE": 4, "L3": 5}
 
 
 def parse_privacy_level(value):
@@ -51,46 +66,96 @@ def parse_privacy_level(value):
     return level if level in VALID_PRIVACY_LEVELS else None
 
 
-def _record_level(record):
-    """Extract a parseable level from a fact record (dict), or None.
+def _classify_value(value):
+    """One raw spelling's value -> 'L0'..'L3', 'UNREADABLE' or 'ABSENT'."""
+    if value is None or str(value).strip() == "":
+        return "ABSENT"
+    return parse_privacy_level(value) or "UNREADABLE"
 
-    Checks each recognised privacy key in order and returns the first
-    that parses. A dict with no recognised/parseable key -> None.
+
+def effective_level(record, owner_level=None):
+    """The STRICTEST privacy class across EVERY spelling a record carries.
+
+    Returns one of "L0", "L1", "L2", "L3", "UNREADABLE" or "ABSENT".
+
+    ``record`` may be:
+      * a dict: every key in FACT_PRIVACY_KEYS is read, not the first hit;
+      * a list of (predicate, value) pairs (a triple view): every pair whose
+        predicate is a snake/camel key or one of PRIVACY_PREDICATES is read;
+      * a bare raw value (string / None);
+      * None: ABSENT.
+    ``owner_level``: optional raw level of the owning node, counted as one
+    more spelling (most-restrictive wins across record and owner).
+
+    Order (least to most restrictive): ABSENT < L1 < L2 < L0 < UNREADABLE < L3.
+    Consequences: L0+L2 -> L0 (withheld, not numeric max); L3+L1 -> L3;
+    L0+L3 -> L3; junk+L1 -> UNREADABLE (withheld: junk never loses to a
+    valid level, it may be a corrupted stricter label); junk alone ->
+    UNREADABLE; nothing -> ABSENT (untagged).
     """
     if isinstance(record, dict):
-        for key in FACT_PRIVACY_KEYS:
-            if key in record:
-                level = parse_privacy_level(record.get(key))
-                if level is not None:
-                    return level
-    return None
+        values = [record[k] for k in FACT_PRIVACY_KEYS if k in record]
+    elif isinstance(record, (list, tuple)):
+        values = [v for (pred, v) in record
+                  if pred in FACT_PRIVACY_KEYS or pred in PRIVACY_PREDICATES]
+    elif record is None:
+        values = []
+    else:
+        values = [record]
+    if owner_level is not None:
+        values.append(owner_level)
+    if not values:
+        return "ABSENT"
+    return max((_classify_value(v) for v in values), key=_STRICT_RANK.__getitem__)
+
+
+def _record_level(record):
+    """Strictest parseable L0..L3 across all spellings, or None."""
+    level = effective_level(record)
+    return level if level in VALID_PRIVACY_LEVELS else None
 
 
 def is_l3(record, owner_level=None):
     """Fail-closed L3 test. ``True`` => HIDE the record.
 
-    ``record``: the fact/record itself -- a dict carrying a privacy key,
-    a raw level string, or ``None``.
-    ``owner_level``: the privacy level (raw or parsed) of the owning
-    person/meeting node, when the caller can supply it.
-
-    Contract:
-      * Most-restrictive wins across {record level, owner level}.
-      * A level counts only if it parses to L0/L1/L2/L3.
-      * If NEITHER parses (missing / empty / unparseable / out-of-range)
-        the record is treated as L3 and hidden.
-      * Only an explicit, parseable L0/L1/L2 (with no L3 on either axis)
-        is visible.
+    Hidden when the strictest class across every spelling (and the owner,
+    if given) is L3, UNREADABLE, or ABSENT (no tag at all). L0, L1 and L2 are
+    served here; outbound readers apply their own, narrower, rule on top.
     """
-    if isinstance(record, dict) or record is None:
-        rec = _record_level(record)
-    else:
-        rec = parse_privacy_level(record)
-    owner = parse_privacy_level(owner_level)
-    levels = [lvl for lvl in (rec, owner) if lvl is not None]
-    if not levels:
-        return True                # no parseable signal -> fail closed
-    return "L3" in levels          # most-restrictive: any L3 hides
+    return effective_level(record, owner_level) in ("L3", "UNREADABLE", "ABSENT")
+
+
+def sparql_effective_level(subject_var="s", out_var="effLevel"):
+    """SPARQL subquery: one row per subject, carrying its strictest class.
+
+    Insert as a group pattern, e.g. ``OPTIONAL { {sparql} }`` or
+    ``{ {sparql} }``. Binds ``?<subject_var>`` and ``?<out_var>`` (one of
+    L0..L3, UNREADABLE, ABSENT). Reads the default graph AND every named
+    graph (UNION), so it works inside a ``GRAPH ?g`` read; a subject with
+    no privacy triple at all has no row (join with OPTIONAL and treat the
+    missing binding as ABSENT). The rank mapping mirrors _STRICT_RANK
+    exactly; tests/test_privacy_effective_level.py runs both on one store.
+    """
+    s = subject_var
+    preds = ", ".join(f"<{p}>" for p in PRIVACY_PREDICATES)
+    rank = (
+        'IF(?_pn = "", 0, IF(?_pn = "L1", 1, IF(?_pn = "L2", 2, '
+        'IF(?_pn = "L0", 3, IF(?_pn = "L3", 5, 4)))))'
+    )
+    name = (r'BIND(REPLACE(UCASE(STR(?_pv)), "\\s", "") AS ?_pn)')
+    level = (
+        'IF(?_mr = 5, "L3", IF(?_mr = 4, "UNREADABLE", IF(?_mr = 3, "L0", '
+        'IF(?_mr = 2, "L2", IF(?_mr = 1, "L1", "ABSENT")))))'
+    )
+    return (
+        "{ SELECT ?%(s)s (%(level)s AS ?%(out)s) WHERE { "
+        "SELECT ?%(s)s (MAX(?_rk) AS ?_mr) WHERE { "
+        "{ ?%(s)s ?_pp ?_pv . } UNION { GRAPH ?_pg { ?%(s)s ?_pp ?_pv . } } "
+        "FILTER(?_pp IN (%(preds)s)) "
+        "%(name)s BIND(%(rank)s AS ?_rk) "
+        "} GROUP BY ?%(s)s } }"
+    ) % {"s": s, "out": out_var, "level": level, "preds": preds,
+         "name": name, "rank": rank}
 
 
 def filter_l3_facts(facts, owner_level=None):

@@ -2306,26 +2306,26 @@ def _filter_qdrant_facts(facts, owner_level=None):
 _OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
 
 
-def _outbound_level_ok(raw):
-    """True when a raw privacy value may leave the box (see rule above)."""
-    if raw is None or str(raw).strip() == "":
-        return True
-    return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
+def _outbound_level_ok(record):
+    """True when a record may leave the box (see rule above).
+
+    ``record`` is a dict (every spelling is read, strictest wins) or a raw
+    value. No level under any spelling is ABSENT: untagged passes.
+    """
+    level = pwg_privacy.effective_level(record)
+    return level == "ABSENT" or level in _OUTBOUND_PRIVACY_LEVELS
 
 
 def _fact_outbound_ok(fact):
     """True when one fact's own level is outbound-safe (L1 or L2).
 
-    A fact with no parseable level is refused: _filter_qdrant_facts has
-    already dropped those, so this only sees L0, L1 and L2 in practice.
+    Reads EVERY spelling via effective_level (strictest wins), so an L1 under
+    one key cannot clear a fact that carries L3 or L0 under another. A fact
+    with no parseable level is refused.
     """
     if not isinstance(fact, dict):
         return False
-    for key in pwg_privacy.FACT_PRIVACY_KEYS:
-        level = pwg_privacy.parse_privacy_level(fact.get(key))
-        if level is not None:
-            return level in _OUTBOUND_PRIVACY_LEVELS
-    return False
+    return pwg_privacy.effective_level(fact) in _OUTBOUND_PRIVACY_LEVELS
 
 
 def people_search(query, limit=10, timeout=30):
@@ -2408,7 +2408,7 @@ def people_search(query, limit=10, timeout=30):
         # is still searchable (search coverage must not collapse for the many
         # points that predate the privacy_level default), and their individual
         # facts are still fail-closed filtered below.
-        if not _outbound_level_ok(p.get("privacy_level")):
+        if not _outbound_level_ok(p):
             continue
         entry = {
             "name": dn,

@@ -107,11 +107,13 @@ def _gate_serves_fact(fact, gate=None):
 
 
 def _truth_must_serve(fact):
-    # Over-withholding is asserted only on the spellings the gate is documented
-    # to read (pwg_privacy.FACT_PRIVACY_KEYS). The bare "privacy" spelling is
-    # withheld (fail closed) and is reported separately, not asserted here.
-    levels = [pwg_privacy.parse_privacy_level(fact.get(k)) for k in pwg_privacy.FACT_PRIVACY_KEYS]
-    levels = [lvl for lvl in levels if lvl is not None]
+    # Serve only when every PRESENT spelling reads L1/L2. An unparseable
+    # present value is UNREADABLE and withholds (CM041 #295: junk beside a
+    # valid level may be a corrupted stricter label, so it fails closed).
+    # Absent/blank spellings are not present and do not count.
+    present = [fact.get(k) for k in pwg_privacy.FACT_PRIVACY_KEYS
+               if k in fact and fact.get(k) is not None and str(fact.get(k)).strip() != ""]
+    levels = [pwg_privacy.parse_privacy_level(v) for v in present]
     return bool(levels) and all(lvl in ("L1", "L2") for lvl in levels)
 
 
@@ -135,12 +137,6 @@ def _fact_property(gate, facts=None):
     return prop
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="REAL BUG (CM041 ical-server.py _fact_outbound_ok + pwg_privacy._record_level): "
-           "first parseable spelling wins, so {'privacy_level':'L1','privacyLevel':'L3'} "
-           "is served. Strict xfail: flips to a failure once fixed, then remove the marker.",
-)
 def test_facts_no_l3_or_untagged_served_all_spellings():
     _fact_property(None)()
 
@@ -242,12 +238,6 @@ def test_persons_untagged_is_counted_not_hidden():
     assert uris == {"urn:synthetic:person:0", "urn:synthetic:person:1"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="REAL BUG (CM041 ical-server.py people_search, line ~1821): only the "
-           "snake_case privacy_level is read on a person; a person tagged "
-           "privacyLevel='L3' with no privacy_level is served. Strict xfail.",
-)
 def test_person_tagged_camel_case_l3_is_not_served():
     out = _run_people_search([_person_payload(0, {"privacyLevel": "L3"})])
     assert out["results"] == []
