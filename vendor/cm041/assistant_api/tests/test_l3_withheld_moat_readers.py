@@ -146,22 +146,22 @@ class TestDecisionsL3(unittest.TestCase):
     PROVENANCE = {
         "urn:ostler:decision/l2": [
             {"m": "urn:ostler:meeting/l2", "mpriv": "L2",
-             "name": "Synthetic Person A", "ppriv": "L2"}],
+             "p": "urn:ostler:person/a", "name": "Synthetic Person A", "ppriv": "L2"}],
         "urn:ostler:decision/l3": [
             {"m": "urn:ostler:meeting/l3", "mpriv": "L3",
-             "name": "Synthetic Person A", "ppriv": "L2"}],
+             "p": "urn:ostler:person/a", "name": "Synthetic Person A", "ppriv": "L2"}],
         "urn:ostler:decision/unk": [
             {"m": "urn:ostler:meeting/unk", "mpriv": None,
-             "name": "Synthetic Person A", "ppriv": "L2"}],
+             "p": "urn:ostler:person/a", "name": "Synthetic Person A", "ppriv": "L2"}],
         "urn:ostler:decision/att": [
             {"m": "urn:ostler:meeting/l2", "mpriv": "L2",
-             "name": "Synthetic Person B", "ppriv": "L3"}],
+             "p": "urn:ostler:person/b", "name": "Synthetic Person B", "ppriv": "L3"}],
         "urn:ostler:decision/nosrc": [
-            {"m": None, "mpriv": None, "name": "Synthetic Person A",
+            {"m": None, "mpriv": None, "p": "urn:ostler:person/a", "name": "Synthetic Person A",
              "ppriv": "L2"}],
         "urn:ostler:decision/bad": [
             {"m": "urn:ostler:meeting/bad", "mpriv": "bogus",
-             "name": "Synthetic Person A", "ppriv": "L2"}],
+             "p": "urn:ostler:person/a", "name": "Synthetic Person A", "ppriv": "L2"}],
     }
 
     def _fake(self, provenance=None):
@@ -333,13 +333,13 @@ class TestPreferencesL3(unittest.TestCase):
             "schema_version": "0.1",
             "generated_at": "2026-06-20T00:00:00+00:00",
             "interests": [
-                {"id": "int_l2", "subject": "synthetic hobby", "domain": "Music",
+                {"id": "int_l2", "subject": "Synthetic Hobby", "domain": "Music",
                  "polarity": "like", "score": 0.9, "confidence": 0.8,
                  "privacy_level": "L2", "sources": ["you"], "evidence": ["x"]},
-                {"id": "int_l3", "subject": "synthetic private", "domain": "Health",
+                {"id": "int_l3", "subject": "Synthetic Private", "domain": "Health",
                  "polarity": "like", "score": 0.95, "confidence": 0.8,
                  "privacy_level": "L3", "sources": ["you"], "evidence": ["x"]},
-                {"id": "int_unk", "subject": "synthetic untagged", "domain": "Film",
+                {"id": "int_unk", "subject": "Synthetic Untagged", "domain": "Film",
                  "polarity": "like", "score": 0.85, "confidence": 0.8,
                  "sources": ["you"], "evidence": ["x"]},
             ],
@@ -356,8 +356,8 @@ class TestPreferencesL3(unittest.TestCase):
                     status, body = h.get("/api/v1/preferences")
         self.assertEqual(status, 200)
         subjects = [i["subject"] for i in body["interests"]]
-        self.assertEqual(subjects, ["synthetic hobby", "synthetic untagged"])
-        self.assertNotIn("synthetic private", json.dumps(body))
+        self.assertEqual(subjects, ["Synthetic Hobby", "Synthetic Untagged"])
+        self.assertNotIn("Synthetic Private", json.dumps(body))
         self.assertEqual(body["withheld"], {"l3": 1, "unknown": 0})
         self.assertEqual(body["legacy_untagged"], 1)
 

@@ -7928,16 +7928,21 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
         try:
             arows = _sparql_select(
                 'PREFIX pwg: <{ns}>\n'
-                'SELECT ?m ?mpriv ?name ?ppriv WHERE {{\n'
+                'SELECT ?m ?mpriv ?p ?name ?ppriv WHERE {{\n'
+                # Levels live in the default graph (the decision writer) OR in
+                # the named user graphs (the seed and CM048 writers). Oxigraph has
+                # no union default graph, so each level pattern matches both.
                 '  OPTIONAL {{ <{uri}> pwg:decisionSource ?m .\n'
-                '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }} }}\n'
+                '    OPTIONAL {{ {{ ?m pwg:privacyLevel ?mpriv }} UNION {{ GRAPH ?gm {{ ?m pwg:privacyLevel ?mpriv }} }} }} }}\n'
                 '  OPTIONAL {{ <{uri}> pwg:decisionAbout ?p .\n'
-                '    ?p pwg:displayName ?name .\n'
-                '    OPTIONAL {{ ?p pwg:privacyLevel ?ppriv }} }}\n'
+                '    OPTIONAL {{ ?p pwg:displayName ?name }}\n'
+                '    OPTIONAL {{ {{ ?p pwg:privacyLevel ?ppriv }} UNION {{ GRAPH ?gp {{ ?p pwg:privacyLevel ?ppriv }} }} }} }}\n'
                 '}}'.format(ns=PWG_NS, uri=decision_uri)
             )
             meeting_levels = [a.get("mpriv") for a in arows if a.get("m")] or [None]
-            person_levels = [a.get("ppriv") for a in arows if a.get("name")]
+            # Collected per attendee, not per name: an attendee whose level
+            # is found must count even if its display name is not.
+            person_levels = [a.get("ppriv") for a in arows if a.get("p")]
             about_people = [a["name"] for a in arows if a.get("name")]
             verdict = pwg_privacy.provenance_verdict(None, meeting_levels + person_levels)
         except Exception:
@@ -12851,6 +12856,28 @@ def api_hydration_status():
     }
 
 
+_INTEREST_PRIVACY_KEYS = ("privacy_level", "privacy")
+
+
+def _interest_privacy_verdict(it):
+    """Verdict for one CM059 interest record, reading both level keys.
+
+    Each key goes through ``pwg_privacy.provenance_verdict`` (so an
+    unparseable value is ``unknown`` and withheld, per the 133 rule). The
+    strictest verdict wins: l3, then unknown, then ok, then legacy_untagged.
+    A non-dict record has no level on either key, as before.
+    """
+    raws = [it.get(k) if isinstance(it, dict) else None
+            for k in _INTEREST_PRIVACY_KEYS]
+    verdicts = [pwg_privacy.provenance_verdict(raw) for raw in raws]
+    for strict in ("l3", "unknown"):
+        if strict in verdicts:
+            return strict
+    if "ok" in verdicts:
+        return "ok"
+    return "legacy_untagged"
+
+
 def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     """Read the CM059 interest-profile artefact and return a flat, filtered,
     score-sorted list of interest records for the daemon's pwg_preferences
@@ -12908,7 +12935,8 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     # Privacy gate, applied before the counts and the limit. A row is withheld
     # if EITHER the Art. 9 filter OR the per-interest level gate applies, and
     # is counted once (an Art. 9 hit is tallied as ``l3``). An interest record
-    # is served only when ITS OWN privacy_level parses to L0/L1/L2. An untagged
+    # is served only when ITS OWN level (privacy or privacy_level) parses to
+    # L0/L1/L2, strictest of the two. An untagged
     # record is legacy_untagged: served, and counted so the response shows how
     # many have no readable level yet. An unparseable level is unknown: withheld.
     withheld = _new_withheld()
@@ -12921,8 +12949,7 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
                for k in ("subject", "name", "label", "title") if it.get(k)):
             withheld["l3"] += 1
             continue
-        raw = it.get("privacy_level")
-        verdict = pwg_privacy.provenance_verdict(raw)
+        verdict = _interest_privacy_verdict(it)
         if _count_withheld(withheld, verdict):
             visible.append(it)
     interests = visible

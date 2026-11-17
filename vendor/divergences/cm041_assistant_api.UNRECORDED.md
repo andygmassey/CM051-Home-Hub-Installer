@@ -2304,3 +2304,23 @@ The hunks in `vendor/divergences/cm041_assistant_api.patch` that touch
 `subscription_gate.py` (the `+++ b/subscription_gate.py` block, around line 16225)
 record the OLD gate and are SUPERSEDED by this graft. A sync_vendor.sh run must not
 reapply them. No patch regeneration in 133.
+
+## decisions_list and api_preferences privacy gates: grafted from CM041 #278 (133 window)
+
+Two gate fixes, the added lines byte-identical to CM041 `assistant_api/ical-server.py`
+at `27bf1d1` (later `07ceb011`), function-compared, not hand-copied:
+
+- `decisions_list`: the provenance query's meeting and attendee level patterns are
+  `{ <pattern> } UNION { GRAPH ?g { <pattern> } }`. Levels are found in the default
+  graph (the decision writer) and in the named user graphs. Attendee level is
+  collected per `?p`, not per display name. Name-required and default-only forms
+  are removed.
+- `api_preferences`: new helper `_interest_privacy_verdict` (and constant
+  `_INTEREST_PRIVACY_KEYS`) reads both `privacy_level` and `privacy` (the CM059
+  compiler key); the strictest verdict wins. The CM051-local Art. 9 pre-check is
+  kept above the gate and unchanged.
+
+Tests: `tests/test_133_named_graph_and_privacy_key.py` (byte-identical to CM041)
+runs against a real pyoxigraph store. `tests/test_l3_withheld_moat_readers.py`
+fixture rows now carry the `p` binding the new SELECT returns. Both are wired into
+`.github/workflows/cm041-133-outbound-privacy.yml`, floor 48.
