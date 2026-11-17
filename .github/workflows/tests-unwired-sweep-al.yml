@@ -116,6 +116,7 @@ jobs:
             test_imessage_self_handles_fallback.sh \
             test_install_daily_briefs.sh \
             test_install_first_month_free.sh \
+            test_strings_never_claim_30_days_included_pro.sh \
             test_install_sh_prefers_bundled_python.sh \
             test_knowledge_repo_wiring.sh \
             test_linkedin_export_detect.sh \
