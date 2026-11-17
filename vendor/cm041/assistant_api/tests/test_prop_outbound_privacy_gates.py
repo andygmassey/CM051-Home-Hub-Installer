@@ -211,7 +211,7 @@ PERSON_TAG = st.dictionaries(st.sampled_from(SPELLINGS), VALUES, max_size=2)
 
 
 def _person_payload(i, tags):
-    return {"display_name": f"Pat Example {i}", "person_uri": f"urn:synthetic:person:{i}",
+    return {"display_name": f"placeholder display {i}", "person_uri": f"urn:synthetic:person:{i}",
             "facts": [], **tags}
 
 
