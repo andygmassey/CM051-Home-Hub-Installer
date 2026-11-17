@@ -237,6 +237,50 @@ entries:
           - 7b7dacf267  # v1.0.111 (0.5.23 graft): test(brief): three eval mutants that were not red now are
           - a2f35974c2  # v1.0.111 (0.5.23 graft): feat(brief): the model is shown how the last briefs opened, 
           - d3b8de6c71  # v1.0.111 (0.5.23 graft): fix(brief): every section counts what it cuts, long-overdue 
+          # Third epoch, v1.0.133, 2026-11-17 (Archie ruling A, cut/v1.0.133 ONLY): INTERNAL 133 snapshot, not a launch candidate (owner decision 2026-11-17); a hold_ack is not a freshness claim. hub-v0.5.42 837650cf held at oa main 899ed662, delta +43, same adjudication as scripts/daemon_hold_ack.tsv row 837650cf. expires_at_cut = v1.0.134 (134 CUT-BLOCKER: refresh, no carried ack).
+          - 899ed66248  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 884ea51741  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 0a553c475d  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - e401dad483  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - be04134c2d  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 05f80dcb5a  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 104f62f27a  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - b78b47892f  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - fe3da2bc0a  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 4f6f8c53dc  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 74e4e1fb0d  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 89d5484f48  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - e759bc3e62  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 422db6e954  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 583bd3c929  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 52334e2d93  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 7f1088e735  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 569a48d694  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 4f5f7dac00  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 4569b81223  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - bfd1f5e298  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 23cd2ab8be  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 0ba7503196  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 964973e22d  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 35113167c2  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 921e82e2e1  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 24145ea6b8  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - fa72654619  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 00f555e3e8  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - eab7a5e567  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 5aeadc4176  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 2c1a2dd38e  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 5b08b70787  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 31ba65b5ae  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - f023765491  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 28f4f3b508  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - d67ad84838  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 0367f95ede  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 225ff05f44  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 4138d2269c  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 0f43d66aac  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 062c47f115  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
+          - 6d81d760f7  # v1.0.133 INTERNAL hold, oa main delta 837650cf..899ed662
           # ---- v1.0.49 addition (2026-08-28, Archie). TWO crates/ commits
           # landed on oa/main DURING the v1.0.49 cut and staled the pin. The
           # first was 3464215b at 03:26:02Z.
