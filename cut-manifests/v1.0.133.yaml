@@ -216,6 +216,7 @@ description: |
   - Included-Pro: a founding licence with no tier (the production Worker shape) gets 0 days; gate requires tier_state known/unknown (box proof 2026-11-17 at e0ffdde7, ~/walkdriver/v1.0.133/inc_pro/RUN_INCPRO_RECORD.md)
   - Run 12 (L3 window proof): CANNOT-RUN/FAIL. Decisions and preferences arms FAIL (api_preferences gates privacy_level, compiler writes privacy); topics/decisions seed placement; fixes in flight (~/walkdriver/v1.0.133/no_l3/RUN12_DIAG.md)
   - The L3 window (CM051 #3565, #3563, #3557, #3576; CM041 #278; PWG #528; oa #716/#729/#737) is NOT in 133
+  - privacy-level predicate split; CM048-written levels read as untagged in most readers (fix: dual-read readers in 134) (Archie ruling 2026-11-17)
   v1.0.122 KNOWN ISSUES (Andy/Archie rulings 3 Nov 2026; source ~/walkdriver/V122_CONSOLE_SHEET_ADDITIONS.md):
   - Google Takeout calendars: if you import a Google calendar from Takeout and leave it unclassified, its events stay private and won't appear in your brief. (Andy 3 Nov; calendar default unchanged.)
   - Installer translations UNLANDED: mr/3092 (PR #3092 l10n, OPEN, never merged). A non-English customer gets whatever main ships, with part of the installer text in English. Owner: Archie.
