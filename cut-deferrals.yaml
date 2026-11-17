@@ -32,6 +32,92 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.133, ORM 2026-11-17 on Archie ruling B (via Aesop): the 10 v1.0.132 exemptions carried VERBATIM from cut/v1.0.132 (review_by unchanged).
+  - ref: "CM051-Home-Hub-Installer#3464"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3461"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3457"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3435"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3434"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3432"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3428"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3421"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  - ref: "CM051-Home-Hub-Installer#3357"
+    reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
+    review_by: 2026-11-20
+  # v1.0.133, ORM 2026-11-17 on Archie ruling B (via Aesop): 18 CM051 PRs over 48h at the 133 preflight.
+  - ref: "CM051-Home-Hub-Installer#3545"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3542"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3541"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3532"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3531"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3530"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3529"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3528"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3527"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3526"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3525"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3524"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3523"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3522"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3521"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3520"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3516"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3483"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling B 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
   # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
   # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
   - ref: "CM051-Home-Hub-Installer#3347"
@@ -687,29 +773,29 @@ pr_exemptions:
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
   - ref: "ostler-assistant#433"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#464"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#465"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#467"
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
   - ref: "ostler-assistant#473"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#477"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#482"
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
   - ref: "ostler-assistant#485"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#496"
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
@@ -717,8 +803,8 @@ pr_exemptions:
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
   - ref: "ostler-assistant#550"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#558"
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
@@ -726,8 +812,8 @@ pr_exemptions:
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
   - ref: "ostler-assistant#581"
-    reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
-    review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17, renewed 7 days by ORM on cut/v1.0.133). || frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24  # renewed 2026-11-17 (Archie ruling 3, INTERNAL 133) from 2026-11-07
   - ref: "ostler-assistant#589"
     reason: "frozen-branch cut: no open PR can change a DMG byte. v1.0.120 is cut from cut/v1.0.120, frozen at the v1.0.119 tag e3525a7f plus the marker re-key and version bump; this PR is not on that branch, so it cannot reach the artefact. Per-cut exemption for v1.0.120 only (release lead ruling 2026-10-29), review_by = the v1.0.120 walk. Measured by scripts/dry_run_cut_checks.sh with the cut job's env: 237 PRs open >48h across 7 repos, 0 exempt. NOT A JUDGEMENT ON MERIT."
     review_by: 2026-11-07  # re-dated from 2026-10-31 (Archie 2026-10-30): launch window; post-launch PR sweep (Aesop) runs 3-7 Nov
@@ -1624,6 +1710,16 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  # v1.0.133, ORM 2026-11-17 on Archie ruling (via Aesop): the 3 v1.0.132 check-orphans deferrals, extended to v1.0.134, no further extension.
+  - ref: "CM051:fix/forget-writer-scrub-dir"
+    reason: "INTERNAL 133 tag, not a launch candidate (owner decision 2026-11-17); Archie ruling 2026-11-17: carried from cut/v1.0.132 and extended ONCE to v1.0.134, due at 134 with no further extension. || DEFERRED until_cut v1.0.133 (Archie 2026-11-15): fix/forget-writer-scrub-dir (49ef60f8) is held 133 forget work, pushed so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.134"
+  - ref: "CM051:feat/cm051-doctor-passkey-133"
+    reason: "INTERNAL 133 tag, not a launch candidate (owner decision 2026-11-17); Archie ruling 2026-11-17: carried from cut/v1.0.132 and extended ONCE to v1.0.134, due at 134 with no further extension. || DEFERRED until_cut v1.0.133 (Archie 2026-11-15): feat/cm051-doctor-passkey-133 (013cbadd) and feat/forget-sweep-doctor-row (986bdafa) are held 133 work, pushed on purpose so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Each becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.134"
+  - ref: "CM051:feat/forget-sweep-doctor-row"
+    reason: "INTERNAL 133 tag, not a launch candidate (owner decision 2026-11-17); Archie ruling 2026-11-17: carried from cut/v1.0.132 and extended ONCE to v1.0.134, due at 134 with no further extension. || DEFERRED until_cut v1.0.133 (Archie 2026-11-15): feat/cm051-doctor-passkey-133 (013cbadd) and feat/forget-sweep-doctor-row (986bdafa) are held 133 work, pushed on purpose so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Each becomes a PR or is deleted by the v1.0.133 cut."
+    until_cut: "v1.0.134"
   - ref: "CM051:archive/people-exact-identifier-merge"
     reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: archived ref superseded by #3217; no content needed"
     until_cut: "v1.0.122"
