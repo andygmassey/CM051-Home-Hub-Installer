@@ -110,6 +110,13 @@ jobs:
         if: always()
         run: python -m pytest context-refresh/tests/test_generate_pwg_context.py -v
 
+      # The digest declares X-Ostler-Destination on every gated read, by model
+      # route (Archie ruling, 2026-11-18). Undeclared reads as the strictest row
+      # and the digest goes empty, so this suite pins the declaration per route.
+      - name: The digest declares its destination by model route
+        if: always()
+        run: python -m pytest context-refresh/tests/test_digest_declares_model_route.py -v
+
       # v1.0.107 candidate #10. RED: the shipped generator (pinned by SHA) on a
       # synthetic seed graph renders no About you, no Work line, and "nothing
       # stored" beside data the stores hold. GREEN: the fixed one renders every
