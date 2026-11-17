@@ -2399,4 +2399,4 @@ Reverted-graft check: with the pre-graft ical-server and pwg_privacy, both flipp
 
 Revision (CM041 1e1523f): `_outbound_level_ok` tests the `ABSENT` sentinel by identity (`pwg_privacy.ABSENT`), not the string. Function text is byte-identical to CM041 1e1523f.
 
-Revision (CM041 be69c80): `_filter_qdrant_facts` calls `pwg_privacy.filter_outbound_facts` (serves no L0). The vendored `test_prop_outbound_privacy_gates.py` is the CM041 be69c80 copy (mutant docstrings and the L0 filter layer; xfails flipped). `_outbound_level_ok` and `_fact_outbound_ok` are byte-identical to CM041 be69c80.
+Revision (CM041 be69c80): `_filter_qdrant_facts` calls `pwg_privacy.filter_outbound_facts` (serves no L0). The vendored `test_prop_outbound_privacy_gates.py` is the 88338dcc copy with the be69c80 hunks applied (mutant docstrings, the L0 filter layer, xfails flipped). It is not a byte copy of CM041. `_outbound_level_ok` and `_fact_outbound_ok` are byte-identical to CM041 be69c80.
