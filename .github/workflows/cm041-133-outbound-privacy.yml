@@ -1,0 +1,56 @@
+# 133 outbound privacy rule (2026-11-16): the assistant-facing readers serve
+# only L1, L2 and untagged. L0, L3 and unparseable levels are withheld at
+# /api/v1/commitments, people search, /api/v1/reply-debt and
+# /api/v1/preferences/derived. The test drives each vendored handler with a
+# synthetic L0 item, a synthetic L3 item and an L2 control. Collected-count
+# floor so a shrinking suite cannot pass.
+name: cm041-133-outbound-privacy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/assistant_api/tests/test_133_outbound_levels.py'
+      - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
+      - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'
+      - 'vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py'
+      - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - '.github/workflows/cm041-133-outbound-privacy.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/assistant_api/tests/test_133_outbound_levels.py'
+      - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
+      - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'
+      - 'vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py'
+      - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - '.github/workflows/cm041-133-outbound-privacy.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  outbound-privacy-133:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client
+      - name: Outbound readers withhold L0, L3 and unparseable levels
+        run: |
+          n="$(PYTHONPATH=vendor python -m pytest vendor/cm041/assistant_api/tests/test_133_outbound_levels.py vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 48 ]; then
+            echo "REFUSING: expected at least 48 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          cd vendor/cm041/assistant_api
+          PYTHONPATH=../.. python -m pytest tests/test_133_outbound_levels.py tests/test_provenance_verdict_states.py tests/test_l3_withheld_moat_readers.py tests/test_133_named_graph_and_privacy_key.py -v

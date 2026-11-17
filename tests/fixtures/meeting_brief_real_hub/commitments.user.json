@@ -10,5 +10,9 @@
     }
   ],
   "count": 1,
-  "privacy_level": "L2"
+  "legacy_untagged": 1,
+  "withheld": {
+    "l3": 0,
+    "unknown": 0
+  }
 }
