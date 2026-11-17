@@ -18,7 +18,7 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `b3ade7fb0271744d7f1e6d128e34bbcd4816781f5cfcf9c85262c2269d4bac88` (post-graft, this repo, after item 15 declared destination per model route; recomputed on the merged file) |
+| Current SHA-256 | `b72e7475aaa37012ac3d86ab6ff3a06428d5c375c49b80d14bd61437ee50cffb` (post-graft, this repo, after item 15 declared destination per model route, with the item 16 oa parity rules; recomputed on the merged file) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
 | Last divergence | 2026-11-02 (size cap trims lines not blocks and keeps Preferences, walk 121, item 14). Earlier: item 13 (2026-10-31, derived preferences) and item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
