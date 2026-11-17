@@ -163,7 +163,7 @@ via the ref. Tests: `tests/test_speaker_inference.py`.
   Oxigraph)
 - New section on Person pages: "Recent conversations" (most recent
   N from Qdrant where participant is this person)
-- New page: `User Coach` (or per-user: `Coach (Andy)`, `Coach
+- New page: `User Coach` (or per-user: `Coach (the owner)`, `Coach
   ({partner})` when multi-user lands) — roll-up of `observations.db`,
   with frequency/trend per tag
 
@@ -350,7 +350,7 @@ months." Surface these as User Coach meta-observations.
 1. **3-axis classifier** (setting / shape / stakes) — approved.
 2. **User Coach tone: configurable per-invocation** (`direct` vs
    `supportive`). Stored with each observation so user can A/B.
-   Renamed from "Andy Coach" to "User Coach" for productisation.
+   Renamed from "the owner Coach" to "User Coach" for productisation.
 3. **Relationship signal: per-conversation records with explicit
    `confidence` field.** Low-confidence filtered out of Person-page
    rollups.

@@ -261,7 +261,7 @@ def process(
             ingest_sinks=ingest_sinks, dry_run=dry_run,
         )
 
-    # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
+    # The owner's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
     # phone/email handle to their NAME so the extraction LLM writes "Jane
     # Doe agreed to..." not "+447700900123 agreed to...". The
     # extraction steps below read the `transcript` var, so resolving here still

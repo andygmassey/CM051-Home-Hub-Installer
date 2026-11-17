@@ -881,7 +881,7 @@ def _format_push_title(
     detail at those levels.
 
     L2, private 1:1 whose partner resolves to a person: ``"<Name>: <short
-    commitment text>"`` (Andy's decision, 2026-10-11: the commitment text of
+    commitment text>"`` (the owner's decision, 2026-10-11: the commitment text of
     a 1:1 now syncs to iCloud with the reminder; truncated to about 60
     characters with any phone / email / handle / ISO date stripped).
     L2, 1:1 whose partner does not resolve: the generic title, never the

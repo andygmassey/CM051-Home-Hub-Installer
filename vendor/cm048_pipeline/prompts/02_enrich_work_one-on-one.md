@@ -121,7 +121,7 @@ otherwise `—`; deadline `—`. Don't invent specifics.
 Owner column only when `{user_name}` themselves said they would do the thing
 ("I'll send it", "leave that with me", "will do"). A message the other party
 sent that `{user_name}` never answered is not a commitment by `{user_name}`:
-an introduction ("Hi, this is Sam from Example Ventures"), a pitch, a request
+an introduction ("Hi, this is Sam from Acme"), a pitch, a request
 or a suggestion with no reply yields NO row owned by `{user_name}`. If the
 other party asked for something and `{user_name}` has not replied, that is a
 reply owed, not an action item; leave it out of this table. When `{user_name}`

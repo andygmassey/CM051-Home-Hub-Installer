@@ -1,4 +1,4 @@
-"""The owner-set MINOR flag, as CM048 reads it (Andy, 2026-10-19).
+"""The owner-set MINOR flag, as CM048 reads it (the owner, 2026-10-19).
 
 The owner marks a person as under 18 in CM041 (``POST
 /api/v1/people/{slug}/minor``), which writes a ``pwg:MinorFlag`` record in
@@ -62,7 +62,7 @@ def slug_key(value: str) -> str:
 def value_keys(value: str) -> Set[str]:
     """Comparable forms of an identifier value: casefolded, without a leading
     "@", and for a phone-shaped value its digits (so "+44 7700 900123",
-    "447700900123" and a WhatsApp "447700900123@s.whatsapp.net" meet)."""
+    "447700900123" and a WhatsApp JID, those digits then "@s.whatsapp.net", meet)."""
     v = (value or "").strip()
     if not v:
         return set()

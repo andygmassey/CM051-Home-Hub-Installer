@@ -2268,7 +2268,7 @@
 +        # sentinel here -- the sentinel body is
 +        # ``Migrated from ~/.pwg/ on <ts>``, which would be a
 +        # LIE on a machine that never had a PWG install
-+        # (HR015 #233 -- Andy's freshly-wiped 16GB Mini on
++        # (HR015 #233 -- the owner's freshly-wiped 16GB Mini on
 +        # 2026-07-31 showed the false marker). Beyond the
 +        # cosmetic lie, a false sentinel actively prevents a
 +        # legitimate future migration: if the customer later
@@ -3794,7 +3794,7 @@
 -    multi-party falls back to a generic phrase rather than naming
 -    anyone specifically.
 +    L2, private 1:1 whose partner resolves to a person: ``"<Name>: <short
-+    commitment text>"`` (Andy's decision, 2026-10-11: the commitment text of
++    commitment text>"`` (the owner's decision, 2026-10-11: the commitment text of
 +    a 1:1 now syncs to iCloud with the reminder; truncated to about 60
 +    characters with any phone / email / handle / ISO date stripped).
 +    L2, 1:1 whose partner does not resolve: the generic title, never the

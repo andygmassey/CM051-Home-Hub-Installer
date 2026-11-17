@@ -69,7 +69,7 @@ fences. No commentary. The object MUST have these three keys:
   owned by "user". That is the ONLY case where someone else's words
   make a "user" todo. In a written exchange (chat, email) an
   unanswered inbound message is not a commitment by the user: an
-  introduction ("Hi, this is Sam from Example Ventures"), a pitch or
+  introduction ("Hi, this is Sam from Acme"), a pitch or
   a request the user never replied to yields NO todo owned by "user".
   "other" means a non-user participant. "both" means
   jointly owned. A specific participant id is fine when there
