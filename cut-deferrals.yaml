@@ -1710,6 +1710,67 @@ pr_exemptions:
     review_by: 2026-09-24
 
 deferrals:
+  # v1.0.133 NOT CHECKED, made explicit (Archie 2026-11-17: NOT CHECKED in a blocking gate is CANNOT-RUN).
+  # The CI orphan step reads 4 NOT CHECKED: CM044, CM041, CM059, CM031. Cause: cut.yml (lines 1078, 1258, 1421)
+  # declares OSTLER_ORPHAN_GATE_SKIP=CM044,CM041,CM059,CM031,daemon and the runner clones only CM051 and the daemon,
+  # so those four have no checkout to read. Identical on v1.0.132 (2 repos checked, 4 NOT CHECKED). Measured
+  # instead by ORM on 2026-11-17 with fresh clones of all four (local, full tokens): 0 NOT CHECKED, 25 orphaned
+  # (CM031 22, CM059 2, CM041 1, CM044 0), list in ~/walkdriver/v1.0.133/orphans_4repos.txt. CM031 is the iOS
+  # app and ships in no DMG byte; CM041/CM059/CM044 reach the DMG only through pinned vendoring, which
+  # check-freshness gates. DEFERRED for the INTERNAL 133 tag; 134 CUT-BLOCKER CB134-NOTCHECKED: wire the four
+  # clones into the cut.yml orphan step (or record each), and adjudicate the 25.
+  # v1.0.133, ORM 2026-11-17 on Archie ruling (via Aesop): check-orphans RED at dry run 44021646289, 21 orphaned; the 17 LIVE ones (merge-tree of origin/main + branch != main tree) deferred here; the 4 SPENT ones go to the resolver.
+  - ref: "daemon:fix/taste-drop-l0-hub"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 257267a13cca recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/taste-drop-l0"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip e12f87fe21a6 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/pairing-token-provenance-898"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 4ba6a6fe6936 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/imessage-tapbacks-whatsapp-ack-reactions"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 82597db91406 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/gate-class2-refusals"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 89e4565c2614 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/derived-l2-l3-withhold"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 47634c4b6ac0 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/brief-count-per-source-133"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 9669433a3e24 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/brief-conv-event-133"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 6c2fa7f257d9 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:fix/133-outbound-l1l2-hub"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip acb845b7d557 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:feat/support-gate-owner-facts"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 3b4a8279d371 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:feat/people-circles-ui"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 57f1ee42c171 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:feat/grounded-sources-cache"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip e92dc654ed2b recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:feat/brief-v2-judgement"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip ece7128acfb7 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "daemon:feat/brief-derived-prefs"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 0ebdfc053961 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "CM051:fix/model-size-labels-every-tier"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 9da7602383e6 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "CM051:fix/hung-slot-test-cleanup"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip 3a882e606e44 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
+  - ref: "CM051:feat/public-lookups-withdraw-134"
+    reason: "INTERNAL 133 tag (owner decision 2026-11-17, Archie ruling 2026-11-17); 0 merged / 0 open PRs, owner unknown, LIVE (merge-tree with origin/main differs from main), tip ca3583811f71 recorded in ~/walkdriver/v1.0.133/orphan_census.tsv; due at 134 (land, PR, or delete), no further extension. CB134 row."
+    until_cut: "v1.0.134"
   # v1.0.133, ORM 2026-11-17 on Archie ruling (via Aesop): the 3 v1.0.132 check-orphans deferrals, extended to v1.0.134, no further extension.
   - ref: "CM051:fix/forget-writer-scrub-dir"
     reason: "INTERNAL 133 tag, not a launch candidate (owner decision 2026-11-17); Archie ruling 2026-11-17: carried from cut/v1.0.132 and extended ONCE to v1.0.134, due at 134 with no further extension. || DEFERRED until_cut v1.0.133 (Archie 2026-11-15): fix/forget-writer-scrub-dir (49ef60f8) is held 133 forget work, pushed so nothing is local-only; not on cut/v1.0.132, cannot change a DMG byte. Becomes a PR or is deleted by the v1.0.133 cut."
