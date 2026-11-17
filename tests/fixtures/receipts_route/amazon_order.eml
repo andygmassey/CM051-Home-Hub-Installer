@@ -1,0 +1,34 @@
+From: Amazon.co.uk <auto-confirm@amazon.co.uk>
+To: sam.example@example.com
+Subject: Ordered: "Example Steel Kettle 1.7L" and 1 more item
+Date: Wed, 10 Jan 2024 21:03:00 +0000
+Message-ID: <amz-203-5550101@amazon.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============2400587764220618297=="
+
+--===============2400587764220618297==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Order Confirmation
+Order #203-5550101-4400123
+Example Steel Kettle 1.7L	Qty: 1	£29.99
+Fictional USB Cable 2m	Qty: 2	£11.98
+Delivery	FREE
+Order Total: £41.97
+Ship to	Sam, 12 Example Road, London
+
+--===============2400587764220618297==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><body><h2>Order Confirmation</h2><p>Order #203-5550101-4400123</p><tabl=
+e><tr><td>Example Steel Kettle 1.7L</td><td>Qty: 1</td><td>=C2=A329.99</td></=
+tr></table><table><tr><td>Fictional USB Cable 2m</td><td>Qty: 2</td><td>=C2=
+=A311.98</td></tr></table><table><tr><td>Delivery</td><td>FREE</td></tr></tab=
+le><p>Order Total: =C2=A341.97</p><table><tr><td>Ship to</td><td>Sam, 12 Exam=
+ple Road, London</td></tr></table></body></html>
+
+--===============2400587764220618297==--

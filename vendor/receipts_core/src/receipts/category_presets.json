@@ -1,0 +1,615 @@
+{
+  "generated": "2026-11-15",
+  "status": "Sourced from official pages where found. Not reviewed by an accountant. Verify before customer launch.",
+  "tax_year_basis": {
+    "uk_self_employed": "Forms and notes for 2025-26 (6 Apr 2025 to 5 Apr 2026), the latest published. 2026-27 forms not found at time of research.",
+    "uk_ltd": "Company accounting period, owner-set. No box numbers used.",
+    "us_schedule_c": "Schedule C (Form 1040) 2025 PDF from irs.gov. 2026 draft exists; line numbers may change.",
+    "hk_profits_tax": "Inland Revenue Ordinance s16 and s17. Year of assessment 1 Apr to 31 Mar.",
+    "general": "No jurisdiction. Labels only."
+  },
+  "presets": {
+    "uk_self_employed": [
+      {
+        "id": "uk_se_cost_of_goods",
+        "label": "Cost of goods bought for resale or goods used",
+        "tax_box_ref": "SA103F box 17 / SA103S box 11",
+        "allowable": "yes",
+        "note": "Stock and materials. Traditional-accounting users also adjust opening and closing stock. Goods bought for private use are disallowable (SA103F box 32).",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_subcontractors",
+        "label": "Construction subcontractor payments",
+        "tax_box_ref": "SA103F box 18 (full form only)",
+        "allowable": "yes",
+        "note": "Payments to subcontractors for construction work. CIS registration may apply.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_car_van_travel",
+        "label": "Car, van and travel expenses",
+        "tax_box_ref": "SA103F box 20 / SA103S box 12",
+        "allowable": "partial",
+        "note": "Business share only. Home-to-work travel, non-business motoring, fines and other meals are disallowable. Hotel and meals on overnight business trips belong here. Simplified vehicle flat rates are an alternative to actual costs; you cannot use both for the same vehicle.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_wages_staff",
+        "label": "Wages, salaries and other staff costs",
+        "tax_box_ref": "SA103F box 19 / SA103S box 13",
+        "allowable": "yes",
+        "note": "Employees and agency or subcontract labour. Your own salary, drawings and NICs are not allowable.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_rent_rates_power_insurance",
+        "label": "Rent, rates, power, insurance (incl. business share of home costs)",
+        "tax_box_ref": "SA103F box 21 / SA103S box 14",
+        "allowable": "partial",
+        "note": "Business premises rent, business rates, light, heat, power, property insurance. For a home office: business proportion of household costs, or the simplified flat rate (GBP 10, 18 or 26 per month for 25-50, 51-100 or 101+ hours; minimum 25 hours a month). Flat rate excludes phone and internet.",
+        "source_url": "https://www.gov.uk/simpler-income-tax-simplified-expenses/working-from-home"
+      },
+      {
+        "id": "uk_se_repairs",
+        "label": "Repairs and maintenance of property and equipment",
+        "tax_box_ref": "SA103F box 22 / SA103S box 15",
+        "allowable": "yes",
+        "note": "Repairs, not improvements. Repairs or improvements to non-business parts go in disallowable box 37.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_phone_office",
+        "label": "Phone, stationery and other office costs",
+        "tax_box_ref": "SA103F box 23 / SA103S box 18",
+        "allowable": "partial",
+        "note": "Business share of mixed-use phone and internet. Non-business part goes in disallowable box 38. Small office equipment and software under 2 years old sits here (full form).",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_advertising",
+        "label": "Advertising and marketing",
+        "tax_box_ref": "SA103F box 24 / SA103S box 19",
+        "allowable": "yes",
+        "note": "Newspaper and directory ads, mailshots, free samples, website costs. Client entertaining is NOT in this category (see the next row).",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_client_entertaining",
+        "label": "Entertaining clients, suppliers or customers; hospitality at events",
+        "tax_box_ref": "Not allowable. SA103F box 39 (disallowable); SA103S box 19 says client entertaining is not allowable",
+        "allowable": "no",
+        "note": "Not allowable. Declare it only as disallowable, or leave it out. Staff entertaining is a separate question (see uk_ltd preset).",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_professional_fees",
+        "label": "Accountancy, legal and other professional fees",
+        "tax_box_ref": "SA103F box 28 / SA103S box 16",
+        "allowable": "yes",
+        "note": "Fees for running the business. Preparing your Self Assessment return is excluded. Legal costs of buying property or settling tax disputes are disallowable (box 43).",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "uk_se_bank_card_interest",
+        "label": "Bank, credit card and business loan interest and charges",
+        "tax_box_ref": "SA103F boxes 25-26 / SA103S box 17",
+        "allowable": "yes",
+        "note": "Bank and card charges, interest on business loans. Capital repayments are not allowable. Non-business part goes in boxes 40-41.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_subscriptions_journals",
+        "label": "Trade journals, subscriptions and other running costs",
+        "tax_box_ref": "SA103F box 30 / SA103S box 19",
+        "allowable": "yes",
+        "note": "Trade and professional journals and subscriptions. Payments to clubs, charities, political parties and ordinary clothing are disallowable (box 45).",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_capital_equipment",
+        "label": "Equipment, vehicles and other capital purchases",
+        "tax_box_ref": "Cash basis: payments allowable unless specifically disallowed (SA103S notes). Traditional accounting: not an expense; use capital allowances (SA103S boxes 23-25.2)",
+        "allowable": "partial",
+        "note": "Depends on accounting basis and asset type. Cars have special rules. Annual Investment Allowance is 100% on qualifying equipment (not cars). Professional review needed.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69ce15395cf899414a0bc69f/SA103S_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_fines_penalties",
+        "label": "Fines and penalties",
+        "tax_box_ref": "Disallowable. SA103F box 20 notes (vehicle fines: box 35)",
+        "allowable": "no",
+        "note": "Fines are listed as disallowable in the SA103F notes, stated for vehicle fines. Treat all fines as no unless an accountant says otherwise.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69c26565cfa346b9d4704b35/SA103F_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_se_drawings_own_salary",
+        "label": "Own salary, drawings, own NICs and own pension",
+        "tax_box_ref": "Not an expense (SA103F box 19 notes: not paid to yourself)",
+        "allowable": "no",
+        "note": "Money you take out for personal use is not an allowable expense.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      }
+    ],
+    "uk_ltd": [
+      {
+        "id": "uk_ltd_staff_salaries",
+        "label": "Staff salaries, wages, PAYE and employer NICs",
+        "tax_box_ref": "Corporation tax computation (no SA box). Wholly and exclusively for the trade",
+        "allowable": "yes",
+        "note": "Run through payroll. Director pay taken as remuneration through payroll is an allowable company expense.",
+        "source_url": "https://www.gov.uk/guidance/how-to-complete-forms-p11d-and-p11db"
+      },
+      {
+        "id": "uk_ltd_directors_personal",
+        "label": "Director's personal expenses paid by the company",
+        "tax_box_ref": "Not deductible unless part of remuneration. Report on P11D",
+        "allowable": "no",
+        "note": "Personal items are a taxable benefit, reported on P11D. Mixed bills (phone, internet) that cannot be split are not allowable.",
+        "source_url": "https://www.gov.uk/guidance/how-to-complete-forms-p11d-and-p11db"
+      },
+      {
+        "id": "uk_ltd_client_entertaining",
+        "label": "Client and customer entertaining",
+        "tax_box_ref": "Disallowed by statute: CTA 2009 entertainment rule (HMRC BIM45005)",
+        "allowable": "no",
+        "note": "Disallowed even when wholly and exclusively for business. HMRC's own example of a specifically disallowed expense.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_staff_entertaining",
+        "label": "Staff entertaining and staff events",
+        "tax_box_ref": "Exceptions to entertainment disallowance (HMRC BIM45033)",
+        "allowable": "partial",
+        "note": "Allowable if wholly for business and not merely incidental to customer entertaining. Staff Christmas party and employee-only events are not disallowed.",
+        "source_url": "https://www.gov.uk/hmrc-internal-manuals/business-income-manual/bim45033"
+      },
+      {
+        "id": "uk_ltd_business_travel",
+        "label": "Business travel and subsistence",
+        "tax_box_ref": "Corporation tax computation. Wholly and exclusively for the trade",
+        "allowable": "yes",
+        "note": "Travel for business purposes. Ordinary commuting is not business travel; confirm the detail with an accountant.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_company_car",
+        "label": "Company car running costs and mileage",
+        "tax_box_ref": "P11D benefit in kind and Class 1A NIC for private use",
+        "allowable": "partial",
+        "note": "Business use is deductible; private use is a benefit, reported on P11D. Car-cost and benefit rules are complex. Professional review needed.",
+        "source_url": "https://www.gov.uk/guidance/how-to-complete-forms-p11d-and-p11db"
+      },
+      {
+        "id": "uk_ltd_premises_utilities",
+        "label": "Office rent, rates and utilities",
+        "tax_box_ref": "Corporation tax computation",
+        "allowable": "yes",
+        "note": "Business premises. Home-office costs charged to the company are a benefit question; ask an accountant.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_phone_internet",
+        "label": "Phone and internet",
+        "tax_box_ref": "Corporation tax computation. Only the business part",
+        "allowable": "partial",
+        "note": "Only if the business use can be separated. If it cannot be split, the whole bill is not allowable (P11D guidance).",
+        "source_url": "https://www.gov.uk/guidance/how-to-complete-forms-p11d-and-p11db"
+      },
+      {
+        "id": "uk_ltd_professional_fees",
+        "label": "Accountancy, legal and consultancy fees",
+        "tax_box_ref": "Corporation tax computation. Wholly and exclusively for the trade",
+        "allowable": "yes",
+        "note": "Revenue fees for running the company. Legal costs of acquiring assets or share capital are capital, not revenue. Confirm with an accountant.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_bank_interest",
+        "label": "Bank charges and loan interest",
+        "tax_box_ref": "Corporation tax computation",
+        "allowable": "yes",
+        "note": "Business charges. Loan interest for companies has specific rules; confirm with an accountant.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_software_subscriptions",
+        "label": "Software, hosting and subscriptions",
+        "tax_box_ref": "Corporation tax computation (revenue)",
+        "allowable": "yes",
+        "note": "Revenue expense for software used in the business. Capitalisation rules may apply to larger items.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_marketing_advertising",
+        "label": "Advertising and marketing",
+        "tax_box_ref": "Corporation tax computation (revenue)",
+        "allowable": "yes",
+        "note": "Wholly and exclusively for the trade. Gifts to customers have separate rules; confirm with an accountant.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_insurance",
+        "label": "Business insurance (liability, property, professional indemnity)",
+        "tax_box_ref": "Corporation tax computation (revenue)",
+        "allowable": "yes",
+        "note": "Business insurance for the trade.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      },
+      {
+        "id": "uk_ltd_capital_equipment",
+        "label": "Equipment and assets (capital)",
+        "tax_box_ref": "Capital allowances (Annual Investment Allowance 100% on qualifying equipment, not cars)",
+        "allowable": "partial",
+        "note": "Capital items are claimed through capital allowances, not as a revenue expense. Professional review needed.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69ce15395cf899414a0bc69f/SA103S_Notes_2026.pdf"
+      },
+      {
+        "id": "uk_ltd_fines_penalties",
+        "label": "Fines and penalties",
+        "tax_box_ref": "Disallowed (general rule; not confirmed on the page cited)",
+        "allowable": "no",
+        "note": "Treat as no until an accountant confirms. The cited page does not list fines specifically.",
+        "source_url": "https://www.gov.uk/guidance/company-expenses-you-can-deduct-before-paying-corporation-tax"
+      }
+    ],
+    "us_schedule_c": [
+      {
+        "id": "us_c_line8_advertising",
+        "label": "Advertising",
+        "tax_box_ref": "Schedule C Part II line 8",
+        "allowable": "yes",
+        "note": "Ads, promotional costs, website costs.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line9_car_truck",
+        "label": "Car and truck expenses",
+        "tax_box_ref": "Schedule C Part II line 9",
+        "allowable": "partial",
+        "note": "Business-use share only. Standard mileage or actual expenses; choice rules apply. Depreciation is on Form 4562.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line11_contract_labor",
+        "label": "Contract labor",
+        "tax_box_ref": "Schedule C Part II line 11",
+        "allowable": "yes",
+        "note": "Payments to independent contractors. Form 1099-NEC reporting may apply.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line15_insurance",
+        "label": "Insurance (other than health)",
+        "tax_box_ref": "Schedule C Part II line 15",
+        "allowable": "yes",
+        "note": "Business insurance. Health insurance is handled elsewhere on the return.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line17_legal_professional",
+        "label": "Legal and professional services",
+        "tax_box_ref": "Schedule C Part II line 17",
+        "allowable": "yes",
+        "note": "Accountants, lawyers, consultants for the business.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line18_office_expense",
+        "label": "Office expense",
+        "tax_box_ref": "Schedule C Part II line 18",
+        "allowable": "yes",
+        "note": "Stationery, small supplies, postage. Personal share is not deductible.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line20b_rent_other",
+        "label": "Rent or lease: other business property (vehicles on line 20a)",
+        "tax_box_ref": "Schedule C Part II line 20a (vehicles) / 20b (other property)",
+        "allowable": "yes",
+        "note": "Business premises or equipment rent. Home-office rent is on line 30 instead.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line21_repairs",
+        "label": "Repairs and maintenance",
+        "tax_box_ref": "Schedule C Part II line 21",
+        "allowable": "yes",
+        "note": "Repairs, not improvements. Improvements are capitalised.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line24a_travel",
+        "label": "Travel",
+        "tax_box_ref": "Schedule C Part II line 24a",
+        "allowable": "yes",
+        "note": "Airfare, lodging, transport on business trips. Records of time, place and business purpose are required (IRS Pub 463).",
+        "source_url": "https://www.irs.gov/publications/p463"
+      },
+      {
+        "id": "us_c_line24b_meals",
+        "label": "Business meals (50%)",
+        "tax_box_ref": "Schedule C Part II line 24b",
+        "allowable": "partial",
+        "note": "Business meals at 50%. Receipt needs restaurant name and location, number of people, date and amount. Business purpose written down unless obvious. Entertainment is not deductible.",
+        "source_url": "https://www.irs.gov/instructions/i1040sc"
+      },
+      {
+        "id": "us_c_line25_utilities",
+        "label": "Utilities",
+        "tax_box_ref": "Schedule C Part II line 25",
+        "allowable": "yes",
+        "note": "Business premises utilities. Home-office share goes on line 30.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line26_wages",
+        "label": "Wages (less employment credits)",
+        "tax_box_ref": "Schedule C Part II line 26",
+        "allowable": "yes",
+        "note": "Employee wages only. Owner draws are not wages.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line27b_other_expenses",
+        "label": "Other expenses (itemised in Part V, total on line 48, entered on line 27b)",
+        "tax_box_ref": "Schedule C Part II line 27b (from Part V line 48)",
+        "allowable": "yes",
+        "note": "Each Part V line must be an ordinary business expense.",
+        "source_url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf"
+      },
+      {
+        "id": "us_c_line30_home_office",
+        "label": "Business use of home",
+        "tax_box_ref": "Schedule C Part II line 30 (Form 8829, or simplified method worksheet)",
+        "allowable": "partial",
+        "note": "Simplified method: $5 per square foot, up to 300 sq ft (max $1,500). Election is per year and irrevocable once made. No depreciation under simplified method.",
+        "source_url": "https://www.irs.gov/publications/p587"
+      },
+      {
+        "id": "us_c_entertainment",
+        "label": "Entertainment (clients, events, recreation)",
+        "tax_box_ref": "Not on any Part II line. Do not report on line 24b (Schedule C instructions)",
+        "allowable": "no",
+        "note": "Entertainment is generally nondeductible since TCJA. Business meals stay at 50% on line 24b.",
+        "source_url": "https://www.irs.gov/publications/p463"
+      }
+    ],
+    "hk_profits_tax": [
+      {
+        "id": "hk_office_rent",
+        "label": "Office and business premises rent",
+        "tax_box_ref": "IRO s16 (deductible if incurred in producing chargeable profits)",
+        "allowable": "yes",
+        "note": "Business premises. Home-office share is mixed-use and must be apportioned.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_salaries_staff",
+        "label": "Staff salaries and wages",
+        "tax_box_ref": "IRO s16",
+        "allowable": "yes",
+        "note": "Staff employed for the business. Owner's own drawings are private (s17).",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_utilities",
+        "label": "Utilities (electricity, water)",
+        "tax_box_ref": "IRO s16",
+        "allowable": "yes",
+        "note": "Business premises. Apportion for mixed use.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_phone_internet",
+        "label": "Phone and internet",
+        "tax_box_ref": "IRO s16 with apportionment",
+        "allowable": "partial",
+        "note": "Only the business part. Board of Review D85/02: where a split is possible only the business part is allowed; if the taxpayer cannot prove the business purpose, the whole expense is disallowed.",
+        "source_url": "https://www.info.gov.hk/bor/en/decisions/docs/d8502.pdf"
+      },
+      {
+        "id": "hk_advertising_marketing",
+        "label": "Advertising and marketing",
+        "tax_box_ref": "IRO s16",
+        "allowable": "yes",
+        "note": "Advertising to produce profits.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_professional_fees",
+        "label": "Accounting, audit and legal fees (revenue)",
+        "tax_box_ref": "IRO s16. Capital legal fees excluded by s17(1)(c)",
+        "allowable": "yes",
+        "note": "Revenue fees only. Capital-related legal costs are not deductible.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_client_entertaining",
+        "label": "Client entertaining",
+        "tax_box_ref": "IRO s16 purpose test. No entertaining-specific rule found on the IRD pages reviewed",
+        "allowable": "partial",
+        "note": "Not verified. The IRD pages reviewed did not state an entertaining rule. Treat as partial, document the business purpose, and ask a Hong Kong practitioner.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_business_travel",
+        "label": "Business travel",
+        "tax_box_ref": "IRO s16. Home-to-work travel is private (s17)",
+        "allowable": "yes",
+        "note": "Business trips producing profits. Home-to-work travel is private.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_capital_equipment",
+        "label": "Equipment and other capital expenditure",
+        "tax_box_ref": "IRO s17(1)(c) (capital). Depreciation allowances for plant, machinery and computers",
+        "allowable": "no",
+        "note": "Capital items are not deducted as expenses; claim the depreciation allowances the IRD page lists.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_premises_refurb",
+        "label": "Renovation of business premises",
+        "tax_box_ref": "IRD bus_pft: deductible over 5 years in equal instalments",
+        "allowable": "partial",
+        "note": "Capital spending on renovating business premises may be deducted over 5 years from the year of expense. Specific rules apply.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_fines_penalties",
+        "label": "Fines and penalties",
+        "tax_box_ref": "Not deductible under s16 (Board of Review D99/01)",
+        "allowable": "no",
+        "note": "Board of Review decision D99/01 held fines not deductible under s16.",
+        "source_url": "https://www.info.gov.hk/bor/en/decisions/docs/d9901.pdf"
+      },
+      {
+        "id": "hk_private_drawings",
+        "label": "Owner's private and domestic costs",
+        "tax_box_ref": "IRO s17 (private or domestic expenses excluded)",
+        "allowable": "no",
+        "note": "Private costs and sums not spent to produce profits are excluded.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_income_profits_tax_paid",
+        "label": "Income tax and profits tax paid",
+        "tax_box_ref": "IRO s17(1)(g): taxes under the IRO are excluded, except salaries tax on employee remuneration",
+        "allowable": "no",
+        "note": "Taxes under the IRO are not deductible.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_bank_interest",
+        "label": "Bank charges and business loan interest",
+        "tax_box_ref": "IRO s16 with apportionment. Interest conditions not verified",
+        "allowable": "partial",
+        "note": "Business loans only. Apportion mixed use. Interest deductibility has its own conditions; not verified here.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      },
+      {
+        "id": "hk_overseas_vat_gst",
+        "label": "Overseas VAT or GST charged on purchases",
+        "tax_box_ref": "IRO s16 if incurred in producing profits (statement from a secondary search summary, not confirmed on the page cited)",
+        "allowable": "partial",
+        "note": "Hong Kong itself levies no VAT or GST. Foreign VAT or GST is not a profits tax, so it may be deductible; verify with a practitioner.",
+        "source_url": "https://www.ird.gov.hk/eng/tax/bus_pft.htm"
+      }
+    ],
+    "general": [
+      {
+        "id": "gen_office_supplies",
+        "label": "Office supplies and stationery",
+        "tax_box_ref": "none (general label; see country preset)",
+        "allowable": "yes",
+        "note": "Ordinary business supplies in every regime reviewed.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_travel",
+        "label": "Business travel",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Business purpose only. Commuting treatment differs by country.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_meals",
+        "label": "Meals",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "partial",
+        "note": "US business meals are 50%. UK sole traders cannot claim client meals. Check the country preset.",
+        "source_url": "https://www.irs.gov/instructions/i1040sc"
+      },
+      {
+        "id": "gen_entertainment",
+        "label": "Entertainment (clients, events)",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "no",
+        "note": "Disallowed in the UK and US. Hong Kong: see hk_client_entertaining, not verified.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_phone_internet",
+        "label": "Phone and internet",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "partial",
+        "note": "Business share only.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_software_subscriptions",
+        "label": "Software and subscriptions",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Business software and subscriptions.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_advertising",
+        "label": "Advertising and marketing",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Advertising for the business.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_professional_fees",
+        "label": "Accountancy, legal and professional fees",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Revenue fees for the business. Your own tax return preparation is excluded in the UK.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_bank_charges",
+        "label": "Bank and card charges",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Business account charges only.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_insurance",
+        "label": "Business insurance",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Business policies only.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_rent_premises",
+        "label": "Rent for business premises",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Business premises only. Home-office share is a mixed-use question.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_staff",
+        "label": "Staff wages and contractors",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "yes",
+        "note": "Staff and contractors for the business. Owner's own pay is not an expense.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      },
+      {
+        "id": "gen_capital_equipment",
+        "label": "Equipment and other capital purchases",
+        "tax_box_ref": "none (see country preset)",
+        "allowable": "partial",
+        "note": "Often claimed as capital allowances rather than an expense. Check the country preset.",
+        "source_url": "https://assets.publishing.service.gov.uk/media/69ce15395cf899414a0bc69f/SA103S_Notes_2026.pdf"
+      },
+      {
+        "id": "gen_personal",
+        "label": "Personal spending (not for the business book)",
+        "tax_box_ref": "none. Personal book only, off by default",
+        "allowable": "no",
+        "note": "Never an allowable expense. Keep out of the business book.",
+        "source_url": "https://www.gov.uk/expenses-if-youre-self-employed"
+      }
+    ]
+  }
+}

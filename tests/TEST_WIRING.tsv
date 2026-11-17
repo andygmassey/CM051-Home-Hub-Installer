@@ -800,6 +800,7 @@ test_real_person_link_miss_classified.py	WIRED	.github/workflows/walk-record-gat
 test_real_person_miss_inputs_are_printed.py	WIRED	.github/workflows/walk-record-gate.yml
 test_real_person_pick_richest.py	WIRED	.github/workflows/walk-record-gate.yml
 test_real_person_slug_from_api.py	WIRED	.github/workflows/walk-record-gate.yml
+test_receipts_route_probe.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_reclassify_subject_names_is_wired.sh	WIRED	.github/workflows/reclassify-subject-names-wired.yml
 test_reconcile_splits_our_fixtures_from_the_products.py	WIRED	.github/workflows/walk-record-gate.yml
 test_recording_consent_fields_have_a_producer_and_a_consumer.py	WIRED	.github/workflows/consent-contract.yml
