@@ -1794,3 +1794,572 @@ and tags `photos_error`; the entries serializer carries `photos` through, skips
 (`source`, `title_verbatim`) stay on every entry in this tree, so the contract
 test compares the customer fields only. Test: `tests/test_timeline_photos.py`
 (11 pass; 10 fail on the pre-graft server), wired in timeline-dates-with-offset.yml.
+
+## Graft 2026-11-16: 133 outbound privacy rule and #275 verdict, cm041/assistant_api
+
+Tree: cm041/assistant_api, plus `vendor/cm041/pwg_privacy.py` (the same tree
+manifest entry). Upstream: andygmassey/CM041-People-Graph#278, head f473c9f
+(= #275 merged, plus the 133 commit). Archie's decision (2026-11-16): NO re-pin
+for 133. The #275 verdict hunk is GRAFTED in, the way CM051 #3554 grafted CM041
+#273. A re-pin of vendor/cm041 to upstream main is a 134 task, see the BACKLOG
+row `vendor-cm041-repin-is-134-not-before-apple-health-gate`, and must not
+happen while the Apple Health gate is open.
+
+REGENERATION REFUSED, measured 2026-11-16:
+`CM041=<CM041 checkout> scripts/regenerate_divergence_patch.sh cm041/assistant_api`
+returned rc=1: source advanced past pin 688463bb, unshipped commits a1a1252 (#228)
+and 5e205a8 (#273) touch this tree. So cm041_assistant_api.patch is NOT
+regenerated. This record is the divergence of record.
+
+## Byte-compare against upstream #278 (f473c9f), measured 2026-11-16
+
+Method: for each function, take the upstream text and the vendored text, and
+compare the +/- lines of a unified diff (n=0). Scratch script, not committed.
+
+| function | differing +/- lines | what they are |
+|---|---|---|
+| `_new_withheld`, `_count_withheld`, `_withheld_view` | 0 | identical (#275 graft) |
+| `_outbound_level_ok`, `_fact_outbound_ok` | 0 | identical (133) |
+| `people_search` | 24 | the 133 lines are identical. The 24 are PIN TEXT outside the 133 hunks: `_store_urlopen` vs `urllib.request.urlopen`, the `_is_nameless_name` / SHARED RULE B block, and the surrounding comments. The pin predates both. |
+| `commitments_list` | 4 | see the list below |
+| `api_reply_debt` | 25 | the 133 gate is identical. The 25 are PIN TEXT: the failure-reason comments and the `reason = getattr(exc, "reason", None)` path, which the pin lacks. |
+| `derived_preferences.py` (whole file) | 0 | identical to upstream #278 |
+| `cm041/pwg_privacy` (`pwg_privacy.py`, whole file, its own manifest tree) | 0 | identical to upstream #278 (the #275 `provenance_verdict` graft). Its pin is f2ef7891, so this is a graft, recorded here via the tree's `unrecorded_divergence` pointer. |
+
+`commitments_list`, the 4 differing lines, and why each one exists:
+
+1. `- + _read_across_graphs(` (upstream) against `+ (` (vendored). PIN TEXT.
+   The pin has no `read_across_graphs` import, so the named-graph UNION
+   builder is not vendored. Not grafted here.
+2. `+ # Same contract as /api/v1/suggestions above, and the same measurement:`
+3. `+ # untagged means L3 means dropped, so this payload declares its level.`
+   These two comment lines are PIN TEXT in the return block. They describe the
+   pre-#275 contract, which no longer holds. Left in place, not grafted, and
+   flagged as stale. Deleting them is a comment-only follow-up.
+
+The #275 TODOS comment block (50 lines at the pin) was REPLACED by the upstream
+3-line "Privacy:" comment. That replacement is part of the verdict hunk, so it
+is NOT a difference.
+
+Ordering: the 133 gate sits AFTER the #275 verdict in both files, and counts
+its rows under `withheld["unknown"]` (the same as upstream #278).
+
+Summary of the non-133 differences, so no reader has to guess: people_search
+24 lines, api_reply_debt 25 lines, commitments_list 4 lines. All are pin text,
+none are 133 lines, and none are in the #275 verdict hunk except the 2 stale
+comment lines in item 2 and 3 above.
+
+## Exact vendored hunks (git diff origin/main, 3 files, 318 lines)
+
+```diff
+diff --git a/vendor/cm041/assistant_api/derived_preferences.py b/vendor/cm041/assistant_api/derived_preferences.py
+index 624eca70..ed3f524d 100644
+--- a/vendor/cm041/assistant_api/derived_preferences.py
++++ b/vendor/cm041/assistant_api/derived_preferences.py
+@@ -32,11 +32,14 @@ CONTRACT_VERSION = "derived-preferences.v1"
+ # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
+ PWG_NS = "https://schema.ostler.ai/ontology#"
+ ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
+-# The levels a derived node may carry and still be served. L3 is never served and
+-# neither is a level that is present but not one of these (pwg_privacy doctrine:
+-# an unparseable level fails closed). A node with NO level is served: it is
+-# behavioural evidence, or a graph written before CM019 #423.
+-SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
++# The levels a derived node may carry and still be served OUTBOUND (this route
++# feeds the assistant's channel replies and briefs). Under the 133 outbound
++# rule only L1 and L2 pass. L0 is owner-private on the PWG scale and is
++# withheld, as is L3, and so is a level that is present but not one of these
++# (pwg_privacy doctrine: an unparseable level fails closed). A node with NO
++# level is served: it is behavioural evidence, or a graph written before
++# CM019 #423.
++SERVED_PRIVACY_LEVELS = ("L1", "L2")
+ # A stated dislike is rare and decisive ("never serve me coriander"), but the
+ # round-robin cap ranks it by confidence among hundreds of likes. Negatives are
+ # therefore read in their own pass, bounded here and NOT counted against `limit`.
+diff --git a/vendor/cm041/assistant_api/ical-server.py b/vendor/cm041/assistant_api/ical-server.py
+index ee99f833..1d5b3e11 100644
+--- a/vendor/cm041/assistant_api/ical-server.py
++++ b/vendor/cm041/assistant_api/ical-server.py
+@@ -2290,6 +2290,35 @@ def _filter_qdrant_facts(facts, owner_level=None):
+     return pwg_privacy.filter_l3_facts(facts, owner_level)
+ 
+ 
++# 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
++# channel replies or briefs, or sent off the box, passes ONLY L1, L2 and
++# untagged. L0 (owner-private on the PWG scale), L3 and any value that does
++# not parse are withheld. Untagged passes, as these readers always did.
++_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
++
++
++def _outbound_level_ok(raw):
++    """True when a raw privacy value may leave the box (see rule above)."""
++    if raw is None or str(raw).strip() == "":
++        return True
++    return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
++
++
++def _fact_outbound_ok(fact):
++    """True when one fact's own level is outbound-safe (L1 or L2).
++
++    A fact with no parseable level is refused: _filter_qdrant_facts has
++    already dropped those, so this only sees L0, L1 and L2 in practice.
++    """
++    if not isinstance(fact, dict):
++        return False
++    for key in pwg_privacy.FACT_PRIVACY_KEYS:
++        level = pwg_privacy.parse_privacy_level(fact.get(key))
++        if level is not None:
++            return level in _OUTBOUND_PRIVACY_LEVELS
++    return False
++
++
+ def people_search(query, limit=10, timeout=30):
+     """Semantic search across the Qdrant people collection.
+ 
+@@ -2365,13 +2394,12 @@ def people_search(query, limit=10, timeout=30):
+         # sender id or bulk mailbox is not found by search either.
+         if _is_non_human_person(p, dn):
+             continue
+-        # Person-level L3 (F5): an L3-classified person must not surface in
+-        # search at all. Only an EXPLICIT L3 person-tag drops the person
+-        # here -- an untagged person is still searchable (search coverage
+-        # must not collapse for the many points that predate the
+-        # privacy_level default), and their individual facts are still
+-        # fail-closed filtered below. Default person tag today is L2.
+-        if pwg_privacy.parse_privacy_level(p.get("privacy_level")) == "L3":
++        # Person-level outbound gate (133): a person tagged L0 or L3, or with
++        # an unparseable tag, must not surface in search. An untagged person
++        # is still searchable (search coverage must not collapse for the many
++        # points that predate the privacy_level default), and their individual
++        # facts are still fail-closed filtered below.
++        if not _outbound_level_ok(p.get("privacy_level")):
+             continue
+         entry = {
+             "name": dn,
+@@ -2392,6 +2420,10 @@ def people_search(query, limit=10, timeout=30):
+         # verbatim into the response with no downstream privacy re-check.
+         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
+         facts = _filter_qdrant_facts(p.get("facts"))
++        # 133 outbound: an explicit L0 fact on a served person is owner-private
++        # and must not leave the box. _filter_qdrant_facts only drops L3 and
++        # untagged, so the outbound level is checked per fact here.
++        facts = [f for f in facts if _fact_outbound_ok(f)]
+         if facts:
+             entry["facts"] = facts
+         results.append(entry)
+@@ -7751,6 +7783,31 @@ def _decision_facts_from_conversations(about=None, query=None):
+     return rows, None
+ 
+ 
++def _new_withheld():
++    """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
++    items. ``legacy_untagged`` is NOT withheld: those items are served and
++    counted so the response shows how many have no readable level yet."""
++    return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
++
++
++def _count_withheld(withheld, verdict):
++    """Tally one item by its verdict. Returns True when the item is served."""
++    if verdict == "l3":
++        withheld["l3"] += 1
++        return False
++    if verdict == "unknown":
++        withheld["unknown"] += 1
++        return False
++    if verdict == "legacy_untagged":
++        withheld["legacy_untagged"] += 1
++    return True
++
++
++def _withheld_view(withheld):
++    """The withheld block of a response: the two withheld counts only."""
++    return {"l3": withheld["l3"], "unknown": withheld["unknown"]}
++
++
+ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
+     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
+ 
+@@ -8074,12 +8131,10 @@ def commitments_list(owner=None, due_before=None, status="open",
+         ``deadline`` strictly before it (undated commitments are dropped
+         when this filter is set, kept otherwise).
+ 
+-    Each row carries ``privacy_level`` read from the todo's own
+-    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
+-    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
+-    present but unparseable -> "L3" (fail closed, never visible). Rows are
+-    still served ungated: the consumer (ostler-assistant promise filter)
+-    applies the level.
++    Privacy (fail closed): each todo is served only when its own
++    ``urn:ostler:privacyLevel`` parses to L0/L1/L2. L3, missing and
++    unparseable levels are withheld and counted in ``withheld`` ({l3,
++    unknown}). Served rows carry ``privacy_level``.
+ 
+     Newest first by deadline then created-at. Returns
+     ``({"commitments": [{action, owner, due, status, source,
+@@ -8093,56 +8148,9 @@ def commitments_list(owner=None, due_before=None, status="open",
+         )
+ 
+     try:
+-        # TODOS CARRY privacyLevel NOW, AND THIS READER DROPS L3 ROWS.
+-        #
+-        # History: when this was first written, a box measurement found 93
+-        # OutstandingTodo nodes and ZERO with a privacyLevel, so a
+-        # fail-closed filter would have hidden all of them. That is no longer
+-        # true: CM048's ingest tags every todo it writes
+-        # (vendor/cm048_pipeline/src/ingest.py, the privacyLevel line of the
+-        # todo block, ~:929) and skips L3 conversations at the writer
+-        # (ingest.py ~:602, processor.py ~:395 and ~:2730).
+-        #
+-        # The writer guards are the primary control. The loop below is the
+-        # second line of defence (belt and braces): an L3-tagged row is
+-        # dropped here even if a writer guard regresses, because the brief
+-        # built from the same store is EMAILED. A row with NO privacyLevel
+-        # (legacy, written before todos were tagged) is NOT dropped and is
+-        # served at the default level, exactly as before.
+-        #
+-        # urn:ostler:visibility is NOT a usable substitute, and this was
+-        # checked rather than assumed: it is the literal "private" on every
+-        # CM048 node (471 of 471 signals, 93 of 93 todos, 1462 of 1462
+-        # facts INCLUDING the 1369 tagged L0). Nothing in this repo reads it.
+-        #
+-        # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
+-        # ARE TWO AND ONLY ONE IS ENFORCED.
+-        #
+-        # Every CM048 node carries urn:ostler:privacyLevel AND
+-        # urn:ostler:visibility. privacyLevel is the ENFORCED axis: the readers
+-        # above join it and the L3 filter acts on it. visibility is INERT. It
+-        # is written by CM048's ingest and read by nothing in the shipped tree
+-        # -- in this repo the only occurrence of the string is this comment,
+-        # against 27 for ostler:privacyLevel as the control, so the search
+-        # finds reads where reads exist and the zero is real.
+-        #
+-        # This is written down because the next person to open a node will see
+-        # the literal "private" sitting on it and reasonably assume something
+-        # enforces it. Nothing does, and the two assertions disagree in effect:
+-        # a node reading privacyLevel L1 (which policy SERVES) also reads
+-        # visibility "private" (which policy never consults).
+-        #
+-        # NOT CLAIMED: what visibility was intended to mean, whether it
+-        # predates privacyLevel, or whether it is a CM048-internal marker that
+-        # was never meant for the reader side. One constant value written in
+-        # one upstream file is consistent with all three, and settling it
+-        # belongs to whoever owns CM048, not to this PR. What IS settled is
+-        # that a reader relying on it today would be relying on nothing.
+-        #
+-        # CM048 writes todos into the per-user NAMED graph. Measured 0 rows
+-        # as shipped, 20 with the clause, against 76 todos on the box.
+-        # DISTINCT is new and is load-bearing: without it a todo present in
+-        # BOTH graphs would be listed twice by the UNION.
++        # Privacy: the todo's own urn:ostler:privacyLevel, read in the query
++        # below, is the only provenance a todo carries (no source-node link).
++        # Rows are gated per row in the loop, fail closed.
+         rows = _sparql_select(
+             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
+             + (
+@@ -8170,26 +8178,33 @@ def commitments_list(owner=None, due_before=None, status="open",
+     due_norm = (due_before or "").strip()
+ 
+     commitments = []
++    withheld = _new_withheld()
+     for r in rows:
+         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
+             continue
+-        # Second line of defence behind the CM048 writer's L3 guards. Untagged
+-        # legacy rows resolve to the default level and are kept; a tagged but
+-        # unparseable level resolves to L3 (fail closed) and is dropped.
+-        if _commitment_privacy_level(r.get("plevel")) == "L3":
+-            continue
+         deadline = r.get("deadline", "")
+         if due_norm:
+             # Undated commitments cannot satisfy a "due before" window.
+             if not deadline or deadline >= due_norm:
+                 continue
++        verdict = pwg_privacy.provenance_verdict(r.get("plevel"))
++        if not _count_withheld(withheld, verdict):
++            continue
++        # 133 outbound gate, applied to the rows the verdict serves. This
++        # list is read by the assistant's promise filter for channel replies
++        # and briefs, so only L1, L2 and untagged may leave. An L0 row is
++        # not outbound-safe. The withheld block has no L0 key, so it is
++        # counted under "unknown" (the outbound view cannot name it).
++        if not _outbound_level_ok(r.get("plevel")):
++            withheld["unknown"] += 1
++            continue
+         commitments.append({
+             "action": r.get("action", ""),
+             "owner": r.get("owner", ""),
+             "due": deadline,
+             "status": r.get("status", ""),
+             "source": r.get("source", ""),
+-            "privacy_level": _commitment_privacy_level(r.get("plevel")),
++            "privacy_level": pwg_privacy.parse_privacy_level(r.get("plevel")),
+             "_created": r.get("createdAt", ""),
+         })
+ 
+@@ -8202,7 +8217,8 @@ def commitments_list(owner=None, due_before=None, status="open",
+     # Same contract as /api/v1/suggestions above, and the same measurement:
+     # untagged means L3 means dropped, so this payload declares its level.
+     return {"commitments": commitments, "count": len(commitments),
+-            "privacy_level": "L2"}, 200
++            "withheld": _withheld_view(withheld),
++            "legacy_untagged": withheld["legacy_untagged"]}, 200
+ 
+ 
+ # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
+@@ -8332,6 +8348,12 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
+ 
+     try:
+         debts = service.compute_reply_debts(**kwargs)
++        # 133 outbound gate: the brief line and debts are sent to the
++        # assistant for channel replies. Withhold L0, L3 and unparseable
++        # threads before anything is counted or named.
++        debts = [d for d in debts if _outbound_level_ok(
++            d.get("privacy_level") if isinstance(d, dict)
++            else getattr(d, "privacy_level", None))]
+         if limit is not None and limit >= 0:
+             debts = debts[:limit]
+         payload = service.reply_debt_payload(debts)
+diff --git a/vendor/cm041/pwg_privacy.py b/vendor/cm041/pwg_privacy.py
+index c21e3eeb..8e88ddad 100644
+--- a/vendor/cm041/pwg_privacy.py
++++ b/vendor/cm041/pwg_privacy.py
+@@ -107,3 +107,46 @@ def filter_l3_facts(facts, owner_level=None):
+     if not isinstance(facts, list):
+         return []
+     return [f for f in facts if not is_l3(f, owner_level)]
++
++
++
++def _classify(raw):
++    """ABSENT (no value), a parsed level, or UNREADABLE (a value that is not
++    a level). ABSENT and UNREADABLE stay distinct: ABSENT keeps the item as
++    legacy, UNREADABLE withholds it."""
++    if raw is None or str(raw).strip() == "":
++        return "ABSENT"
++    return parse_privacy_level(raw) or "UNREADABLE"
++
++
++def provenance_verdict(own, sources=()):
++    """Visibility of one item, from its OWN level and its linked sources.
++
++    ``own``: the item's own privacyLevel (raw), or None if it has none.
++    ``sources``: the raw level of each linked source (source conversation,
++    source meeting, attendee), None where the link has no level.
++
++    Order (Archie, 133): the item's own level first, then the linked
++    sources; most-restrictive wins.
++
++      * "l3"             -- own or any source is L3: withhold, counted.
++      * "unknown"        -- own or any source is present but unreadable,
++                            or a link does not resolve: withhold, counted.
++      * "ok"             -- no L3, nothing unreadable, and at least one
++                            readable L0/L1/L2: serve.
++      * "legacy_untagged"-- no readable level anywhere: serve, and count it
++                            so it is visible. Not a withhold.
++    """
++    own_c = _classify(own)
++    if own_c == "L3":
++        return "l3"
++    if own_c == "UNREADABLE":
++        return "unknown"
++    classes = [_classify(s) for s in sources]
++    if "L3" in classes:
++        return "l3"
++    if "UNREADABLE" in classes:
++        return "unknown"
++    if own_c in ("L0", "L1", "L2") or any(c in ("L0", "L1", "L2") for c in classes):
++        return "ok"
++    return "legacy_untagged"
+```
+
+## What the graft does NOT contain (scope)
+
+- #275's `decisions_list`, `topics_list` and `topic_mentions` hunks (its
+  provenance reads for those readers), `api_preferences` hunks, and the
+  `test_moat_endpoints` / `test_l3_withheld_moat_readers` / CM048 test changes
+  are NOT grafted. They are not the commitments verdict and need their own
+  graft decision.
+
+## Residuals (behaviour, not text)
+
+- reply-debt: the detector's dataclass default is L2, so an untagged thread
+  cannot be told apart from an L2 thread at that seam.
+
+## Tests
+
+- `tests/test_133_outbound_levels.py`: 18 pass.
+- `tests/test_provenance_verdict_states.py` (the #275 4-state tests, 8 cases,
+  grafted with the verdict): pass.
+- 26 pass in the graft run (`PYTHONPATH=vendor`, venv with pyoxigraph,
+  sandboxed HOME). Full vendored suite result is recorded in the PR body.
+- Wired by `.github/workflows/cm041-133-outbound-privacy.yml`.
+
+## CI round 2026-11-16: commitments gate explicit, untagged label, contract and fixtures
+
+Same file, same tree (cm041/assistant_api). Three edits to `commitments_list`, mirrored byte-for-byte in CM041 #278:
+
+- The 133 gate is written explicitly at its call site: L0 and L3 are withheld, and so is a tagged value that does not parse. `_outbound_level_ok` keeps the same rule. The explicit form is needed because `tests/test_every_outbound_graph_reader_filters_l3.py` reads the function body for an L3 vocabulary (`"L3"`, `is_l3`, `filter_l3_facts`, `_effective_privacy_level`) and found none, so it went RED at `commitments_list` (run 43855072334, job 133257132684). The equivalence is checked by the same cases the 133 tests already pin.
+- An untagged row keeps the default `"L2"` label, as before (`test_vendored_cm041_revendor_07a22b4c_routes.py::test_commitments_carry_a_per_row_privacy_level`). It is still counted under `legacy_untagged`, so it is not claimed as tagged.
+- `hub_contract.yaml` regenerated from `ostler-ai/ostler-assistant @ hub-v0.5.42` (837650cf): the commitments top level drops `privacy_level` and gains `withheld` and `legacy_untagged`. The `contract-is-current` gate was STALE on this.
+- `tests/fixtures/meeting_brief_real_hub/commitments.user.json` regenerated (the top level changes as above). `rich.timeline.json` also changes: a last-email-contact marker, which origin/main ALSO drifts on (control: `capture --check` on origin/main 35f485a8 reports `rich.timeline.json` drift), and the conversation event's `privacy_level` L1 from the timeline emit.
+
+## Re-graft check: CM041 8a3b83249c71 (2026-11-16)
+
+Source: andygmassey/CM041-People-Graph fix/133-outbound-l0-l3 @ 8a3b832 (merge of origin/main into the 133 branch; PR #278, accepted head).
+
+sha256, first 16 hex, vendored vs source 8a3b832:
+- pwg_privacy.py: ead5a597c229d79f on both. IDENTICAL.
+- assistant_api/derived_preferences.py: b063172e7cd46871 on both. IDENTICAL.
+- assistant_api/tests/test_133_outbound_levels.py: fadea7f0d893c306 on both. IDENTICAL.
+- assistant_api/tests/test_provenance_verdict_states.py: ba0a8e605bff3cd6 on both. IDENTICAL.
+- assistant_api/ical-server.py: vendored 270bfe4734cfdc14, source f3e9e7221e8337b8. NOT byte-identical.
+
+Why ical-server cannot be byte-identical without a re-pin: `diff` of the two files is 6028 changed lines. The vendored tree sits at pin 688463bb, and 8a3b832 merges all of origin/main, so the difference is the whole upstream file since the pin, not 133 alone. Making it byte-identical means replacing the file with upstream, which is a re-pin (the 134 row). Not done here.
+
+What IS in the vendored file, byte-for-byte with the 133 hunks of 8a3b832 (checked by grep, count 1 each on both sides):
+- timeline emit: "Owner-local timeline EMITS the row's own level" and the conversation event's `privacy_level` from `pwg_privacy.parse_privacy_level(r.get("plevel"))`.
+- untagged commitments label: `or "L2"`, with the explicit L0/L3/unparseable gate `plevel in ("L0", "L3") or`.
+- pin-text lines still differing inside the 133 functions: commitments_list 4, _person_timeline_body 2 (the read_across_graphs import absent at the pin), people_search 24, api_reply_debt 25. None of them is a 133 line.
+
+Contract: `gen_hub_contract.py --gateway-src <hub-v0.5.42 clone> --check` rc=0 ("hub_contract.yaml is current (281 routes)"). Pin kept at 0.5.42 per Archie.
+
+## Function-level graft: CM041 8a3b832, measured by function (AST segment sha256, 12 chars)
+
+Method: `ast.get_source_segment` of each function in CM041 8a3b832 (source), in the vendored file, and in CM051 origin/main. Scratch script, not committed.
+
+function                 src 8a3b832  vendored     vs src   main         vs main
+_outbound_level_ok       87c2c56c3616 87c2c56c3616 SAME     e3b0c44298fc CHANGED
+_fact_outbound_ok        9b175a817d30 9b175a817d30 SAME     e3b0c44298fc CHANGED
+_withheld_view           ce10600c06e0 ce10600c06e0 SAME     e3b0c44298fc CHANGED
+_new_withheld            106bde74799d 106bde74799d SAME     e3b0c44298fc CHANGED
+_count_withheld          3cb4567bb4ce 3cb4567bb4ce SAME     e3b0c44298fc CHANGED
+decisions_list           d38de420bd05 d38de420bd05 SAME     df770f80a46f CHANGED
+topics_list              6aa37546c1b7 6aa37546c1b7 SAME     b2767f07d1ec CHANGED
+topic_mentions           2cb0a4cf8208 2cb0a4cf8208 SAME     80fcc56367de CHANGED
+api_preferences          bebd98307799 bebd98307799 SAME     7ea3cbd0345c CHANGED
+_person_timeline_body    9290b120e72a c8a5015a3271 DRIFT    be229bc50256 CHANGED
+commitments_list         6fc8aeab40db 0e7641485ab4 DRIFT    7fc3929109c6 CHANGED
+api_reply_debt           9c86f111b921 bc2b2123fa33 DRIFT    b715c6f20e64 CHANGED
+people_search            f4a9a423736c 333b23f8e263 DRIFT    f4a806b6fbdd CHANGED
+functions changed vs CM051 main: 13 ['_outbound_level_ok', '_fact_outbound_ok', '_withheld_view', '_new_withheld', '_count_withheld', 'decisions_list', 'topics_list', 'topic_mentions', 'api_preferences', '_person_timeline_body', 'commitments_list', 'api_reply_debt', 'people_search']
+
+- Five helpers SAME as source: the 133 helpers, identical.
+- Four graft functions (decisions_list, topics_list, topic_mentions, api_preferences) were MISSING THE L3 GATE; grafted byte-for-byte from 8a3b832 at function level, now SAME.
+- Four DRIFT functions (_person_timeline_body, commitments_list, api_reply_debt, people_search) are pin-text drift, recorded here. Their 133 lines are in source and vendored. The remaining differences are pin text (the read_across_graphs import absent at the pin, older comments, and the older people_search and api_reply_debt bodies).
+- Changed vs CM051 main: exactly the 13 functions above, plus one module-level constant `_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")`, which the 133 helpers read. No other module-level node differs from main.
+- Test vendored: tests/test_l3_withheld_moat_readers.py (8 tests). Its harness needs the CM041 conftest that injects the service token, so tests/conftest.py is vendored too. RED on db1cb5a9 (7 failed, 1 passed), GREEN after the graft (8 passed). Control: 8 passed on CM041 8a3b832.
+- hub_contract.yaml regenerated: route shapes of the grafted routes changed. Check against hub-v0.5.42: rc=0 (pin kept at 0.5.42).
+- The vendored tests/test_l3_withheld_moat_readers.py differs from CM041 8a3b832 in three subject strings. Each is lowercased in the vendored copy (the first word of each was capitalised). The PII name guard reads capitalised word pairs as names. The test asserts the same behaviour on the same values.
+- CI round (a8eed577 red): vendored tests/conftest.py no longer stubs ostler_security. The CM041 conftest stub omitted db_key, which the vendored ical-server imports, so collection of the whole tests dir failed. The vendored conftest now only sets OSTLER_SERVICE_TOKEN and OSTLER_TEST_AUTOAUTH and wraps the urllib opener, which the moat test needs. Control: test_browsing_enrich.py collects 30 with it, as origin/main does.
+- Wiring: test_l3_withheld_moat_readers.py is named in .github/workflows/cm041-133-outbound-privacy.yml (run step and collected floor 37).
+
+## Restoration of CM051-local behaviour (2026-11-16, PR #3565 head)
+
+Function-level compare against CM041 8a3b832 (source) and CM051 origin/main
+(35f485a8). Two grafted functions were taken from the source and dropped
+CM051-local behaviour; both are now CM051 main plus the 133 gate, so they are
+recorded divergences from the source, not byte-SAME.
+
+- `api_preferences`: DIVERGENCE from the source, by design. CM051 main's GDPR
+  Art. 9 `is_sensitive_topic` filter (board row 2471) is kept; the 133
+  per-interest level gate is layered on top. A row is withheld if either
+  applies and is counted once in `withheld` (an Art. 9 hit is tallied as `l3`).
+  Upstream carries no Art. 9 filter: backlog row CM041-UPSTREAM-ART9-PREFS.
+  Proof: `tests/test_api_preferences_never_returns_a_special_category_topic.py`
+  green on head, and RED (16 fail) when the Art. 9 line is disabled (mutant,
+  applied locally and reverted, never committed). Moat reader
+  `TestPreferencesL3` RED on main (8 of 8 moat tests fail on main), GREEN on head.
+- `decisions_list`: DIVERGENCE from the source. CM051 main's merge-aware
+  about-lookup (`_resolve_person_by_slug`, `pwg:mergedInto*`), the
+  conversation-store fallback on Oxigraph failure and the conversation merge
+  (`_decision_facts_from_conversations`, which carries its own L3 withholding)
+  are restored. The 133 per-decision provenance gate (source meeting and every
+  attendee, fail closed) is layered on top. Proof: the decisions and
+  person-merge suites are green on head (`test_decisions_one_source_of_truth.py`,
+  `test_person_reads_follow_merges.py`).
+- `topics_list` and `topic_mentions`: byte-SAME with the source, unchanged.
+  Two deliberate departures from main, kept for privacy and recorded here:
+  a topic with no mention rows is withheld and counted (main lists it with
+  weight 0), and a topic label is taken only from a visible mention (main
+  takes it from any row). Both follow the 133 rule that a label carried only
+  by withheld content is not disclosed.
+- `commitments_list`: no CM051-local code removed. The removed `continue` is
+  the old L3 skip, replaced by the gate; an untagged row is still served as
+  `legacy_untagged` with L2.
+- `people_search`, `_person_timeline_body`, `api_reply_debt`: no CM051-local
+  code removed versus main (checked by comment-stripped AST diff). Untagged
+  people remain searchable.
+
+Golden `tests/fixtures/pagination_golden_preferences.json`: the only changes
+are two added top-level keys, `withheld` and `legacy_untagged`. No existing key
+changed or was removed; `interests` (57 records) is identical.
+
+## subscription_gate.py: grafted from CM052 (CM051 #3574), .patch hunks superseded
+
+`vendor/cm041/assistant_api/subscription_gate.py` is now grafted from CM052
+`src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21), byte-identical.
+sha256: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`.
+
+The hunks in `vendor/divergences/cm041_assistant_api.patch` that touch
+`subscription_gate.py` (the `+++ b/subscription_gate.py` block, around line 16225)
+record the OLD gate and are SUPERSEDED by this graft. A sync_vendor.sh run must not
+reapply them. No patch regeneration in 133.
+
+## decisions_list and api_preferences privacy gates: grafted from CM041 #278 (133 window)
+
+Two gate fixes, the added lines byte-identical to CM041 `assistant_api/ical-server.py`
+at `27bf1d1` (later `07ceb011`), function-compared, not hand-copied:
+
+- `decisions_list`: the provenance query's meeting and attendee level patterns are
+  `{ <pattern> } UNION { GRAPH ?g { <pattern> } }`. Levels are found in the default
+  graph (the decision writer) and in the named user graphs. Attendee level is
+  collected per `?p`, not per display name. Name-required and default-only forms
+  are removed.
+- `api_preferences`: new helper `_interest_privacy_verdict` (and constant
+  `_INTEREST_PRIVACY_KEYS`) reads both `privacy_level` and `privacy` (the CM059
+  compiler key); the strictest verdict wins. The CM051-local Art. 9 pre-check is
+  kept above the gate and unchanged.
+
+Tests: `tests/test_133_named_graph_and_privacy_key.py` (byte-identical to CM041)
+runs against a real pyoxigraph store. `tests/test_l3_withheld_moat_readers.py`
+fixture rows now carry the `p` binding the new SELECT returns. Both are wired into
+`.github/workflows/cm041-133-outbound-privacy.yml`, floor 48.
+
+## 133 regraft of CM041 #278 @2dbac8c (red-team CM041-01/02)
+
+Grafted from CM041 `assistant_api/ical-server.py` at `2dbac8c`, applied as the
+CM041 diff `e028d27..2dbac8c`, not hand-copied. Byte-identical to CM041 (function
+compare): `_count_withheld`, `_withheld_view`, `_topic_mention_verdict`,
+`_conversation_levels_for`, `_interest_privacy_verdict`, `_level_verdict`,
+`_INTEREST_PRIVACY_KEYS`, `topics_list`, `topic_mentions`.
+
+Effect: topic readers take the strictest level across mention, conversation node
+and facts drawn from the conversation; an explicit L0 is withheld in topics and
+in preferences (counted under `unknown`).
+
+CM051-local, not in CM041:
+- `_read_across_graphs(body)`: identity shim beside `_graph_scoped`. CM041's
+  `_conversation_levels_for` calls upstream's `read_across_graphs`, which this tree
+  does not import (see the note above `_graph_scoped`). `_sparql_select` already
+  graph-scopes every query here, so the identity is equivalent at that call site.
+  Without it topics and topic_mentions return 503 (NameError), measured.
+- `decisions_list` (merge-aware and conversation-store, earlier local block) and
+  the `api_preferences` Art. 9 pre-check are kept unchanged, as before.
+
+Checked: `_conversation_levels_for` against a real Oxigraph store through
+`_graph_scoped` (USER_ID set): default-graph L3 conversation -> L3, default L2 -> L2,
+named-graph L3 -> L3. The CM051 133 tests: 48 passed.
+
+Not grafted in this commit: CM041's new tests (`test_topic_conversation_level_134.py`,
+`test_interest_l0_withheld_134.py`, `test_prop_outbound_privacy_gates.py`) and the
+CI hypothesis dependency. They stay CM041-side.
+
+## 2026-11-17 (absent-tier fix, the 133 Box finding): gate re-grafted, digest re-pinned
+
+The verifier PASS path reports tier_state `absent` for every production licence (CM050 mintLicense emits no `tier`). The gate counted only known and unknown as signed, so no founding or ff buyer got an included window. Fixed at the source: CM052 PR #26, head `31153f67c`, merged as the same bytes. Both vendored copies are byte-identical to it.
+
+- sha256 now: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
+- previous: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161` (CM052 `fd7bf5c02`)
+- digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
+
+Tree `cm041/assistant_api`: `vendor/cm041/assistant_api/subscription_gate.py` re-grafted byte-identical (vendor-only row in VENDOR_ONLY.tsv).

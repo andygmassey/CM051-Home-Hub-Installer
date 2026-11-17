@@ -343,6 +343,7 @@ test_derive_preferences_is_scheduled.sh	WIRED	.github/workflows/derived-preferen
 test_derive_reads_conversations_mirror_not_documents.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derive_tick_records_every_exit_and_has_a_ceiling.sh	WIRED	.github/workflows/derived-preferences.yml
 test_derived_prefs_probe_is_run_by_the_walk.sh	WIRED	.github/workflows/derived-preferences.yml
+test_derived_route_reads_what_the_engine_writes.py	WIRED	.github/workflows/derived-preferences.yml
 test_derived_still_learning_surface.py	WIRED	.github/workflows/derived-preferences.yml
 test_diag_sink_per_run.sh	WIRED	.github/workflows/launchd-plist-paths.yml
 test_dietary_is_never_surfaced.py	WIRED	.github/workflows/derived-preferences.yml
@@ -594,6 +595,7 @@ test_legal_prevails_note_on_every_legal_prompt.py	WIRED	.github/workflows/l10n-c
 test_legal_style_lines_are_legal_keys.py	WIRED	.github/workflows/l10n-check.yml
 test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
+test_licence_plan_reaches_the_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -910,6 +912,7 @@ test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate
 test_tailscale_signin_reaps_up.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_telemetry_egress_off.sh	WIRED	.github/workflows/install-abort-and-egress.yml
+test_tests_never_write_the_real_home.py	WIRED	.github/workflows/person-removal-audit.yml
 test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_consent_button_is_not_below_the_fold.py	WIRED	.github/workflows/swift-tests.yml

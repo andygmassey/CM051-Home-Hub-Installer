@@ -93,6 +93,9 @@ ONBOX = {
         "the on-box Memory tab (/api/v1/memory) shows every level by design; the digest reads only a "
         "COUNT of corrected facts from it (generate_pwg_context.py:1706). Its response also carries "
         "current_employer and facts unfiltered: whether any non-Hub client (oa) reads it is NOT audited",
+    # CM041 #278 @2dbac8c: returns {conversation uri: [raw levels]} only, no content.
+    # Called only by topics_list and topic_mentions (Hub-only, above), to withhold.
+    (ICAL, "_conversation_levels_for"): "conversation levels for topic withholding, no content",
     (ICAL, "_wiki_triples_count"): "a count",
     (ICAL, "api_health_day"): "counts for the Hub health screen",
     (ICAL, "api_people_suppress_suggestions"): "Hub write action", (ICAL, "api_people_forget"): "Hub write action",

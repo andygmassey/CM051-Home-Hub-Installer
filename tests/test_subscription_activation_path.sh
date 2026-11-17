@@ -88,7 +88,7 @@ if [[ ! -f "$HELPER" ]]; then
     echo "FAIL [case-4]: $HELPER missing from source tree"
     exit 1
 fi
-if ! grep -qE "^def activate_first_month_free" "$HELPER"; then
+if ! grep -qE "^(def )?activate_first_month_free\b" "$HELPER"; then
     echo "FAIL [case-4]: activate_first_month_free symbol missing from $HELPER"
     exit 1
 fi
