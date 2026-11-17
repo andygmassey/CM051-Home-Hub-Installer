@@ -23,6 +23,15 @@ file-exists check while giving the customer nothing. The subject is the
 customer's folder, not the function's return value: the return value can claim
 a path the writer never wrote.
 """
+# Run in a private HOME: what this drives resolves ~/.ostler from HOME, and run
+# as a plain script no conftest sandboxes it (2026-11-17: it wrote the
+# operator's real ~/.ostler). Set before any import that might bind a path.
+import atexit as _atexit, os as _os, shutil as _shutil, tempfile as _tempfile  # noqa: E401,E402
+_SANDBOX_HOME = _tempfile.mkdtemp(prefix="cm051-script-home-")
+_os.environ["HOME"] = _SANDBOX_HOME
+_os.environ["OSTLER_STATE_DIR"] = _os.path.join(_SANDBOX_HOME, ".ostler", "state")
+_atexit.register(_shutil.rmtree, _SANDBOX_HOME, True)
+
 import pathlib, sys, tempfile, unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

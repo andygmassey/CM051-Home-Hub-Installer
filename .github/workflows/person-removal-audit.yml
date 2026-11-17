@@ -21,6 +21,13 @@ on:
       - 'tests/test_person_removal_audit.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
       - 'tests/conftest.py'
+      - 'tests/test_tests_never_write_the_real_home.py'
+      - 'tests/test_fda_refusal_surfaces.py'
+      - 'tests/test_read_messages_are_not_no_data.py'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'tests/test_pwg_convo_bin_owner_side_first.py'
+      - 'tests/test_reply_debt_probe_names_the_missed_debt.py'
       - '.github/workflows/person-removal-audit.yml'
   pull_request:
     paths:
@@ -33,6 +40,13 @@ on:
       - 'tests/test_person_removal_audit.py'
       - 'tests/test_people_projection_prunes_what_left_the_graph.py'
       - 'tests/conftest.py'
+      - 'tests/test_tests_never_write_the_real_home.py'
+      - 'tests/test_fda_refusal_surfaces.py'
+      - 'tests/test_read_messages_are_not_no_data.py'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'tests/test_pwg_convo_bin_owner_side_first.py'
+      - 'tests/test_reply_debt_probe_names_the_missed_debt.py'
       - '.github/workflows/person-removal-audit.yml'
 
 concurrency:
@@ -56,7 +70,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install pytest and the writers' runtime dependencies
-        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers rapidfuzz vobject qdrant-client
+        run: python -m pip install --quiet pytest httpx "nameparser>=2.1.0,<3.0" phonenumbers rapidfuzz vobject qdrant-client pyoxigraph
       - name: Each Person-removing writer leaves a record, and the prune leaves a trace
         run: |
           out="$(python -m pytest tests/test_person_removal_audit.py tests/test_people_projection_prunes_what_left_the_graph.py -q 2>&1)" || true
@@ -71,3 +85,22 @@ jobs:
             exit 1
           fi
           echo "arms passed: ${got}"
+      # Tests never write the operator's real home (2026-11-17: the forget arm
+      # above and two plain-script tests wrote a developer's ~/.ostler/state).
+      # Each culprit runs with HOME at a stand-in directory that must stay
+      # empty, and the conftest guard must refuse a write under the real home.
+      - name: Tests never write the real home
+        if: success() || failure()
+        run: |
+          python -m pytest tests/test_tests_never_write_the_real_home.py -q -p no:cacheprovider 2>&1 | tee home-guard.out
+          rc=${PIPESTATUS[0]}
+          got="$(sed -nE 's/^([0-9]+) passed.*/\1/p' home-guard.out | head -1)"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::a test wrote outside its sandbox (rc $rc)"
+            exit 1
+          fi
+          if [ "${got:-0}" -ne 9 ]; then
+            echo "::error::expected 9 arms, saw ${got:-0}"
+            exit 1
+          fi
+          echo "home-guard arms passed: ${got}"
