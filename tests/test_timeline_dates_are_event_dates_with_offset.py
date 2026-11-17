@@ -66,7 +66,8 @@ def _conversations(payloads):
     resp.__enter__ = lambda s: s
     resp.__exit__ = lambda *a: False
     with patch.object(server.urllib.request, "urlopen", return_value=resp):
-        return server._timeline_conversations(past_days=3650, limit=50)
+        return server._timeline_conversations(past_days=3650, limit=50,
+                                              destination="owner_local")
 
 
 def test_the_ingest_time_is_never_the_event_date():
@@ -84,7 +85,7 @@ def _timeline(items_from_conversations, conv_err=None):
          patch.object(server, "_sparql_select", return_value=[]), \
          patch.object(server, "_timeline_conversations", return_value=(items_from_conversations, conv_err)), \
          patch.object(server.subprocess, "run", return_value=MagicMock(stdout="", stderr="", returncode=0)):
-        return server.api_timeline(days=7)
+        return server.api_timeline(days=7, destination="owner_local")
 
 
 def test_entries_have_offsets_all_day_and_no_undated_rows():

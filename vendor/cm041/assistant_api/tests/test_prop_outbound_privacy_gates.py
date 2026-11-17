@@ -204,11 +204,11 @@ class _Resp:
         return self._body
 
 
-def _run_people_search(points):
+def _run_people_search(points, destination=None):
     body = json.dumps({"result": [{"score": 0.9, "payload": p} for p in points]}).encode()
     with patch.object(server, "_embed_text", lambda q, timeout=30: [0.0]), \
          patch.object(server.urllib.request, "urlopen", lambda req, timeout=None: _Resp(body)):
-        return server.people_search("synthetic", limit=50)
+        return server.people_search("synthetic", limit=50, destination=destination)
 
 
 PERSON_TAG = st.dictionaries(st.sampled_from(SPELLINGS), VALUES, max_size=2)
@@ -236,14 +236,17 @@ def test_persons_never_served_when_tagged_l0_l3_or_garbage(tag_sets):
             assert uri not in served_uris, f"person tagged {tags!r} was served"
 
 
-def test_persons_untagged_is_counted_not_hidden():
-    """Doctrine exception, asserted so it cannot drift silently: untagged persons
-    are served by people_search (133 rule). If this ever changes, the stated
-    invariant and this test must be revisited together."""
-    # LEGACY (133 untagged rule): an untagged person is served; canonical missing = L3.
-    out = _run_people_search([_person_payload(0, {}), _person_payload(1, {"privacy_level": "L2"})])
-    uris = {r["person_uri"] for r in out["results"]}
-    assert uris == {"urn:synthetic:person:0"}
+def test_persons_untagged_reach_owner_local_only():
+    """The 133 untagged rule is retired (Archie 2026-11-17): an untagged person
+    is canonical L3, served (labelled) to owner_local and withheld elsewhere."""
+    pts = [_person_payload(0, {}), _person_payload(1, {"privacy_level": "L2"})]
+    assert _run_people_search(pts)["results"] == []
+    brief = {r["person_uri"] for r in _run_people_search(pts, "owner_own_brief")["results"]}
+    assert brief == {"urn:synthetic:person:1"}
+    own = {r["person_uri"]: r for r in _run_people_search(pts, "owner_local")["results"]}
+    assert set(own) == {"urn:synthetic:person:0", "urn:synthetic:person:1"}
+    assert own["urn:synthetic:person:0"]["privacy_label"] == "private"
+    assert "privacy_label" not in own["urn:synthetic:person:1"]
 
 
 def test_person_tagged_camel_case_l3_is_not_served():

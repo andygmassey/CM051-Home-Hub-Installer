@@ -314,13 +314,16 @@ class TestCommitmentsL3(unittest.TestCase):
     def test_l2_present_l3_and_untagged_absent_and_counted(self) -> None:
         with patch.object(server, "_sparql_select", side_effect=self._fake()):
             with _ServerHarness() as h:
-                status, body = h.get("/api/v1/commitments")
+                status, body = h.get("/api/v1/commitments?destination=owner_own_brief")
         self.assertEqual(status, 200)
         actions = [c["action"] for c in body["commitments"]]
-        self.assertEqual(actions, ["Untagged action", "Send the L2 deck"])
+        # owner_own_brief: L2 served; L3 withheld (counted l3); untagged is
+        # canonical L3 now (counted unknown, not served).
+        self.assertEqual(actions, ["Send the L2 deck"])
         self.assertNotIn("Confidential L3 action", json.dumps(body))
-        self.assertEqual(body["withheld"], {"l3": 1, "unknown": 0})
-        self.assertEqual(body["legacy_untagged"], 1)
+        self.assertNotIn("Untagged action", json.dumps(body))
+        self.assertEqual(body["withheld"], {"l3": 1, "unknown": 1})
+        self.assertEqual(body["legacy_untagged"], 0)
 
 
 # ---------------------------------------------------------------------------

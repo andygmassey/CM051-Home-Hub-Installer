@@ -34,6 +34,9 @@ RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 _NOW = datetime.now(timezone.utc)
 _DAY = (_NOW - timedelta(days=3)).strftime("%Y-%m-%d")
 _OLD = (_NOW - timedelta(days=900)).strftime("%Y-%m-%d")
+# The owner's own view of their photos (owner_own_brief: L2 in full, L3 and
+# untagged withheld). An undeclared caller is unknown (strictest row) and sees no L2 photo.
+_DEST = "owner_own_brief"
 
 # (photo id, date, place or None, privacy level or None)
 PHOTOS = [
@@ -72,9 +75,18 @@ def _engine(photos=PHOTOS):
 
 def _photo_rows(photos=PHOTOS, past_days=730):
     with patch.object(server, "_sparql_select", side_effect=_engine(photos)):
-        rows, err = server._timeline_photos(past_days=past_days)
+        rows, err = server._timeline_photos(past_days=past_days, destination=_DEST)
     assert err is None, err
     return rows
+
+
+class TimelinePhotosDestination(unittest.TestCase):
+
+    def test_undeclared_is_unknown_and_counts_no_l2_photo(self):
+        with patch.object(server, "_sparql_select", side_effect=_engine()):
+            rows, err = server._timeline_photos(past_days=730)
+        self.assertIsNone(err)
+        self.assertEqual(rows, [])
 
 
 class TimelinePhotosAggregation(unittest.TestCase):
@@ -108,13 +120,13 @@ class TimelinePhotosAggregation(unittest.TestCase):
     def test_no_photos_is_an_empty_list_not_an_error(self):
         rows, err = None, None
         with patch.object(server, "_sparql_select", side_effect=_engine([])):
-            rows, err = server._timeline_photos(past_days=730)
+            rows, err = server._timeline_photos(past_days=730, destination=_DEST)
         self.assertIsNone(err)
         self.assertEqual(rows, [])
 
     def test_graph_failure_is_reported_not_swallowed(self):
         with patch.object(server, "_sparql_select", side_effect=RuntimeError("oxigraph down")):
-            rows, err = server._timeline_photos(past_days=730)
+            rows, err = server._timeline_photos(past_days=730, destination=_DEST)
         self.assertEqual(rows, [])
         self.assertIn("oxigraph down", err)
 
@@ -125,7 +137,7 @@ class TimelinePhotosEndpoint(unittest.TestCase):
         with _no_calendar(), \
              patch.object(server, "_sparql_select", side_effect=_engine()), \
              patch.object(server, "_timeline_conversations", return_value=([], None)):
-            body = server.api_timeline(days=0, past_days=730, limit=200)
+            body = server.api_timeline(days=0, past_days=730, limit=200, destination=_DEST)
         photo_items = [i for i in body["items"] if i["kind"] == "photos"]
         self.assertEqual(len(photo_items), 2)
         photo_entries = [e for e in body["entries"] if e["type"] == "photos"]
@@ -143,7 +155,7 @@ class TimelinePhotosEndpoint(unittest.TestCase):
         with _no_calendar(), \
              patch.object(server, "_sparql_select", side_effect=fake), \
              patch.object(server, "_timeline_conversations", return_value=([], None)):
-            body = server.api_timeline(days=0, past_days=730, limit=200)
+            body = server.api_timeline(days=0, past_days=730, limit=200, destination=_DEST)
         # The failure is a status beside the items, never an item row (a row
         # with no day would sort first on every page).
         self.assertIn("photo query down", body["photos_error"])
@@ -169,7 +181,7 @@ class TimelinePhotosContract(unittest.TestCase):
         with _no_calendar(), \
              patch.object(server, "_sparql_select", side_effect=_engine(photos)), \
              patch.object(server, "_timeline_conversations", return_value=([], None)):
-            body = server.api_timeline(days=0, past_days=36500, limit=200)
+            body = server.api_timeline(days=0, past_days=36500, limit=200, destination=_DEST)
         got = [e for e in body["entries"] if e["type"] == "photos"]
         # The vendored Timeline also carries CM051's #2565 provenance fields
         # (source, title_verbatim) on every entry. The iOS contract fixture

@@ -22,6 +22,10 @@ ox = pytest.importorskip("pyoxigraph")
 _AAPI = Path(__file__).resolve().parents[1] / "vendor" / "cm041" / "assistant_api"
 if str(_AAPI) not in sys.path:
     sys.path.insert(0, str(_AAPI))
+# derived_preferences imports pwg_privacy (and through it privacy_scale and
+# pwg_privacy_readers) from the vendored CM041 root, as the installed layout does.
+if str(_AAPI.parent) not in sys.path:
+    sys.path.insert(1, str(_AAPI.parent))
 
 from derived_preferences import (  # noqa: E402
     DERIVED_GRAPH,
@@ -63,9 +67,11 @@ def _sparql(store):
     return run
 
 
-def _route(store, **kw):
+def _route(store, destination="owner_local", **kw):
+    # Untagged fixtures (canonical L3) reach only owner_local; a test of
+    # another destination passes it explicitly.
     return build_derived_preferences_response(
-        DerivedGraphReader(_sparql(store)), SYNTH_USER, **kw)
+        DerivedGraphReader(_sparql(store), destination=destination), SYNTH_USER, **kw)
 
 
 def _labels(resp):
@@ -119,10 +125,15 @@ def test_sensitive_gated_negative_does_not_appear():
     _add(store, "ok", "synthetic visible dislike", -0.8, 0.8, "food", level="L1")
     _add(store, "l3", "synthetic sealed dislike", -0.9, 0.9, "health", level="L3")
     _add(store, "odd", "synthetic odd-level dislike", -0.9, 0.9, "health", level="secret")
-    labels = _labels(_route(store, limit=8, tier="all"))
+    # The owner's own channel: an L1 dislike is served in full there.
+    labels = _labels(_route(store, destination="owner_own_brief", limit=8, tier="all"))
     assert "synthetic visible dislike" in labels
     assert "synthetic sealed dislike" not in labels
     assert "synthetic odd-level dislike" not in labels
+    # Undeclared = unknown (strictest row): L1 is redacted-only there, and no route redacts.
+    cloud = _labels(_route(store, destination=None, limit=8, tier="all"))
+    assert "synthetic visible dislike" not in cloud
+    assert "synthetic sealed dislike" not in cloud
 
 
 def test_negatives_below_min_confidence_are_not_served():

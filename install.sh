@@ -1452,8 +1452,8 @@ if [[ "${OSTLER_UPGRADE_MODE:-0}" == "1" || "${OSTLER_UPGRADE_ROLLBACK:-0}" == "
         fi
         rm -f "${_dir}/people_rules.py" 2>/dev/null || true   # the one copy lives in services/shared
         # the ical-server's hard-imported siblings, staged exactly as the cold install does
-        [[ -f "${_UPG_PAYLOAD}/services/pwg_privacy.py" ]] \
-            && cp "${_UPG_PAYLOAD}/services/pwg_privacy.py" "${_root}/pwg_privacy.py" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"
+        for _pf in pwg_privacy.py pwg_privacy_readers.py privacy_scale.py privacy_scale_canonical.tsv; do if [[ -f "${_UPG_PAYLOAD}/services/${_pf}" ]]; then \
+            cp "${_UPG_PAYLOAD}/services/${_pf}" "${_root}/${_pf}" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"; fi; done; unset _pf
         if [[ -d "${_UPG_PAYLOAD}/services/ostler_hygiene" ]]; then
             rm -rf "${_root}/ostler_hygiene"
             cp -R "${_UPG_PAYLOAD}/services/ostler_hygiene" "${_root}/ostler_hygiene" 2>>"${OSTLER_UPGRADE_LOG_PATH:-/dev/null}"
@@ -24484,7 +24484,7 @@ if [[ -d "${SCRIPT_DIR}/contact_syncer" ]]; then
     # from its parent dir (_PARENT_DIR sys.path hack = PIPELINE_DIR
     # here), so it must land as a SIBLING of the three packages --
     # without it the pre-meeting brief raises ImportError.
-    [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]] && cp "${SCRIPT_DIR}/pwg_privacy.py" "$PIPELINE_DIR/"
+    [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]] && cp "${SCRIPT_DIR}/pwg_privacy.py" "${SCRIPT_DIR}/pwg_privacy_readers.py" "${SCRIPT_DIR}/privacy_scale.py" "${SCRIPT_DIR}/privacy_scale_canonical.tsv" "$PIPELINE_DIR/"
     [[ -f "${SCRIPT_DIR}/requirements.txt" ]] && cp "${SCRIPT_DIR}/requirements.txt" "$PIPELINE_DIR/"
     ok "$MSG_OK_IMPORT_PIPELINE_BUNDLED_WITH_INSTALLER"
     HAS_PIPELINE=true
@@ -30049,7 +30049,7 @@ if [[ -d "${SCRIPT_DIR}/assistant_api" && -f "${SCRIPT_DIR}/assistant_api/ical-s
     #     hygiene overlay silently degrades to raw source facts.
     _ICAL_SERVICES_ROOT="$(dirname "$ICAL_SERVER_DIR")"
     if [[ -f "${SCRIPT_DIR}/pwg_privacy.py" ]]; then
-        cp "${SCRIPT_DIR}/pwg_privacy.py" "${_ICAL_SERVICES_ROOT}/pwg_privacy.py"
+        cp "${SCRIPT_DIR}/pwg_privacy.py" "${SCRIPT_DIR}/pwg_privacy_readers.py" "${SCRIPT_DIR}/privacy_scale.py" "${SCRIPT_DIR}/privacy_scale_canonical.tsv" "${_ICAL_SERVICES_ROOT}/"
     else
         warn "pwg_privacy.py not bundled with the installer - ical-server will fail to start (re-cut the DMG from a synced vendor/cm041)"  # i18n-exempt: vendor-sync build defect, not a customer flow
     fi

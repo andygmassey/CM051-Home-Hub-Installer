@@ -95,7 +95,7 @@ class TestPeopleSearchOutbound(unittest.TestCase):
         "unparseable": "Carl Coe",
     }
 
-    def _names_served(self):
+    def _names_served(self, destination=None):
         hits = [
             _person_hit(0, self.NAMES["L0"], "L0"),
             _person_hit(1, self.NAMES["L3"], "L3"),
@@ -105,7 +105,8 @@ class TestPeopleSearchOutbound(unittest.TestCase):
         ]
         with patch.object(server.urllib.request, "urlopen",
                           _fake_urlopen({"result": hits})):
-            body = server.people_search("synthetic", limit=10)
+            body = server.people_search("synthetic", limit=10, destination=destination)
+        self._last = body
         return [r["name"] for r in body["results"]]
 
     def test_l0_person_is_withheld(self):
@@ -120,23 +121,36 @@ class TestPeopleSearchOutbound(unittest.TestCase):
     def test_l2_person_is_withheld_on_a_hub_route(self):
         self.assertNotIn(self.NAMES["L2"], self._names_served())
 
-    def test_untagged_person_is_served_legacy(self):
-        # LEGACY (133 untagged rule): canonical missing = L3. Kept as named legacy.
-        self.assertIn(self.NAMES["untagged"], self._names_served())
+    def test_untagged_person_reaches_owner_local_only_labelled(self):
+        # The 133 untagged rule is retired (Archie 2026-11-17): a person with no
+        # level is canonical L3, served to owner_local with the private label
+        # and withheld everywhere else (the table).
+        self.assertNotIn(self.NAMES["untagged"], self._names_served())
+        self.assertNotIn(self.NAMES["untagged"], self._names_served("owner_own_brief"))
+        self.assertNotIn(self.NAMES["untagged"], self._names_served("others"))
+        self.assertIn(self.NAMES["untagged"], self._names_served("owner_local"))
+        row = {r["name"]: r for r in self._last["results"]}[self.NAMES["untagged"]]
+        self.assertEqual("private", row.get("privacy_label"))
+
+    def test_owner_own_brief_serves_the_l2_person(self):
+        self.assertIn(self.NAMES["L2"], self._names_served("owner_own_brief"))
+        self.assertNotIn(self.NAMES["L0"], self._names_served("owner_own_brief"))   # legacy L0
 
 
 class TestPeopleSearchFactsOutbound(unittest.TestCase):
-    """Facts on a served (untagged, legacy) person: only canonical public L0 leaves."""
+    """Facts on a person served to an undeclared caller: only canonical public
+    L0 leaves. The person carries a canonical L0 so the person gate passes."""
 
     def _facts(self):
         facts = [
             {"text": "Synthetic L0 fact", "privacy_level": "L0"},          # unmigrated
             {"text": "Synthetic L0 migrated fact", "privacy_level": "L0",
-             "privacy_scale": "canonical-2026-11"},
+             "privacyScale": "canonical-2026-11"},
             {"text": "Synthetic L2 fact", "privacy_level": "L2"},
             {"text": "Synthetic L3 fact", "privacy_level": "L3"},
         ]
-        hit = _person_hit(0, "Tom Patel")
+        hit = _person_hit(0, "Tom Patel", "L0")
+        hit["payload"]["privacyScale"] = "canonical-2026-11"
         hit["payload"]["facts"] = facts
         with patch.object(server.urllib.request, "urlopen",
                           _fake_urlopen({"result": [hit]})):
@@ -165,7 +179,7 @@ class TestCommitmentsOutbound(unittest.TestCase):
             "plevel": plevel,
         }
 
-    def _actions(self):
+    def _actions(self, destination="owner_own_brief"):
         rows = [
             self._row("Synthetic L0 todo", "L0"),
             self._row("Synthetic L3 todo", "L3"),
@@ -174,8 +188,9 @@ class TestCommitmentsOutbound(unittest.TestCase):
             self._row("Synthetic bogus todo", "not-a-level"),
         ]
         with patch.object(server, "_sparql_select", lambda q: rows):
-            body, status = server.commitments_list(status="open")
+            body, status = server.commitments_list(status="open", destination=destination)
         self.assertEqual(status, 200)
+        self._last = body
         return [c["action"] for c in body["commitments"]]
 
     def test_l0_todo_is_withheld(self):
@@ -187,10 +202,23 @@ class TestCommitmentsOutbound(unittest.TestCase):
     def test_unparseable_todo_is_withheld(self):
         self.assertNotIn("Synthetic bogus todo", self._actions())
 
-    def test_l2_and_untagged_controls_are_still_served(self):
+    def test_l2_served_to_the_owner_own_brief_untagged_withheld(self):
         actions = self._actions()
         self.assertIn("Synthetic L2 todo", actions)
+        self.assertNotIn("Synthetic untagged todo", actions)
+
+    def test_undeclared_is_unknown_and_serves_no_l2_or_untagged(self):
+        self.assertEqual([], self._actions(None))
+
+    def test_owner_local_serves_untagged_and_l3_labelled(self):
+        actions = self._actions("owner_local")
         self.assertIn("Synthetic untagged todo", actions)
+        self.assertIn("Synthetic L3 todo", actions)
+        by = {c["action"]: c for c in self._last["commitments"]}
+        self.assertEqual("private", by["Synthetic untagged todo"].get("privacy_label"))
+        self.assertEqual("private", by["Synthetic L3 todo"].get("privacy_label"))
+        self.assertNotIn("privacy_label", by["Synthetic L2 todo"])
+        self.assertEqual(1, self._last["legacy_untagged"])
 
 
 class TestReplyDebtOutbound(unittest.TestCase):
@@ -310,7 +338,7 @@ class TestTimelineEmitsLevel(unittest.TestCase):
     """The owner-local timeline EMITS the row's own privacy_level on every event
     that has one (Archie ruling, L3 window). L0 events are kept, not withheld."""
 
-    def _events(self):
+    def _events(self, destination="owner_own_brief"):
         conv = [
             {"conv": "urn:ostler:conversation/synthetic-1", "date": "2026-11-01",
              "fpriv": "L0"},
@@ -332,7 +360,8 @@ class TestTimelineEmitsLevel(unittest.TestCase):
 
         with patch.object(server, "_sparql_select", fake):
             body, status = server._person_timeline_body(
-                "urn:ostler:person/synthetic-p", "Jane Doe", "jane-doe")
+                "urn:ostler:person/synthetic-p", "Jane Doe", "jane-doe",
+                destination=destination)
         self.assertEqual(200, status)
         return body["events"]
 
@@ -341,12 +370,27 @@ class TestTimelineEmitsLevel(unittest.TestCase):
             if e["type"] in ("conversation", "meeting"):
                 self.assertIn("privacy_level", e, e)
 
-    def test_the_seeded_l0_conversation_is_kept_and_labelled_l0(self):
+    def test_the_seeded_l0_conversation_is_withheld_and_l2_is_kept(self):
+        # owner_own_brief: the legacy (unmigrated) L0 conversation is withheld
+        # by legacy_l0_guard; the L2 twin is served with its level.
         convs = {e["conversation_id"]: e for e in self._events()
                  if e["type"] == "conversation"}
-        self.assertIn("synthetic-1", convs)
-        self.assertEqual("L0", convs["synthetic-1"]["privacy_level"])
+        self.assertNotIn("synthetic-1", convs)
+        self.assertIn("synthetic-2", convs)
         self.assertEqual("L2", convs["synthetic-2"]["privacy_level"])
+
+    def test_owner_local_keeps_the_l0_conversation_labelled_private(self):
+        # owner_local is exempt from the legacy guard (old PWG L0 meant
+        # owner-private), so the owner's own Hub UI sees it, labelled.
+        convs = {e["conversation_id"]: e for e in self._events("owner_local")
+                 if e["type"] == "conversation"}
+        self.assertEqual("L0", convs["synthetic-1"]["privacy_level"])
+        self.assertEqual("private", convs["synthetic-1"]["privacy_label"])
+        self.assertNotIn("privacy_label", convs["synthetic-2"])
+
+    def test_undeclared_is_unknown_and_serves_neither(self):
+        convs = [e for e in self._events(None) if e["type"] == "conversation"]
+        self.assertEqual([], convs)
 
     def test_the_meeting_keeps_its_level(self):
         meetings = [e for e in self._events() if e["type"] == "meeting"]

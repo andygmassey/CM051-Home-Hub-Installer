@@ -195,8 +195,12 @@ def server_without_calendar():
     _stop(proc, edge)
 
 
-def get(url, path, timeout=15):
-    req = urllib.request.Request(url + path, headers={"Authorization": "Bearer " + TOKEN})
+def get(url, path, timeout=15, dest="owner_local"):
+    # CM041 6c5f709: every read is gated for the declared destination; an
+    # undeclared caller is "unknown" (the strictest row). The Hub on this Mac
+    # (loopback) is owner_local; the privacy arms below declare the owner's brief.
+    req = urllib.request.Request(url + path, headers={"Authorization": "Bearer " + TOKEN,
+                                                      "X-Ostler-Destination": dest})
     try:
         with OPENER.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read())
@@ -220,13 +224,13 @@ def test_meeting_upcoming_says_degraded_when_no_calendar_answers(server_without_
 
 
 def test_commitments_carry_a_per_row_privacy_level(server):
-    code, body = get(server, "/api/v1/commitments")
+    code, body = get(server, "/api/v1/commitments", dest="owner_own_brief")
     assert code == 200, body
     levels = {c["action"]: c.get("privacy_level") for c in body["commitments"]}
-    # A tagged-but-unparseable level resolves to L3 (fail closed) and the
-    # reader now DROPS L3 rows (v1.0.121 second batch), so "garbage" is
-    # withheld rather than served with an L3 label.
-    assert levels == {"tagged L1": "L1", "untagged": "L2"}, levels
+    # A tagged-but-unparseable level resolves to L3 (fail closed) and an
+    # untagged row is canonical L3 (CM041 6c5f709): on the owner's brief both
+    # are withheld, so only the tagged L1 row is served, with its level.
+    assert levels == {"tagged L1": "L1"}, levels
 
 
 def test_derived_preferences_route_serves_the_graph(server):
@@ -249,8 +253,8 @@ def test_derived_preferences_route_degrades_on_an_empty_graph(server):
     assert body.get("cannot_check"), body
 
 
-def _derived(server, query=""):
-    return get(server, "/api/v1/preferences/derived" + query)
+def _derived(server, query="", dest="owner_local"):
+    return get(server, "/api/v1/preferences/derived" + query, dest=dest)
 
 
 def test_derived_default_falls_back_to_all_on_a_pre_tier_graph(server):
@@ -295,7 +299,7 @@ def test_derived_top_n_is_round_robin_by_category(server):
 def test_derived_never_serves_an_l3_or_unparseable_node(server):
     STATE["derived"] = "levels"
     try:
-        code, body = _derived(server, "?tier=all")
+        code, body = _derived(server, "?tier=all", dest="owner_own_brief")
     finally:
         STATE["derived"] = "one"
     assert code == 200 and body["degraded"] is False, body

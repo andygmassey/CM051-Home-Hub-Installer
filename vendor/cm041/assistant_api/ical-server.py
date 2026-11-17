@@ -5044,7 +5044,12 @@ def _assert_resolve_and_write(subject, fact_text, relationship, asserted_via,
     _t0 = _time.monotonic()
     search_timed_out = False
     try:
-        search = people_search(subject, limit=5, timeout=budget)
+        # On-box identity resolution: the matches never leave the box, and
+        # every person must be visible here (untagged is canonical L3), or an
+        # assert about a known person mints a duplicate. CM051 divergence from
+        # CM041 6c5f709, which passes no destination (unknown, strictest row).
+        search = people_search(subject, limit=5, timeout=budget,
+                               destination="owner_local")
     except Exception as exc:
         if not _is_timeout(exc):
             return {

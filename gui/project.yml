@@ -1074,19 +1074,32 @@ targets:
               echo "       Re-sync from the CM041 PWG People Graph repo." >&2
               exit 1
           fi
+          # CM041 #296: pwg_privacy.py imports privacy_scale.py, which reads
+          # privacy_scale_canonical.tsv beside it; ical-server.py and
+          # derived_preferences.py import pwg_privacy_readers.py. All three
+          # land beside pwg_privacy.py or the services fail at import.
+          for f in pwg_privacy_readers.py privacy_scale.py privacy_scale_canonical.tsv; do
+              if [ ! -f "${VENDOR_ROOT}/${f}" ]; then
+                  echo "error: vendor/cm041/${f} missing (pwg_privacy.py / ical-server.py import it)." >&2
+                  exit 1
+              fi
+          done
           if [ ! -d "${VENDOR_ROOT}/ostler_hygiene" ]; then
               echo "error: vendor/cm041/ostler_hygiene/ missing." >&2
               echo "       Re-sync from the CM041 PWG People Graph repo." >&2
               exit 1
           fi
-          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
+          rm -rf "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py" "${DEST}/pwg_privacy_readers.py" "${DEST}/privacy_scale.py" "${DEST}/privacy_scale_canonical.tsv"
           cp -R "${VENDOR_ROOT}/contact_syncer"    "${DEST}/contact_syncer"
           cp -R "${VENDOR_ROOT}/meeting_syncer"    "${DEST}/meeting_syncer"
           cp -R "${VENDOR_ROOT}/identity_resolver" "${DEST}/identity_resolver"
           cp -R "${VENDOR_ROOT}/assistant_api"     "${DEST}/assistant_api"
           cp -R "${VENDOR_ROOT}/ostler_hygiene"    "${DEST}/ostler_hygiene"
           cp    "${VENDOR_ROOT}/pwg_privacy.py"    "${DEST}/pwg_privacy.py"
-          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py"
+          cp    "${VENDOR_ROOT}/pwg_privacy_readers.py"    "${DEST}/pwg_privacy_readers.py"
+          cp    "${VENDOR_ROOT}/privacy_scale.py"    "${DEST}/privacy_scale.py"
+          cp    "${VENDOR_ROOT}/privacy_scale_canonical.tsv"    "${DEST}/privacy_scale_canonical.tsv"
+          /usr/bin/xattr -cr "${DEST}/contact_syncer" "${DEST}/meeting_syncer" "${DEST}/identity_resolver" "${DEST}/assistant_api" "${DEST}/ostler_hygiene" "${DEST}/pwg_privacy.py" "${DEST}/pwg_privacy_readers.py" "${DEST}/privacy_scale.py" "${DEST}/privacy_scale_canonical.tsv"
           # ical-server.py is executable on the operator instance via
           # `python ical-server.py`, not chmod +x, so we don't toggle
           # the mode here. requirements.txt + .env.example land 644.

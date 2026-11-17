@@ -164,7 +164,11 @@ def server(oxi_url: str, status: dict | None = None):
 
 def get_derived(url: str, opener) -> dict:
     req = urllib.request.Request(url + "/api/v1/preferences/derived",
-                                 headers={"Authorization": "Bearer " + TOKEN})
+                                 # The Hub on this Mac (loopback) declares owner_local
+                                 # (CM041 6c5f709: an undeclared caller is "unknown",
+                                 # the strictest row, and is served no levelled node).
+                                 headers={"Authorization": "Bearer " + TOKEN,
+                                          "X-Ostler-Destination": "owner_local"})
     with opener.open(req, timeout=20) as r:
         return json.loads(r.read())
 

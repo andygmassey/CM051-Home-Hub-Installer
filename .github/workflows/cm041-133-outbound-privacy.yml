@@ -12,6 +12,10 @@ on:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/pwg_privacy.py'
+      - 'vendor/cm041/pwg_privacy_readers.py'
+      - 'vendor/cm041/privacy_scale.py'
+      - 'vendor/cm041/privacy_scale_canonical.tsv'
       - 'vendor/cm041/assistant_api/tests/test_133_outbound_levels.py'
       - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
       - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'
@@ -25,6 +29,10 @@ on:
     paths:
       - 'vendor/cm041/assistant_api/ical-server.py'
       - 'vendor/cm041/assistant_api/derived_preferences.py'
+      - 'vendor/cm041/pwg_privacy.py'
+      - 'vendor/cm041/pwg_privacy_readers.py'
+      - 'vendor/cm041/privacy_scale.py'
+      - 'vendor/cm041/privacy_scale_canonical.tsv'
       - 'vendor/cm041/assistant_api/tests/test_133_outbound_levels.py'
       - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
       - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'

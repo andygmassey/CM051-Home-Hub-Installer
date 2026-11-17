@@ -68,6 +68,9 @@ except ImportError as exc:
 
 sys.path.insert(0, str(CM019 / "services" / "common"))
 sys.path.insert(0, str(SRC))
+# derived_preferences imports pwg_privacy (and through it privacy_scale and
+# pwg_privacy_readers) from the vendored CM041 root, as the installed layout does.
+sys.path.append(str(AAPI.parent))
 import derive_runner  # noqa: E402
 from derive.model import DERIVED_GRAPH, ENRICH_NS, RDFS_NS  # noqa: E402
 from derive.shacl import PyShaclValidator  # noqa: E402
@@ -230,7 +233,12 @@ def serve_over_http(raw):
 
 def get(url, token=None):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
+    # The Hub on this Mac (loopback) declares owner_local: an undeclared caller
+    # is "unknown" (CM041 6c5f709, the strictest row) and is served no derived node.
+    hdrs = {"X-Ostler-Destination": "owner_local"}
+    if token:
+        hdrs["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=hdrs)
     try:
         with opener.open(req, timeout=10) as r:
             return r.status, r.read()
@@ -278,11 +286,15 @@ def main():
     raw, rc = produce(5)
     check(rc == 0, f"producer wrote (rc={rc})")
     resp = dp.build_derived_preferences_response(
-        dp.DerivedGraphReader(lambda q: flat(raw, q)), "synthetic_owner", min_confidence=0.0)
+        dp.DerivedGraphReader(lambda q: flat(raw, q), destination="owner_local"), "synthetic_owner", min_confidence=0.0)
     check(resp["degraded"] is False, f"served healthy (degraded={resp['degraded']}, {resp.get('cannot_check')})")
     labels = [i["label"] for i in resp["items"]]
     check(GENRE in labels, f"derived label served: {labels}")
-    check(all(set(i) == keys for i in resp["items"]), f"every item has exactly the contract keys {sorted(keys)}")
+    # privacy_level / privacy_label are the per-destination privacy keys
+    # (CM041 6c5f709 served_label): optional, never a substitute for a contract key.
+    _priv = {"privacy_level", "privacy_label"}
+    check(all(keys <= set(i) and not (set(i) - keys - _priv) for i in resp["items"]),
+          f"every item has exactly the contract keys {sorted(keys)} (plus optional privacy keys)")
     check(set(resp) == set(contract), f"top-level keys match the contract: {sorted(resp)}")
     because = next((i["because"] for i in resp["items"] if i["label"] == GENRE), [])
     check(because and all(b.startswith("Synthetic Film") for b in because),
@@ -292,7 +304,7 @@ def main():
     raw2, rc2 = produce(1)
     check(rc2 == 0, "producer ran (proven empty)")
     resp2 = dp.build_derived_preferences_response(
-        dp.DerivedGraphReader(lambda q: flat(raw2, q)), "synthetic_owner", min_confidence=0.0)
+        dp.DerivedGraphReader(lambda q: flat(raw2, q), destination="owner_local"), "synthetic_owner", min_confidence=0.0)
     check(resp2["degraded"] is True and resp2["items"] == [] and resp2.get("cannot_check"),
           f"degraded with a reason: {resp2.get('cannot_check')!r}")
 

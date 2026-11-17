@@ -211,7 +211,10 @@ _CHILD = textwrap.dedent(
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, server.rsplit("/", 1)[0])
     spec.loader.exec_module(mod)
-    payload, status = mod.api_reply_debt(lookback_days=90, limit=50)
+    # The Hub on this Mac (owner_local). CM041 6c5f709: an undeclared caller is
+    # "unknown" (the strictest row) and is served no untagged debt.
+    payload, status = mod.api_reply_debt(lookback_days=90, limit=50,
+                                         destination="owner_local")
     print(json.dumps({"payload": payload, "status": status, "opened": seen}))
     """
 )
