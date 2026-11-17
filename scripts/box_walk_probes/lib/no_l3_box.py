@@ -339,6 +339,11 @@ def with_l3_control(cls, l3_count):
 
 # --- timeline ---------------------------------------------------------------
 
+# The exact set of SPARQL updates that remove what the seed wrote (DELETE DATA of each
+# quad the Turtle and each topic and decision UPDATE carried). Filled by _seed_graph.
+EXACT_TEARDOWN = []
+
+
 def _seed_graph(owner, stamp, markers, subjects_out):
     payload = {"owner": owner, "stamp": stamp, "person_name": FIXTURE_NAME, "post": True,
                "convs": [{"id": "ostler-walk-" + markers[lvl], "level": lvl, "marker": markers[lvl],
@@ -352,10 +357,17 @@ def _seed_graph(owner, stamp, markers, subjects_out):
                        cwd=CM048_DIR, capture_output=True, text=True, timeout=180)
     if p.stderr.strip():
         _note("graph seed stderr: " + p.stderr.strip()[:400])
+    # The seed prints its exact teardown on EVERY path after the Turtle could have landed,
+    # including a failed topic or decision write. Keep it before judging the rc, so the
+    # teardown can remove what the seed wrote.
+    try:
+        out = json.loads(p.stdout)
+    except ValueError:
+        out = {"subjects": [], "teardown_sparql": []}
+    subjects_out.extend(out.get("subjects", []))
+    EXACT_TEARDOWN.extend(out.get("teardown_sparql", []))
     if p.returncode != 0:
         raise RuntimeError("graph seed rc=%s" % p.returncode)
-    out = json.loads(p.stdout)
-    subjects_out.extend(out["subjects"])
     return out
 
 
@@ -1201,6 +1213,21 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     except Exception as exc:  # noqa: BLE001
         fx["graph_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:150])
         _note("graph teardown FAILED: " + fx["graph_error"])
+    # 2b. the EXACT set the seed wrote (DELETE DATA per quad). This is the authority: the
+    # subject list above misses the conversation, fact, todo and topic-mention rows, and
+    # the stamp misses every row whose id is not stamped. Measured before and after.
+    try:
+        if EXACT_TEARDOWN:
+            fx["exact_before"] = _count_total()
+            for u in EXACT_TEARDOWN:
+                code, body = _sparql("update", u)
+                if code >= 400:
+                    raise RuntimeError("exact teardown HTTP %s: %s" % (code, body[:120]))
+            fx["exact_after"] = _count_total()
+            fx["exact_statements"] = len(EXACT_TEARDOWN)
+    except Exception as exc:  # noqa: BLE001
+        fx["exact_error"] = "%s: %s" % (type(exc).__name__, str(exc)[:150])
+        _note("exact teardown FAILED: " + fx["exact_error"])
     # 3. the legacy pwg-convo conversations: every store the seed's writer touches,
     # each counted before and after (write_all: md, Qdrant, Oxigraph, coach DB,
     # speaker_feedback; plus the step dir under processing)
