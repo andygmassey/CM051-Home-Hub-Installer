@@ -66,7 +66,7 @@ _JUDGE="${_HERE}/lib/no_l3_probe.py"
 _BOXSCRIPT="${_HERE}/lib/no_l3_box.py"
 _PATHS_REPORT="${_HERE}/lib/no_l3_paths.py"
 # Everything the box script imports, staged together (tar, gzip, base64).
-_BOXFILES="no_l3_box.py no_l3_graph_seed.py assistant_chat.py wow_moments.py smart_prefs.py"
+_BOXFILES="no_l3_box.py no_l3_graph_seed.py no_l3_preflight.sh assistant_chat.py wow_moments.py smart_prefs.py"
 # The decision writer (CM041 meeting_syncer/decision_extractor.py, stdlib + httpx) is
 # staged from the vendored tree, not copied into lib/: the box runs the shipped code.
 _DECISION_WRITER="${_HERE}/../../vendor/cm041/meeting_syncer/decision_extractor.py"   # _HERE = scripts/box_walk_probes
@@ -96,7 +96,7 @@ self_test() {
     # FAIL. Run in a subshell so probe_cannot_run's exit stays contained.
     ( box_reachable() { return 0; }
       box_run() { echo "fake box: seed exploded" >&2; return 1; }
-      OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
+      EXPECTED_ICAL_SHA256=$(printf 'a%.0s' $(seq 64)) OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
     local fake_rc=$?
     probe_examined 1 "failing fake box run"
     [ "${fake_rc}" -eq 78 ] || {
@@ -111,13 +111,15 @@ self_test() {
       box_run() {
           printf '%s\n' "$1" >> "${log}"
           case "$1" in
+              *no_l3_preflight*) printf 'PF_RUNNING=1\nPF_SHA=%s\nPF_START_EPOCH=2000\nPF_START_ISO=2026-11-17T01:00:00Z\nPF_MTIME_EPOCH=1000\nPF_MTIME_ISO=2026-11-16T10:00:00Z\n' "$(printf 'a%.0s' $(seq 64))"; return 0 ;;
+              *OSTLER_OXIGRAPH_URL*) echo AMBIENT=0; return 0 ;;
               *"mkdir -p"*) return 0 ;;
               *nohup*) echo 4242; return 0 ;;
               *"kill -0"*) if grep -q ALIVEONCE "${log}"; then return 255; fi; echo ALIVEONCE >> "${log}"; echo ALIVE; return 0 ;;
               *) return 255 ;;
           esac
       }
-      OSTLER_NO_L3_POLL_S=0 OSTLER_NO_L3_POLL_FAILS=3 OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe 2>&1 )"
+      OSTLER_NO_L3_POLL_S=0 OSTLER_NO_L3_POLL_FAILS=3 EXPECTED_ICAL_SHA256=$(printf 'a%.0s' $(seq 64)) OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe 2>&1 )"
     fake_rc=$?
     probe_examined 1 "mid-run disconnect"
     [ "${fake_rc}" -eq 78 ] || {
@@ -144,7 +146,7 @@ self_test() {
     # An empty capture (box run ok, no output) must also be CANNOT-RUN.
     ( box_reachable() { return 0; }
       box_run() { return 0; }
-      OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
+      EXPECTED_ICAL_SHA256=$(printf 'a%.0s' $(seq 64)) OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
     fake_rc=$?
     [ "${fake_rc}" -eq 78 ] || {
         probe_fail "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
@@ -235,6 +237,92 @@ _no_l3_resolve_seed_url() {
     esac
 }
 
+# PREFLIGHT. Before any seed: the RUNNING ical-server must be the build the walker
+# pinned, and must have started AFTER its file was last written (a process that started
+# earlier loaded an older copy). EXPECTED_ICAL_SHA256 is required (full 64 hex); unset is
+# CANNOT-RUN. The box reports the running service (lib/no_l3_preflight.sh); this function
+# judges it. _no_l3_preflight_decide prints the verdict line (rc 0) or the refusal (rc 1).
+_no_l3_preflight_decide() {  # expected running obs_sha start_epoch start_iso mtime_epoch mtime_iso
+    local expected="$1" running="$2" sha="$3" se="$4" si="$5" me="$6" mi="$7"
+    if [ -z "${expected}" ]; then
+        echo "preflight unset: EXPECTED_ICAL_SHA256 is not set; refusing to run against an unpinned ical-server"; return 1
+    fi
+    if ! [[ "${expected}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "preflight unset: EXPECTED_ICAL_SHA256 is not a full 64-character lowercase sha256"; return 1
+    fi
+    if [ "${running}" != 1 ]; then
+        echo "preflight: the ical-server (com.ostler.ical-server) is not running on the box; nothing was seeded"; return 1
+    fi
+    if [ "${sha}" != "${expected}" ]; then
+        echo "preflight: running ical-server sha256 differs from EXPECTED. running=${sha} expected=${expected} pid_start=${si} file_mtime=${mi}"; return 1
+    fi
+    if [ -z "${se}" ] || [ "${se}" -lt "${me}" ]; then
+        echo "preflight: the ical-server process started BEFORE its file was last written (it loaded an older copy). running=${sha} expected=${expected} pid_start=${si} file_mtime=${mi}"; return 1
+    fi
+    printf 'preflight ical-server running=%s expected=%s pid_start=%s file_mtime=%s OK\n' \
+        "${sha:0:16}" "${expected:0:16}" "${si}" "${mi}"
+    return 0
+}
+
+# Read the PF_ lines the box printed (lib/no_l3_preflight.sh), then judge them.
+_no_l3_preflight() {  # remote
+    local remote="$1" pf running sha se si me mi res
+    [ -n "${EXPECTED_ICAL_SHA256:-}" ] \
+        || probe_cannot_run "preflight unset: EXPECTED_ICAL_SHA256 is required; the walk does not run against an unpinned ical-server"
+    pf="$(box_run "sh ${remote}/no_l3_preflight.sh")" \
+        || probe_cannot_run "preflight: could not read the running ical-server on the box; nothing was seeded"
+    get() { printf '%s\n' "${pf}" | sed -n "s/^PF_$1=//p" | head -1; }
+    running="$(get RUNNING)"; sha="$(get SHA)"; se="$(get START_EPOCH)"; si="$(get START_ISO)"
+    me="$(get MTIME_EPOCH)"; mi="$(get MTIME_ISO)"
+    res="$(_no_l3_preflight_decide "${EXPECTED_ICAL_SHA256}" "${running}" "${sha}" "${se}" "${si}" "${me}" "${mi}")" \
+        || probe_cannot_run "${res}"
+    printf '%s\n' "${res}"
+}
+
+# Cases for the preflight decision (no box). rc 0 only if every case held.
+preflight_test() {
+    local fails=0 E="$(printf 'a%.0s' $(seq 64))" OTHER="$(printf 'b%.0s' $(seq 64))"
+    check() {  # name, want-rc, args...
+        local name="$1" want="$2"; shift 2
+        local out rc
+        out="$(_no_l3_preflight_decide "$@")"; rc=$?
+        if [ "${rc}" -eq "${want}" ]; then printf '  held   %-46s rc=%s\n' "${name}" "${rc}"
+        else printf '  FAILED %-46s wanted rc=%s got rc=%s: %s\n' "${name}" "${want}" "${rc}" "${out}"; fails=$((fails + 1)); fi
+    }
+    check "matching sha, started after mtime -> OK" 0 "${E}" 1 "${E}" 2000 "2026-11-17T01:00:00Z" 1000 "2026-11-16T10:00:00Z"
+    check "mismatching sha -> refused" 1 "${E}" 1 "${OTHER}" 2000 "2026-11-17T01:00:00Z" 1000 "2026-11-16T10:00:00Z"
+    check "process started before the file mtime -> refused" 1 "${E}" 1 "${E}" 900 "2026-11-16T09:00:00Z" 1000 "2026-11-16T10:00:00Z"
+    check "unset expectation -> refused" 1 "" 1 "${E}" 2000 "x" 1000 "y"
+    check "malformed expectation (not 64 hex) -> refused" 1 "abc" 1 "abc" 2000 "x" 1000 "y"
+    check "service not running -> refused" 1 "${E}" 0 "" "" "" 1000 "y"
+    # The box-side collector, run here against a REAL live process and a stubbed launchctl
+    # (the service's pid and ProgramArguments are the stub's; sha, start time and mtime are
+    # read from the real process and file).
+    local d spid out want_sha
+    d="$(mktemp -d)"; printf 'print("stub")\n' > "${d}/ical-server.py"
+    sleep 60 & spid=$!
+    cat > "${d}/launchctl" <<LC
+#!/bin/sh
+printf 'gui/501/com.ostler.ical-server = {\n\tpid = %s\n\targuments = {\n\t\t/usr/bin/python3\n\t\t%s/ical-server.py\n\t}\n}\n' "${spid}" "${d}"
+LC
+    chmod +x "${d}/launchctl"
+    out="$(PATH="${d}:${PATH}" sh "${_HERE}/lib/no_l3_preflight.sh")"
+    kill "${spid}" 2>/dev/null; wait "${spid}" 2>/dev/null
+    want_sha="$(shasum -a 256 "${d}/ical-server.py" | awk '{print $1}')"
+    if printf '%s\n' "${out}" | grep -qx "PF_RUNNING=1" \
+        && printf '%s\n' "${out}" | grep -qx "PF_SHA=${want_sha}" \
+        && printf '%s\n' "${out}" | grep -qE '^PF_START_EPOCH=[0-9]+$' \
+        && printf '%s\n' "${out}" | grep -qE '^PF_MTIME_EPOCH=[0-9]+$'; then
+        echo "  held   collector reads a live process: running, sha, start and mtime"
+    else
+        echo "  FAILED collector output: ${out}"; fails=$((fails + 1))
+    fi
+    rm -rf "${d}"
+
+    if [ "${fails}" -eq 0 ]; then echo "preflight: every case held"; exit 0; fi
+    echo "preflight: ${fails} case(s) FAILED"; exit 1
+}
+
 # The env prefix the box launch carries (empty when nothing is forwarded). No exit here.
 _no_l3_seed_prefix() {
     if [ -n "${NO_L3_SEED_FORWARD:-}" ]; then
@@ -260,6 +348,7 @@ run_probe() {
     tarball="$(tar czf - -C "${_HERE}/lib" ${_BOXFILES} -C "$(dirname "${_DECISION_WRITER}")" decision_extractor.py | base64 | tr -d '\n')"
     _no_l3_box_capture "mkdir -p ${remote} && printf %s '${tarball}' | base64 -d | tar xzf - -C ${remote}" "" \
         || probe_cannot_run "could not stage the seed and reader on the box"
+    _no_l3_preflight "${remote}"
     cap="$(mktemp)"
     trap 'rm -f "${cap}"' EXIT
     # DETACHED AND AWAKE. The run takes up to an hour and waits for an email tick
@@ -383,5 +472,8 @@ if [ "${1:-}" = "--negative-control" ]; then
 fi
 if [ "${1:-}" = "--seed-url-test" ]; then
     seed_url_test
+fi
+if [ "${1:-}" = "--preflight-test" ]; then
+    preflight_test
 fi
 probe_main "$@"
