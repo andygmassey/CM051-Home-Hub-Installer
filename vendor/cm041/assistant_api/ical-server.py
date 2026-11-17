@@ -2296,7 +2296,7 @@ def _filter_qdrant_facts(facts, owner_level=None):
     inherit a coarse person-level clearance from, so each fact must clear
     itself. Non-list shapes are dropped whole (un-auditable).
     """
-    return pwg_privacy.filter_l3_facts(facts, owner_level)
+    return pwg_privacy.filter_outbound_facts(facts, owner_level)
 
 
 # 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for

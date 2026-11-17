@@ -159,27 +159,30 @@ def test_facts_property_holds_on_the_canonical_spelling_only():
 
 
 def test_mutant_fact_gate_lets_l3_through_is_caught():
-    """Mutant: the outbound gate serves every parseable level. Property 1 must fail."""
+    """Mutant: the outbound gate alone serves every parseable level, with the
+    filter layer bypassed. Property 1 must fail (it serves L0 and L3)."""
     mutant = lambda fact: any(  # noqa: E731
         pwg_privacy.parse_privacy_level(fact.get(k)) is not None
         for k in pwg_privacy.FACT_PRIVACY_KEYS
     )
-    msgs = _expect_red(_fact_property(mutant))
+    with patch.object(server, "_filter_qdrant_facts",
+                      lambda facts, owner_level=None: facts if isinstance(facts, list) else []):
+        msgs = _expect_red(_fact_property(mutant))
     assert any("L0/L3" in m for m in msgs)
 
 
 def test_control_outbound_gate_masks_disabled_filter():
-    """Control, not a mutant: with ONLY is_l3 disabled, the outbound gate still
+    """Control, not a mutant: with ONLY the outbound filter disabled, the outbound gate still
     withholds every L3/untagged fact on single-spelling data, so the property
     holds there. That is defence in depth, and it is why the mutant below must
     disable BOTH layers."""
-    with patch.object(pwg_privacy, "is_l3", lambda record, owner_level=None: False):
+    with patch.object(pwg_privacy, "outbound_ok", lambda record, owner_level=None, absent_serves=False: True):
         _fact_property(None, facts=SINGLE_SPELLING_FACT)()
 
 
 def test_mutant_both_fact_layers_disabled_is_caught():
     """Mutant: filter AND outbound gate both admit everything. Property 1 must fail."""
-    with patch.object(pwg_privacy, "is_l3", lambda record, owner_level=None: False):
+    with patch.object(pwg_privacy, "outbound_ok", lambda record, owner_level=None, absent_serves=False: True):
         _expect_red(_fact_property(lambda fact: True, facts=SINGLE_SPELLING_FACT))
 
 
@@ -208,7 +211,7 @@ PERSON_TAG = st.dictionaries(st.sampled_from(SPELLINGS), VALUES, max_size=2)
 
 
 def _person_payload(i, tags):
-    return {"display_name": f"placeholder display {i}", "person_uri": f"urn:synthetic:person:{i}",
+    return {"display_name": f"Pat Example {i}", "person_uri": f"urn:synthetic:person:{i}",
             "facts": [], **tags}
 
 

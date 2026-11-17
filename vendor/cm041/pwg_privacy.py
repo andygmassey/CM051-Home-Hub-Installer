@@ -140,7 +140,10 @@ def _record_level(record):
 
 
 def is_l3(record, owner_level=None):
-    """Fail-closed L3 test. ``True`` => HIDE the record.
+    """Owner-local fail-closed test. ``True`` => HIDE the record.
+
+    OWNER-LOCAL ONLY. It does not hide L0, so it must never gate an outbound
+    route: use :func:`outbound_ok` there.
 
     Hidden when the strictest class across every spelling (and the owner,
     if given) is L3, UNREADABLE, or ABSENT (no tag at all). L0, L1 and L2 are
@@ -185,16 +188,36 @@ def sparql_effective_level(subject_var="s", out_var="effLevel"):
          "name": name, "rank": rank}
 
 
+def outbound_ok(record, owner_level=None, absent_serves=False):
+    """True when a record may leave the box: the OUTBOUND rule.
+
+    Serves L1 and L2 only. Withholds L0, L3 and UNREADABLE. An untagged
+    record (ABSENT) is decided by ``absent_serves``: facts pass False (an
+    untagged fact is refused), person and debt gates pass True (the legacy
+    untagged rule). Use this on every route not proven owner-local.
+    """
+    level = effective_level(record, owner_level)
+    if level is ABSENT:
+        return bool(absent_serves)
+    return level in ("L1", "L2")
+
+
+def filter_outbound_facts(facts, owner_level=None):
+    """Visible subset of a facts *list* under :func:`outbound_ok`, fail-closed.
+
+    ``facts`` MUST be a list; any other shape is dropped whole -> ``[]``.
+    """
+    if not isinstance(facts, list):
+        return []
+    return [f for f in facts if outbound_ok(f, owner_level)]
+
+
 def filter_l3_facts(facts, owner_level=None):
-    """Return the visible subset of a facts *list*, fail-closed.
+    """Owner-local L3 filter for a facts *list*. NOT for outbound routes.
 
-    ``facts`` MUST be a list to be auditable fact-by-fact; any other
-    shape (dict, bare string, None) cannot be privacy-vetted per fact and
-    is dropped whole -> ``[]``.
-
-    Each element is tested with :func:`is_l3`. A bare-string element is a
-    record with no parseable level: hidden unless ``owner_level`` clears
-    it. This is the fail-closed inverse of the old "untagged kept" filter.
+    Hides L3, UNREADABLE and ABSENT; serves L0, L1 and L2. Outbound readers
+    must use :func:`filter_outbound_facts`, which also withholds L0.
+    ``facts`` MUST be a list; any other shape is dropped whole -> ``[]``.
     """
     if not isinstance(facts, list):
         return []
@@ -224,8 +247,10 @@ def provenance_verdict(own, sources=()):
       * "l3"             -- own or any source is L3: withhold, counted.
       * "unknown"        -- own or any source is present but unreadable,
                             or a link does not resolve: withhold, counted.
-      * "ok"             -- no L3, nothing unreadable, and at least one
-                            readable L0/L1/L2: serve.
+      * "l0"             -- own or any source is L0 (owner-private): withhold,
+                            counted like "l3". Outbound never serves L0.
+      * "ok"             -- no L0/L3, nothing unreadable, and at least one
+                            readable L1/L2: serve.
       * "legacy_untagged"-- no readable level anywhere: serve, and count it
                             so it is visible. Not a withhold.
     """
@@ -239,6 +264,8 @@ def provenance_verdict(own, sources=()):
         return "l3"
     if "UNREADABLE" in classes:
         return "unknown"
-    if own_c in ("L0", "L1", "L2") or any(c in ("L0", "L1", "L2") for c in classes):
+    if own_c == "L0" or "L0" in classes:
+        return "l0"
+    if own_c in ("L1", "L2") or any(c in ("L1", "L2") for c in classes):
         return "ok"
     return "legacy_untagged"

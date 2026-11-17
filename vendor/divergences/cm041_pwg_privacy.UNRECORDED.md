@@ -7,3 +7,5 @@ Until this graft the file was byte-identical to its pinned source. The graft (CM
 The pin should move to the CM041 commit once #295 merges. Until then this file is the one the patch cannot describe.
 
 Revision (CM041 1e1523f, Archie ruling on #295): `ABSENT` is now a typed sentinel compared by identity, not the string "ABSENT". `sparql_effective_level` emits no absent marker; a subject with only blank tags has no row, and `effective_level(None)` gives `ABSENT`. The module docstring now states the outbound rule (every route not proven owner-local withholds L0, L3 and UNREADABLE).
+
+Revision (CM041 be69c80, Archie blockers on #295): adds `outbound_ok` (L1, L2 served; L0, L3, UNREADABLE withheld; ABSENT per `absent_serves`) and `filter_outbound_facts`. `provenance_verdict` returns `"l0"` for an own or linked L0. `is_l3` is owner-local only.
