@@ -36,7 +36,7 @@ Tree `cm052_ai_conversations` keeps its pin at `1ec05783` (no resync). The gate 
 grafted into two vendored paths, byte-identical to the merged upstream file:
 
 - source: CM052 `src/cm052/subscription_gate.py` at merge `fd7bf5c02f58` (CM052 #21)
-- sha256 of the upstream file: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161`
+- sha256 of the upstream file: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
 - sha256 of `vendor/cm052_ai_conversations/src/cm052/subscription_gate.py`: same value
 - sha256 of `vendor/cm041/assistant_api/subscription_gate.py` (vendor-only row, VENDOR_ONLY.tsv): same value
 - digest pin in `tests/test_g7_gate_copies_are_one.py` set to that value
@@ -44,3 +44,11 @@ grafted into two vendored paths, byte-identical to the merged upstream file:
 The tree's other files are NOT resynced: `catchup.py` exists here and not upstream,
 and `cli.py`, `schemas.py`, `wire.py`, `pyproject.toml` differ from upstream at
 `fd7bf5c02f58`. The full resync is a 134 backlog item, with `catchup.py` upstreamed first.
+
+## 2026-11-17 (absent-tier fix, the 133 Box finding): gate re-grafted, digest re-pinned
+
+The verifier PASS path reports tier_state `absent` for every production licence (CM050 mintLicense emits no `tier`). The gate counted only known and unknown as signed, so no founding or ff buyer got an included window. Fixed at the source: CM052 PR #26, head `31153f67c`, merged as the same bytes. Both vendored copies are byte-identical to it.
+
+- sha256 now: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
+- previous: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161` (CM052 `fd7bf5c02`)
+- digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
