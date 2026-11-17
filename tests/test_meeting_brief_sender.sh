@@ -207,18 +207,18 @@ i = next(k for k, l in enumerate(s) if 'ostler-meeting-brief-sender" <<' in l an
 j = next(k for k in range(i + 1, len(s)) if s[k] == "BRIEFEOF")
 open(sys.argv[2], "w", encoding="utf-8").write("\n".join(s[i + 1:j]) + "\n")
 PYX
-mkdir -p "$DST_W/home/.ostler/.venv/bin" "$DST_W/home/.ostler/logs" "$DST_W/home/.ostler/state" "$DST_W/bin"
+mkdir -p "$DST_W/fakehomedir/.ostler/.venv/bin" "$DST_W/fakehomedir/.ostler/logs" "$DST_W/fakehomedir/.ostler/state" "$DST_W/bin"
 PY311="$(command -v python3.11 || command -v python3)"
-ln -s "$PY311" "$DST_W/home/.ostler/.venv/bin/python3"
-printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "synthetic-recipient"\n' > "$DST_W/home/.ostler/brief.toml"
+ln -s "$PY311" "$DST_W/fakehomedir/.ostler/.venv/bin/python3"
+printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "synthetic-recipient"\n' > "$DST_W/fakehomedir/.ostler/brief.toml"
 cat > "$DST_W/bin/curl" <<'CURLX'
 #!/bin/bash
 printf '%s\n' "$@" >> "$CURL_ARGV"
 exit 0
 CURLX
 chmod +x "$DST_W/bin/curl"
-CURL_ARGV="$DST_W/argv.txt" HOME="$DST_W/home" PATH="$DST_W/bin:$PATH" \
-    PWG_SERVICE_TOKEN="synthetic-token" OSTLER_BRIEF_CONFIG="$DST_W/home/.ostler/brief.toml" \
+CURL_ARGV="$DST_W/argv.txt" HOME="$DST_W/fakehomedir" PATH="$DST_W/bin:$PATH" \
+    PWG_SERVICE_TOKEN="synthetic-token" OSTLER_BRIEF_CONFIG="$DST_W/fakehomedir/.ostler/brief.toml" \
     OSTLER_BRIEF_QUIET_START=24 OSTLER_BRIEF_QUIET_END=0 \
     /bin/bash "$DST_W/sender.sh" >/dev/null 2>&1 || true
 if ! grep -q 'meeting/upcoming' "$DST_W/argv.txt" 2>/dev/null; then
