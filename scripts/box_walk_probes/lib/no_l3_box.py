@@ -342,6 +342,8 @@ def with_l3_control(cls, l3_count):
 # The exact set of SPARQL updates that remove what the seed wrote (DELETE DATA of each
 # quad the Turtle and each topic and decision UPDATE carried). Filled by _seed_graph.
 EXACT_TEARDOWN = []
+EXACT_ERROR = []
+EXACT_STATS = {}
 
 
 def _seed_graph(owner, stamp, markers, subjects_out):
@@ -363,9 +365,13 @@ def _seed_graph(owner, stamp, markers, subjects_out):
     try:
         out = json.loads(p.stdout)
     except ValueError:
-        out = {"subjects": [], "teardown_sparql": []}
+        # No exact teardown can be read back, so the seed's residue cannot be proven gone.
+        # Recorded, and the run is CANNOT-RUN (raised below), never a clean teardown.
+        EXACT_ERROR.append("seed stdout unparseable (rc=%s, %d bytes)" % (p.returncode, len(p.stdout)))
+        raise RuntimeError("graph seed printed no teardown (rc=%s): exact teardown unknown" % p.returncode)
     subjects_out.extend(out.get("subjects", []))
     EXACT_TEARDOWN.extend(out.get("teardown_sparql", []))
+    EXACT_STATS.update({"excluded": out.get("excluded_quads"), "to_delete": out.get("to_delete_quads")})
     if p.returncode != 0:
         raise RuntimeError("graph seed rc=%s" % p.returncode)
     return out
@@ -1216,6 +1222,10 @@ def _teardown_all(cap, owner, stamp, legacy_ids, subjects, rd, backup_dir):
     # 2b. the EXACT set the seed wrote (DELETE DATA per quad). This is the authority: the
     # subject list above misses the conversation, fact, todo and topic-mention rows, and
     # the stamp misses every row whose id is not stamped. Measured before and after.
+    if EXACT_ERROR:
+        fx["exact_error"] = "; ".join(EXACT_ERROR)
+        _note("exact teardown UNKNOWN: " + fx["exact_error"])
+    fx["exact_stats"] = dict(EXACT_STATS)   # counts only: quads excluded as pre-existing
     try:
         if EXACT_TEARDOWN:
             fx["exact_before"] = _count_total()

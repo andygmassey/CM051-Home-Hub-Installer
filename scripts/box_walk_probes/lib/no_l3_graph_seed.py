@@ -48,6 +48,7 @@ import json
 import os
 import re
 import sys
+import uuid
 
 PWG_NS = "https://schema.ostler.ai/ontology#"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -134,34 +135,96 @@ def build(payload):
     return ingest, settings, ttl, subjects, writes, slugs
 
 
-def sparql_delete_for_turtle(ttl, graph):
-    """The seed's Turtle as a DELETE DATA against its named graph. Exactly the quads
-    the seed loaded: DELETE DATA removes only those triples, and is a no-op for any
-    the store no longer holds. Blank nodes are refused by SPARQL, so a bnode in the
-    seed would fail loudly here rather than leave a residue."""
+def _ttl_parts(ttl):
+    """(PREFIX lines, body) of the seed's Turtle, as SPARQL."""
     prefixes, body = [], []
     for line in ttl.split("\n"):
         if line.startswith("@prefix "):
             prefixes.append("PREFIX " + line[len("@prefix "):].strip().rstrip(".").strip())
         elif line.strip():
             body.append(line)
-    return "\n".join(prefixes) + "\nDELETE DATA { GRAPH <%s> {\n%s\n} }" % (graph, "\n".join(body))
+    return prefixes, "\n".join(body)
 
 
-def sparql_delete_for_insert(sparql):
-    """The INSERT DATA of a topic or decision UPDATE as a DELETE DATA on the default
-    graph (where the topic writer and the decision writer put their rows). The DELETE
-    WHERE replace-ops in a topic UPDATE are dropped: they remove OLD rows, and the
-    teardown must only remove what the seed inserted."""
-    i = sparql.index("INSERT DATA")
+def _insert_parts(sparql):
+    """(PREFIX lines, INSERT DATA body) of a topic or decision UPDATE. The topic UPDATE's
+    DELETE WHERE operations are dropped on purpose: they are replace-ops on rows the
+    seed owns (see DELETE_WHERE_SCOPE), and the staging records only what is INSERTed."""
+    i = sparql.index("INSERT DATA {")
+    body = sparql[i + len("INSERT DATA {"):].rstrip()
+    if not body.endswith("}"):
+        raise ValueError("INSERT DATA block not closed")
     prefixes = [l for l in sparql[:i].split("\n") if l.startswith("PREFIX ")]
-    return "\n".join(prefixes) + "\nDELETE DATA" + sparql[i + len("INSERT DATA"):]
+    return prefixes, body[:-1]
+
+
+def stage_unit(update, count, target, unit_id, prefixes, body, exclude_existing=True):
+    """Record the quads one write is about to add, minus those ALREADY in the target
+    graph, so the teardown can never remove a row that was on the box before the seed.
+
+    The quads are staged in a scratch graph by the store itself (no client-side Turtle
+    parsing), the set difference is taken in SPARQL, and the result is frozen in a
+    teardown graph until the teardown runs. target: a named graph IRI, or None for the
+    default graph. Returns (teardown statements, quads the seed wrote, quads to delete).
+    Mutant: exclude_existing=False removes pre-existing rows too."""
+    stage = "urn:ostler:no-l3-seed/stage/%s" % unit_id
+    frozen = "urn:ostler:no-l3-seed/teardown/%s" % unit_id
+    pre = "\n".join(prefixes) + "\n"
+    try:
+        update(pre + "INSERT DATA { GRAPH <%s> {\n%s\n} }" % (stage, body))
+        n_seed = count("SELECT (COUNT(*) AS ?n) WHERE { GRAPH <%s> { ?s ?p ?o } }" % stage)
+        if not exclude_existing:
+            keep = ""
+        elif target is None:
+            keep = "FILTER NOT EXISTS { ?s ?p ?o }"
+        else:
+            keep = "FILTER NOT EXISTS { GRAPH <%s> { ?s ?p ?o } }" % target
+        update("INSERT { GRAPH <%s> { ?s ?p ?o } } WHERE { GRAPH <%s> { ?s ?p ?o } %s }"
+               % (frozen, stage, keep))
+        n_del = count("SELECT (COUNT(*) AS ?n) WHERE { GRAPH <%s> { ?s ?p ?o } }" % frozen)
+    finally:
+        update("DROP SILENT GRAPH <%s>" % stage)
+    if target is None:
+        remove = "DELETE { ?s ?p ?o } WHERE { GRAPH <%s> { ?s ?p ?o } }" % frozen
+    else:
+        remove = "DELETE { GRAPH <%s> { ?s ?p ?o } } WHERE { GRAPH <%s> { ?s ?p ?o } }" % (target, frozen)
+    return [remove, "DROP SILENT GRAPH <%s>" % frozen], n_seed, n_del
+
+
+def run_units(update, count, post_ttl, write_one, ttl, graph, writes, teardown, exclude_existing=True):
+    """Stage every unit, then perform its write. Appends the teardown statements to
+    `teardown` as it goes (the caller owns the list, so a failure keeps what was staged).
+    Returns (quads excluded as pre-existing, quads the teardown will remove)."""
+    excluded = to_delete = 0
+    prefixes, body = _ttl_parts(ttl)
+    stmts, n_seed, n_del = stage_unit(update, count, graph, uuid.uuid4().hex, prefixes, body,
+                                      exclude_existing)
+    teardown.extend(stmts)
+    excluded += n_seed - n_del
+    to_delete += n_del
+    post_ttl()
+    for idx, (label, sparql) in enumerate(writes):
+        prefixes, body = _insert_parts(sparql)
+        stmts, n_seed, n_del = stage_unit(update, count, None, uuid.uuid4().hex, prefixes, body,
+                                          exclude_existing)
+        teardown.extend(stmts)
+        excluded += n_seed - n_del
+        to_delete += n_del
+        write_one(idx, label, sparql)
+    return excluded, to_delete
+
+
+DELETE_WHERE_SCOPE = (
+    "topic UPDATE, per topic: DELETE WHERE { <topic_uri> rdfs:label ?l } and "
+    "DELETE WHERE { <mention_uri> ?p ?o }. topic_uri = pwg:topic_<slug>, slug from the "
+    "run-unique marker (ZEPHYRT<stamp> / QUARTZT<stamp>); mention_uri = "
+    "topicmention_<uuid5(conversation_id, slug)>, conversation_id = ostler-walk-<marker>.")
 
 
 def plan_writes(settings, writes):
-    """The SPARQL each write executes, computed without I/O. The probe posts through the
-    shipped writers (write_topics for L2, write_decision for decisions); those build the
-    SAME text from the same arguments (NOW_ISO fixed), so this plan is what was written."""
+    """The SPARQL each write executes, computed without I/O, aligned with `writes`. The
+    probe posts through the shipped writers (write_topics for L2, write_decision for
+    decisions); those build the SAME text from the same arguments (NOW_ISO fixed)."""
     from src import topic_writer
     de = _decision_extractor()
     plan = []
@@ -174,70 +237,75 @@ def plan_writes(settings, writes):
     return plan
 
 
-def exact_teardown(ttl, graph, plan):
-    """DELETE DATA for every quad the seed wrote: the Turtle and each planned INSERT."""
-    return [sparql_delete_for_turtle(ttl, graph)] + [sparql_delete_for_insert(sp) for _lvl, sp in plan if sp]
-
-
-def _post_writes(settings, writes, applied):
-    """Post the topic and decision rows through the SHIPPED writers. L2 topics go
-    through write_topics; the L3 topic is posted from the shipped builder's output,
-    bypassing only write_topics' L3 refusal (see the header). Every write is appended
-    to `applied` before it is sent, so a mid-run failure still leaves a teardown list."""
-    import httpx
-    from src import topic_writer
-    de = _decision_extractor()
-    out = {}
-    for w in writes:
-        if w["kind"] == "topic" and w["level"] == "L2":
-            sparql = topic_writer.build_topic_update(w["conv"], w["topics"], settings, metadata=w["meta"])
-            applied.append(("topic_L2", sparql))
-            n = topic_writer.write_topics(conversation_id=w["conv"], topics=w["topics"],
-                                          settings=settings, privacy_level="L2", metadata=w["meta"])
-            out["topic_L2"] = {"written": n, "writer": "topic_writer.write_topics"}
-        elif w["kind"] == "topic":
-            sparql = topic_writer.build_topic_update(w["conv"], w["topics"], settings, metadata=w["meta"])
-            applied.append(("topic_L3", sparql))
-            with httpx.Client(timeout=60.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
-                r = hc.post(f"{settings.oxigraph_url}/update", content=sparql.encode("utf-8"),
-                            headers={"Content-Type": "application/sparql-update"})
-            if r.status_code >= 400:
-                raise RuntimeError("L3 topic update rejected: HTTP %s" % r.status_code)
-            out["topic_L3"] = {"written": 1, "writer": "topic_writer.build_topic_update (refusal bypassed)"}
-        else:
-            applied.append(("decision_" + w["level"], de.build_decision_sparql(w["decision"], now_iso=NOW_ISO)))
-            de.write_decision(settings.oxigraph_url, w["decision"], now_iso=NOW_ISO)
-            out["decision_" + w["level"]] = {"written": 1, "writer": "decision_extractor.write_decision"}
-    return out
+class SeedRejected(RuntimeError):
+    """The store refused the Turtle itself (nothing of the seed landed)."""
 
 
 def main():
     payload = json.loads(sys.argv[1])
     ingest, settings, ttl, subjects, writes, slugs = build(payload)
     graph = f"urn:ostler:user/{settings.user_id}"
-    applied = []
     out = {"subjects": subjects, "bytes": len(ttl), "posted": False, "topic_slugs": slugs,
            "graph": graph, "rc": 0}
+    teardown = []   # kept by reference: a failure below still prints what was staged
     rc = 0
     if payload.get("post"):
         import httpx
-        with httpx.Client(timeout=60.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
-            resp = hc.post(f"{settings.oxigraph_url}/store", content=ttl.encode(),
-                           headers={"Content-Type": "text/turtle"}, params={"graph": graph})
-            if resp.status_code >= 400:
-                print("oxigraph rejected the seed: HTTP %s %s" % (resp.status_code, (resp.text or "")[:300]),
-                      file=sys.stderr)
-                rc = 3
-        if rc == 0:
+        from src import topic_writer
+        de = _decision_extractor()
+        client = httpx.Client(timeout=60.0, transport=httpx.HTTPTransport(proxy=None))
+        url = settings.oxigraph_url
+
+        def update(sparql):
+            r = client.post(url + "/update", content=sparql.encode("utf-8"),
+                            headers={"Content-Type": "application/sparql-update"})
+            if r.status_code >= 400:
+                raise RuntimeError("update HTTP %s" % r.status_code)
+
+        def count(sparql):
+            r = client.post(url + "/query", content=sparql.encode("utf-8"),
+                            headers={"Content-Type": "application/sparql-query",
+                                     "Accept": "application/sparql-results+json"})
+            if r.status_code >= 400:
+                raise RuntimeError("count HTTP %s" % r.status_code)
+            return int(r.json()["results"]["bindings"][0]["n"]["value"])
+
+        def post_ttl():
+            r = client.post(url + "/store", content=ttl.encode(), params={"graph": graph},
+                            headers={"Content-Type": "text/turtle"})
+            if r.status_code >= 400:
+                raise SeedRejected("oxigraph rejected the seed: HTTP %s %s"
+                                   % (r.status_code, (r.text or "")[:300]))
             out["posted"] = True
-            try:
-                out["writes"] = _post_writes(settings, writes, applied)
-            except Exception as exc:  # noqa: BLE001 -- reported; the caller judges it
-                print("topic/decision write failed: %s: %s" % (type(exc).__name__, str(exc)[:300]), file=sys.stderr)
-                rc = 4
-    # The teardown list is printed on EVERY path after the Turtle could have landed, so a
-    # failed write still leaves the caller the exact set to remove.
-    out["teardown_sparql"] = exact_teardown(ttl, graph, applied) if (out["posted"] or rc == 4) else []
+
+        written = {}
+
+        def write_one(idx, label, sparql):
+            w = writes[idx]
+            if w["kind"] == "topic" and w["level"] == "L2":
+                n = topic_writer.write_topics(conversation_id=w["conv"], topics=w["topics"],
+                                              settings=settings, privacy_level="L2", metadata=w["meta"])
+                written["topic_L2"] = {"written": n, "writer": "topic_writer.write_topics"}
+            elif w["kind"] == "topic":
+                update(sparql)
+                written["topic_L3"] = {"written": 1, "writer": "topic_writer.build_topic_update (refusal bypassed)"}
+            else:
+                de.write_decision(url, w["decision"], now_iso=NOW_ISO)
+                written["decision_" + w["level"]] = {"written": 1, "writer": "decision_extractor.write_decision"}
+
+        try:
+            excluded, to_delete = run_units(update, count, post_ttl, write_one, ttl, graph, plan,
+                                            teardown, exclude_existing=True)
+            out["writes"] = written
+            out["excluded_quads"] = excluded
+            out["to_delete_quads"] = to_delete
+        except SeedRejected as exc:
+            print(str(exc), file=sys.stderr)
+            rc = 3
+        except Exception as exc:  # noqa: BLE001 -- reported; the caller judges it
+            print("seed write failed: %s: %s" % (type(exc).__name__, str(exc)[:300]), file=sys.stderr)
+            rc = 4
+    out["teardown_sparql"] = teardown
     out["rc"] = rc
     print(json.dumps(out))
     return rc
