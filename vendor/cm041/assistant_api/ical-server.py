@@ -13316,9 +13316,6 @@ def _instrumented(fn):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-
     # Destination of the current request (Archie, 2026-11-17). Undeclared or
     # unknown = cloud (fail closed). Set per request in do_GET and do_POST.
     _destination = pwg_privacy.DEFAULT_DESTINATION
