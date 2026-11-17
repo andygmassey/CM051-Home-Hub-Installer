@@ -55,10 +55,10 @@ def sparql(today=ANCHOR, with_named_graph=True):
         pwg:factText "Private medical detail that must never surface" ; pwg:privacyLevel "L3" .
     <urn:ostler-walk-fixture:m1> a pwg:Meeting ; pwg:meetingAttendee <urn:ostler-walk-fixture:alexandra> ;
         pwg:meetingSummary "Lisbon workshop budget review" ;
-        pwg:meetingDate "{d(40)}" ; pwg:meetingLocation "Studio Nine" ; pwg:meetingId "m1" .
+        pwg:meetingDate "{d(40)}" ; pwg:meetingLocation "Studio Nine" ; pwg:meetingId "m1" ; pwg:privacyLevel "L1" .
     <urn:ostler-walk-fixture:m2> a pwg:Meeting ; pwg:meetingAttendee <urn:ostler-walk-fixture:alexandra> ;
         pwg:meetingSummary "Autumn roadmap check-in" ;
-        pwg:meetingDate "{d(200)}" ; pwg:meetingLocation "Riverside Town" ; pwg:meetingId "m2" .
+        pwg:meetingDate "{d(200)}" ; pwg:meetingLocation "Riverside Town" ; pwg:meetingId "m2" ; pwg:privacyLevel "L1" .
     {_person("urn:ostler-walk-fixture:philip", NONE["name"], NONE["email"],
         f'; pwg:organization "Globex Corp" ; pwg:relationship "client" '
         f'; pwg:lastContactWhatsApp "{d(30)}"')}

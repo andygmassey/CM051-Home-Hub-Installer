@@ -42,7 +42,15 @@ def digest_text(monkeypatch, tmp_path):
     for key in ("USER_ID", "USER_NAME", "USER_EMAIL", "WIKI_OPERATOR_NAME",
                 "WIKI_OPERATOR_EMAILS", "OSTLER_OXIGRAPH_TOKEN", "OXIGRAPH_TOKEN"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("OSTLER_DIR", str(tmp_path / "no-ostler-dir"))
+    # An on-box assistant config (loopback models only), so the digest's real
+    # route declares owner_own_brief. Undeclared reads are unknown and empty,
+    # which is why this fixture was red after the destination gate landed.
+    ostler = tmp_path / ".ostler"
+    (ostler / "assistant-config").mkdir(parents=True)
+    (ostler / "assistant-config" / "config.toml").write_text(
+        '[providers]\nfallback = "ollama"\n\n[providers.models.ollama]\n'
+        'base_url = "http://localhost:11434"\nmodel = "qwen-synthetic:9b"\n')
+    monkeypatch.setenv("OSTLER_DIR", str(ostler))
     gen = _gen()
     requested = []
 
@@ -57,7 +65,10 @@ def digest_text(monkeypatch, tmp_path):
                 patch.object(server, "_sparql_select", side_effect=T._engine()), \
                 patch.object(server, "_timeline_conversations",
                              side_effect=lambda **k: ([], None)):
-            return server.api_timeline(days=7, outbound=outbound)
+            # The destination the digest really declares on this route (the
+            # header it sends); the fake hop carries it as the route's query.
+            return server.api_timeline(days=7, outbound=outbound,
+                                       destination=gen.declared_destination())
 
     monkeypatch.setattr(gen, "_get_json", fake_get_json)
     monkeypatch.setattr(gen, "_sparql_select", lambda sparql: [])
