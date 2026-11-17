@@ -1163,13 +1163,37 @@ LICENCE_ACTIVE_DETAIL_FMT = (
 LICENCE_TRIAL_TITLE = "Ostler Pro is active, included with your Hub"
 LICENCE_TRIAL_DETAIL_FMT = (
     "Buying the Hub includes Ostler Pro, and that is what is running "
-    "now{until_clause}. When it ends, the Hub keeps working and keeps "
+    "now. When it ends, the Hub keeps working and keeps "
     "everything it has already learned. The Pro extras are the part that pauses."
 )
 
 # One line, the same on every arm that has a window to count, so the number a
 # customer reads is the same number whichever arm they are on.
 LICENCE_DAYS_LEFT_FMT = "Days of Ostler Pro left: {days}."
+
+# Included window with a readable end date (Archie, 2026-11-17). {date} is
+# "d MMMM yyyy" in the owner's locale; English is the fallback until the
+# L10N-BATCH-134 translation run lands.
+LICENCE_TRIAL_TITLE_UNTIL_FMT = "Ostler Pro is active until {date}, included with your Hub."
+
+# No subscription_state.json at all. Not "0 days" and not blank: say plainly
+# that no licence record was found.
+LICENCE_NONE_TITLE = "Ostler Pro: no licence found"
+LICENCE_NONE_DETAIL = (
+    "This Hub has no Ostler Pro record. The Hub keeps working and keeps "
+    "everything it has already learned; this only affects the Pro features."
+)
+
+# Inactive with a readable expiry in the past: say when it ended.
+LICENCE_PRO_ENDED_TITLE_FMT = "Ostler Pro: ended {date}"
+
+# English month names for the fallback date format. Locale formatting comes
+# from the translation run, not from the process locale (strftime %B follows
+# whatever locale the Doctor process happened to start under).
+LICENCE_MONTHS_EN = (
+    "January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December",
+)
 
 LICENCE_GRACE_TITLE = "Ostler Pro has lapsed, and is in its grace period"
 LICENCE_GRACE_DETAIL_FMT = (

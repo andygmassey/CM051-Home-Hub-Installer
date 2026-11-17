@@ -41,6 +41,11 @@ from diagnostic_copy import (
     LICENCE_TRIAL_DETAIL_FMT,
     LICENCE_TRIAL_TITLE,
     LICENCE_DAYS_LEFT_FMT,
+    LICENCE_TRIAL_TITLE_UNTIL_FMT,
+    LICENCE_NONE_TITLE,
+    LICENCE_NONE_DETAIL,
+    LICENCE_PRO_ENDED_TITLE_FMT,
+    LICENCE_MONTHS_EN,
     MINORS_UNREADABLE_TITLE,
     MINORS_UNREADABLE_DETAIL_FMT,
     MINORS_UNREADABLE_FIX,
@@ -3214,6 +3219,23 @@ def _pretty_date(iso: str | None) -> str | None:
         return None
 
 
+def _licence_date(iso: str | None, locale: str | None = None) -> str | None:
+    """"d MMMM yyyy" for the licence row, in the owner's locale.
+
+    Only the English fallback exists until the L10N-BATCH-134 translations
+    land, so every locale renders English for now. Independent of the
+    process locale on purpose. None when the date cannot be read.
+    """
+    if not isinstance(iso, str) or not iso:
+        return None
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return "%d %s %d" % (dt.day, LICENCE_MONTHS_EN[dt.month - 1], dt.year)
+
+
 def check_licence_state(snapshot: Any) -> list[dict]:
     """Tell the customer what their subscription is doing.
 
@@ -3244,9 +3266,18 @@ def check_licence_state(snapshot: Any) -> list[dict]:
     """
     licence = getattr(snapshot, "licence_state", None)
     if licence is None:
-        # No file. On a machine that has never had a licence written that is
-        # the honest answer, and it is NOT the same as "you are inactive".
-        return []
+        # No record. It is NOT the same as "you are inactive", and it is not
+        # "0 days" either: say plainly that no licence was found (Archie,
+        # 2026-11-17; it used to say nothing at all).
+        return [{
+            "severity": "info",
+            "title": LICENCE_NONE_TITLE,
+            "detail": LICENCE_NONE_DETAIL,
+            "fix": "",
+            "fix_command": "",
+            "risk": "low",
+            "category": "licence",
+        }]
 
     status = (getattr(licence, "status", None) or "").strip().lower()
 
@@ -3271,12 +3302,17 @@ def check_licence_state(snapshot: Any) -> list[dict]:
         until = _pretty_date(getattr(licence, "expires_at", None))
         until_clause = f" until {until}" if until else ""
         is_trial = getattr(licence, "source", None) == "first_month_free"
+        end = _licence_date(getattr(licence, "expires_at", None))
+        if is_trial:
+            title = LICENCE_TRIAL_TITLE_UNTIL_FMT.format(date=end) if end else LICENCE_TRIAL_TITLE
+            detail = LICENCE_TRIAL_DETAIL_FMT
+        else:
+            title = LICENCE_ACTIVE_TITLE
+            detail = LICENCE_ACTIVE_DETAIL_FMT.format(until_clause=until_clause)
         return [{
             "severity": "info",
-            "title": LICENCE_TRIAL_TITLE if is_trial else LICENCE_ACTIVE_TITLE,
-            "detail": (
-                LICENCE_TRIAL_DETAIL_FMT if is_trial else LICENCE_ACTIVE_DETAIL_FMT
-            ).format(until_clause=until_clause)
+            "title": title,
+            "detail": detail
             + _days_line(getattr(licence, "days_left", None)),
             "fix": "",
             "fix_command": "",
@@ -3301,11 +3337,14 @@ def check_licence_state(snapshot: Any) -> list[dict]:
         }]
 
     if status == "inactive":
+        # Expired: the record carries a readable expiry that has passed, so
+        # say when it ended. Without one, the plain not-active row.
+        ended = (_licence_date(getattr(licence, "expires_at", None))
+                 if getattr(licence, "expires_at_is_past", False) else None)
         return [{
             "severity": "warning",
-            "title": LICENCE_INACTIVE_TITLE,
-            # Inactive has no window left, whatever the record's expiry says.
-            "detail": LICENCE_INACTIVE_DETAIL + _days_line(0),
+            "title": LICENCE_PRO_ENDED_TITLE_FMT.format(date=ended) if ended else LICENCE_INACTIVE_TITLE,
+            "detail": LICENCE_INACTIVE_DETAIL,
             "fix": LICENCE_INACTIVE_FIX,
             "fix_command": "",
             "risk": "low",

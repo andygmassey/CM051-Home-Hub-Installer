@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""The Doctor tells the owner how many days of Ostler Pro are left: 180, 90 or 0.
+"""The Doctor tells the owner what Ostler Pro they have: 180 or 90 days left, ended, or no licence.
 
 END TO END THROUGH THE SHIPPED PIECES. The real vendored subscription gate
 (vendor/cm041/assistant_api/subscription_gate.py, activate_included_pro) writes
 subscription_state.json for a founding licence, a standard licence and no
 licence; the real vendored Doctor (vendor/doctor/agent, collect_licence_state
 and check_licence_state, taken at the 134 doctor re-pin) reads it back. The
-customer-facing line is "Days of Ostler Pro left: N."
+customer-facing lines are "Days of Ostler Pro left: N.", "Ostler Pro: ended
+<date>" and "Ostler Pro: no licence found" (Archie, 2026-11-17: never "0 days").
 
 MONEY. A wrong number tells a customer they bought less, or more, than they
 did. Same window as the included-Pro fix (CM051 #3579 family).
@@ -88,13 +89,13 @@ with tempfile.TemporaryDirectory() as tmp:
             licence_tier_state=tier_state, included_plan=plan)
         lic = S.collect_licence_state(now=PURCHASE)
         if lic is None:
-            # No licence may leave no file at all; the Doctor must still not
-            # claim a window. Absent reads as no row, which is 0 by omission:
-            # say which it was.
-            if want == 0:
-                ok("%s: no state written, so the Doctor claims no Pro days" % label)
+            # No licence leaves no record at all. The Doctor must say so in
+            # words, not with a 0 and not with silence.
+            titles = [f.get("title") for f in D.check_licence_state(S.SystemSnapshot(licence_state=None))]
+            if want == 0 and titles == ["Ostler Pro: no licence found"]:
+                ok("%s: no record written, the Doctor reads 'Ostler Pro: no licence found'" % label)
             else:
-                bad("%s: the gate wrote nothing the Doctor could read" % label)
+                bad("%s: no record; the Doctor said %r" % (label, titles))
             continue
         findings = D.check_licence_state(S.SystemSnapshot(licence_state=lic))
         blob = " ".join(f.get("detail", "") for f in findings)
@@ -106,12 +107,9 @@ with tempfile.TemporaryDirectory() as tmp:
         else:
             bad("%s: expected '%s' once, the Doctor said %r" % (label, line, blob))
 
-    # 0 FROM A RECORD. With no licence the gate writes no record, and the
-    # Doctor deliberately shows no licence row for an absent record (absent is
-    # not inactive). The 0 a customer can read comes from a record the gate
-    # wrote: a standard window walked past its end by the gate's own
-    # expire_check (never paid, so no grace) reads inactive, and the Doctor
-    # must say 0, whatever days the stale expiry would compute to.
+    # ENDED. A standard window walked past its end by the gate's own
+    # expire_check (never paid, so no grace) reads inactive with its expiry
+    # kept; the Doctor must say when it ended, and never "0 days".
     state = pathlib.Path(tmp) / "standard_after_window.json"
     os.environ["OSTLER_SUBSCRIPTION_STATE"] = str(state)
     gate.activate_included_pro(
@@ -126,14 +124,26 @@ with tempfile.TemporaryDirectory() as tmp:
         gate._now = real_now
     status = json.loads(state.read_text()).get("status")
     lic = S.collect_licence_state(now=later)
-    blob = " ".join(f.get("detail", "") for f in
-                    D.check_licence_state(S.SystemSnapshot(licence_state=lic)))
-    if status == "inactive" and "Days of Ostler Pro left: 0." in blob:
-        ok("standard licence after its window: gate wrote inactive, the Doctor reads 'Days of Ostler Pro left: 0.'")
+    found = D.check_licence_state(S.SystemSnapshot(licence_state=lic))
+    titles = [f.get("title") for f in found]
+    blob = " ".join(f.get("title", "") + " " + f.get("detail", "") for f in found)
+    want_title = "Ostler Pro: ended 5 April 2026"  # PURCHASE + 90 days
+    if status == "inactive" and titles == [want_title] and "Days of Ostler Pro left" not in blob:
+        ok("standard licence after its window: gate wrote inactive, the Doctor reads '%s'" % want_title)
     else:
-        bad("standard licence after its window: gate status %r, the Doctor said %r" % (status, blob))
+        bad("standard licence after its window: gate status %r, the Doctor said %r" % (status, titles))
+
+    # The included title carries the end date (English fallback until the
+    # L10N-BATCH-134 run).
+    os.environ["OSTLER_SUBSCRIPTION_STATE"] = str(pathlib.Path(tmp) / "founding_licence.json")
+    t = [f.get("title") for f in D.check_licence_state(
+        S.SystemSnapshot(licence_state=S.collect_licence_state(now=PURCHASE)))]
+    if t == ["Ostler Pro is active until 4 July 2026, included with your Hub."]:
+        ok("founding licence: title reads 'Ostler Pro is active until 4 July 2026, included with your Hub.'")
+    else:
+        bad("founding licence: title %r" % t)
 
 print("\n== %d pass / %d fail / %d total ==" % (len(PASS), len(FAIL), len(PASS) + len(FAIL)))
-if len(PASS) + len(FAIL) < 6:
+if len(PASS) + len(FAIL) < 7:
     cant("only %d checks ran" % (len(PASS) + len(FAIL)))
 sys.exit(1 if FAIL else 0)

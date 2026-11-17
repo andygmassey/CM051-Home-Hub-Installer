@@ -10,13 +10,20 @@
 #                                web_ui (all nine :root blocks), first_run. Left the
 #                                not-taken set.
 # TAKE  licence state           LicenceStateInfo / collect_licence_state /
-#                                check_licence_state + copy, with "Days of Ostler Pro
-#                                left: N" (180 founding / 90 standard / 0). Lands in
-#                                the same window as the included-Pro fix (#3579
-#                                family). Money: Archie reviews.
+#                                check_licence_state + copy. Rows: "Ostler Pro is
+#                                active until <d MMMM yyyy>, included with your Hub."
+#                                + "Days of Ostler Pro left: N" (180 founding / 90
+#                                standard); "Ostler Pro: ended <date>"; "Ostler Pro:
+#                                no licence found". English date fallback until
+#                                L10N-BATCH-134. Lands with the included-Pro fix
+#                                (#3579 family). Money: Archie reviews.
 # TAKE  runtime floors          requirements.txt == HR015 (fastapi>=0.162.6).
-# TAKE  config env sync         PENDING Archie's read of its diff: NOT in this commit;
-#                                it is the next commit on vendor134/doctor.
+# HOLD  config env sync         Processing fields + sync_env_file ->
+#                                ~/.ostler/config/ostler.env stay declared-removed:
+#                                nothing in CM051 reads that file. The writer now
+#                                pins its path, ignores OSTLER_ENV_FILE and refuses
+#                                a secrets target (HR015 #1562 9ce5fa7), so a later
+#                                TAKE does not carry that hazard.
 # HOLD  wiki correction         wiki_correct.py transitions (plan_transition,
 #       transitions             transition_correction, POST /api/v1/wiki/correct/
 #                                transition) stay declared-removed: held for the
@@ -452,10 +459,16 @@
 -            "qwen2.5:14b",
 -            "qwen2.5:3b",
 -            "gemma4:e2b",
--        ),
--    ),
++        label="Pause background work",
++        section="Background work",
++        help=(
++            "Stop the background catch-up (conversation ingest, wiki "
++            "refresh, summaries) until you switch this off. Chatting with "
++            "your assistant still works while paused."
+         ),
+     ),
 -    # -- Schedule ----------------------------------------------------
--    FieldSpec(
+     FieldSpec(
 -        key="morning_brief_time",
 -        kind="time",
 -        label="Morning brief",
@@ -472,17 +485,23 @@
 -    # -- Privacy -----------------------------------------------------
 -    FieldSpec(
 -        key="default_privacy_level",
--        kind="enum",
++        key="background_throttle",
+         kind="enum",
 -        label="Default privacy level",
 -        section="Privacy",
-+        label="Pause background work",
++        label="Background work speed",
 +        section="Background work",
          help=(
 -            "The privacy level new conversations get by default. "
 -            "L3 is private by default and is never indexed for search."
--        ),
++            "How hard the background catch-up may push your Mac. "
++            "'gentle' eases off and saves the heavy work for overnight; "
++            "'balanced' matches the work to your hardware (recommended); "
++            "'full' runs it as fast as possible."
+         ),
 -        choices=("L0", "L1", "L2", "L3"),
--    ),
++        choices=("gentle", "balanced", "full"),
+     ),
 -    # -- Processing (resource throttle) ------------------------------
 -    # These map to the env knobs the tick wrappers + resource-tier lib
 -    # already consume. They are materialised into a sourced env file
@@ -497,31 +516,19 @@
 -            "How hard Ostler works in the background. Overnight drains "
 -            "overnight and stays light by day; Gentle always stays light "
 -            "and never competes; Full speed runs at full width any time."
-+            "Stop the background catch-up (conversation ingest, wiki "
-+            "refresh, summaries) until you switch this off. Chatting with "
-+            "your assistant still works while paused."
-         ),
+-        ),
 -        choices=("overnight", "gentle", "full_speed"),
-     ),
-     FieldSpec(
+-    ),
+-    FieldSpec(
 -        key="governor_enabled",
 -        kind="bool",
 -        label="Ease off when you are busy",
 -        section="Processing",
-+        key="background_throttle",
-+        kind="enum",
-+        label="Background work speed",
-+        section="Background work",
-         help=(
+-        help=(
 -            "Let Ostler automatically defer background work when your Mac "
 -            "is under load, so the things you are doing stay responsive."
-+            "How hard the background catch-up may push your Mac. "
-+            "'gentle' eases off and saves the heavy work for overnight; "
-+            "'balanced' matches the work to your hardware (recommended); "
-+            "'full' runs it as fast as possible."
-         ),
-+        choices=("gentle", "balanced", "full"),
-     ),
+-        ),
+-    ),
 -    FieldSpec(
 -        key="quiet_hours_start",
 -        kind="time",
@@ -571,7 +578,7 @@
  )
  
  
-@@ -444,160 +397,95 @@
+@@ -444,188 +397,95 @@
          raise ConfigError(500, f"Could not write config file: {exc}")
  
  
@@ -589,7 +596,9 @@
 -    Reads the existing file first and preserves every key the panel does
 -    not understand, so a newer/foreign config is never clobbered. Returns
 -    the fresh panel view model (so the client re-renders from authority).
--
++# Throttle levels understood by the shell engine's OSTLER_THROTTLE_LEVEL.
++_THROTTLE_LEVELS: tuple[str, ...] = ("gentle", "balanced", "full")
+ 
 -    After persisting the YAML, materialise the processing-relevant
 -    settings into the sourced env file the tick wrappers load
 -    (``sync_env_file``). This is the contract that makes a panel change
@@ -602,10 +611,8 @@
 -    _atomic_write(p, current)
 -    sync_env_file(current)
 -    return read_config_view(p)
-+# Throttle levels understood by the shell engine's OSTLER_THROTTLE_LEVEL.
-+_THROTTLE_LEVELS: tuple[str, ...] = ("gentle", "balanced", "full")
  
- 
+-
 -# -- Throttle env bridge (resource throttle: Parts 0, 2, 3) -----------
 -#
 -# The Config panel historically wrote ``config.yaml`` that no daemon or
@@ -614,13 +621,11 @@
 -# the processing-relevant settings into a single sourced shell env file
 -# (``~/.ostler/config/ostler.env``) that every tick wrapper loads at the
 -# top. Whichever knob the panel writes, the wrappers consume it.
+-
+-_DEFAULT_PRESET = "overnight"
 +def render_governor_env(config: dict[str, Any]) -> str:
 +    """Render the governor settings as a shell-sourceable KEY=VALUE file.
  
--DEFAULT_ENV_FILE = DEFAULT_OSTLER_DIR / "config" / "ostler.env"
--
--_DEFAULT_PRESET = "overnight"
--
 -# Each preset is a COMPLETE posture, mapped to the exact env names the
 -# wrappers + ``ostler-resource-tier.sh`` already consume:
 -#   overnight   -- the shipped default: drain overnight, stay light by day.
@@ -646,25 +651,22 @@
 -}
 -
 -
--def _env_file(path: Optional[Path] = None) -> Path:
--    """Resolve the sourced env-file path the wrappers load.
+-def _env_file() -> Path:
+-    """The ONE path this writer may write: ``~/.ostler/config/ostler.env``.
 -
--    ``OSTLER_ENV_FILE`` wins (tests, non-default deployments), then
--    ``OSTLER_HOME``, then the home-dir default. Mirrors ``_config_file``.
+-    PINNED, AND ``OSTLER_ENV_FILE`` IS IGNORED ON PURPOSE. The installer
+-    uses that same name for the SECRETS file (``${OSTLER_DIR}/.env``, which
+-    holds JWT_SECRET), so honouring it here meant one exported variable away
+-    from a Config save overwriting the Hub's secrets with throttle knobs.
+-    ``OSTLER_HOME`` is not honoured either: a second root is a second way to
+-    land somewhere else. Resolved at call time from ``Path.home()`` so a test
+-    can point HOME at a throwaway directory.
 +    Only the two background-work controls are emitted; everything else in
 +    config.yaml is irrelevant to the shell engine. Unknown/blank values
 +    fall back to safe defaults (not paused, balanced) so a partial config
 +    never produces a malformed bridge file.
      """
--    if path is not None:
--        return path
--    raw = os.environ.get("OSTLER_ENV_FILE")
--    if raw:
--        return Path(raw)
--    home = os.environ.get("OSTLER_HOME")
--    if home:
--        return Path(home) / "config" / "ostler.env"
--    return DEFAULT_ENV_FILE
+-    return Path.home() / ".ostler" / "config" / "ostler.env"
 +    paused = bool(config.get("background_paused", False))
 +    throttle = config.get("background_throttle", "balanced")
 +    if throttle not in _THROTTLE_LEVELS:
@@ -679,6 +681,38 @@
 +    )
  
  
+-# A line that assigns a secret: JWT_SECRET, or any NAME_KEY. Optional
+-# ``export``, any indentation. Matched on the target BEFORE it is replaced.
+-_SECRET_LINE_RE = re.compile(
+-    r"^\s*(?:export\s+)?(?:JWT_SECRET|[A-Za-z0-9_]*_KEY)\s*=", re.MULTILINE
+-)
+-
+-
+-def _refuse_secret_target(p: Path) -> None:
+-    """Raise rather than write over a secrets file.
+-
+-    Refuses when the target resolves (symlinks followed) to the installer's
+-    secrets ``.env`` (``~/.ostler/.env``), or when the existing target holds
+-    a JWT_SECRET or ``*_KEY`` assignment. Either means the path is not the
+-    knob file this writer owns, whatever it is called.
+-    """
+-    secrets = Path.home() / ".ostler" / ".env"
+-    try:
+-        if p.resolve() == secrets.resolve():
+-            raise ConfigError(500, "Refusing to write the env file: the target is the secrets .env.")
+-    except OSError as exc:
+-        raise ConfigError(500, f"Could not resolve the env file path: {exc}")
+-    if p.exists():
+-        try:
+-            text = p.read_text(encoding="utf-8", errors="replace")
+-        except OSError as exc:
+-            raise ConfigError(500, f"Could not read the env file before writing: {exc}")
+-        if _SECRET_LINE_RE.search(text):
+-            raise ConfigError(
+-                500, "Refusing to write the env file: the target holds secret keys."
+-            )
+-
+-
 -def _hour_of(value: Any, default: int) -> int:
 -    """Coerce an ``HH:MM`` config value to an integer hour (0-23).
 -
@@ -736,14 +770,15 @@
 -    return lines
 -
 -
--def sync_env_file(
--    raw: dict[str, Any], path: Optional[Path] = None
--) -> Path:
+-def sync_env_file(raw: dict[str, Any]) -> Path:
 -    """Materialise the processing settings into the sourced env file.
 -
--    Atomic write (temp + ``os.replace``). Returns the path written.
+-    Writes only ``_env_file()`` and refuses a secrets target
+-    (``_refuse_secret_target``). Atomic write (temp + ``os.replace``).
+-    Returns the path written.
 -    """
--    p = _env_file(path)
+-    p = _env_file()
+-    _refuse_secret_target(p)
 -    body = "\n".join(build_env_lines(raw)) + "\n"
 +def _write_governor_env(config: dict[str, Any], path: Optional[Path] = None) -> None:
 +    """Atomically write the governor bridge file the shell engine reads."""
@@ -2691,7 +2726,7 @@
  # Licence state (task #421)
  #
  # The Doctor had NO licence surface at all. Measured on the v1.0.36 box:
-@@ -704,26 +1199,3 @@
+@@ -728,26 +1223,3 @@
      "state below is current."
  )
  LICENCE_STALE_FIX = "Open the Ostler app on your iPhone to refresh the record"
@@ -2720,28 +2755,40 @@
 -MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"
 --- a/agent/diagnostic_rules.py
 +++ b/agent/diagnostic_rules.py
-@@ -27,10 +27,33 @@
+@@ -27,25 +27,6 @@
  from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
  
  from diagnostic_copy import (
-+    LICENCE_ACTIVE_DETAIL_FMT,
-+    LICENCE_ACTIVE_TITLE,
-+    LICENCE_GRACE_DETAIL_FMT,
-+    LICENCE_GRACE_FIX,
-+    LICENCE_GRACE_TITLE,
-+    LICENCE_INACTIVE_DETAIL,
-+    LICENCE_INACTIVE_FIX,
-+    LICENCE_INACTIVE_TITLE,
-+    LICENCE_STALE_DETAIL_FMT,
-+    LICENCE_STALE_FIX,
-+    LICENCE_STALE_TITLE,
-+    LICENCE_TRIAL_DETAIL_FMT,
-+    LICENCE_TRIAL_TITLE,
-+    LICENCE_DAYS_LEFT_FMT,
-     MINORS_UNREADABLE_TITLE,
-     MINORS_UNREADABLE_DETAIL_FMT,
-     MINORS_UNREADABLE_FIX,
-     MINORS_UNREADABLE_FIX_COMMAND_FMT,
+-    MINORS_UNREADABLE_TITLE,
+-    MINORS_UNREADABLE_DETAIL_FMT,
+-    MINORS_UNREADABLE_FIX,
+-    MINORS_UNREADABLE_FIX_COMMAND_FMT,
+-    MEMORY_UNREADABLE_TITLE,
+-    MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
+-    MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
+-    MEMORY_UNREADABLE_FIX,
+-    MEMORY_UNREADABLE_FIX_COMMAND,
+-    INGEST_EMPTY_DETAIL_FMT,
+-    INGEST_EMPTY_FIX,
+-    INGEST_EMPTY_FIX_COMMAND,
+-    INGEST_NO_INPUT_TITLE_FMT,
+-    INGEST_NO_INPUT_DETAIL_FMT,
+-    INGEST_NO_INPUT_DETAIL_NO_APP_FMT,
+-    INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT,
+-    INGEST_NO_INPUT_FIX,
+-    INGEST_NO_INPUT_FIX_COMMAND,
+-    INGEST_EMPTY_TITLE_FMT,
+     LICENCE_ACTIVE_DETAIL_FMT,
+     LICENCE_ACTIVE_TITLE,
+     LICENCE_GRACE_DETAIL_FMT,
+@@ -65,6 +46,51 @@
+     LICENCE_NONE_DETAIL,
+     LICENCE_PRO_ENDED_TITLE_FMT,
+     LICENCE_MONTHS_EN,
++    MINORS_UNREADABLE_TITLE,
++    MINORS_UNREADABLE_DETAIL_FMT,
++    MINORS_UNREADABLE_FIX,
++    MINORS_UNREADABLE_FIX_COMMAND_FMT,
 +    TM_SECRETS_NOT_EXCLUDED_TITLE,
 +    TM_FOLDER_NOT_EXCLUDED_TITLE_FMT,
 +    TM_NOT_EXCLUDED_DETAIL_FMT,
@@ -2751,13 +2798,13 @@
 +    TM_CANNOT_CHECK_DETAIL_FMT,
 +    TM_CANNOT_CHECK_FIX,
 +    TM_CANNOT_CHECK_FIX_COMMAND,
-     MEMORY_UNREADABLE_TITLE,
-     MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
-     MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
-@@ -38,6 +61,23 @@
-     MEMORY_UNREADABLE_FIX_COMMAND,
-     INGEST_EMPTY_DETAIL_FMT,
-     INGEST_EMPTY_FIX,
++    MEMORY_UNREADABLE_TITLE,
++    MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
++    MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
++    MEMORY_UNREADABLE_FIX,
++    MEMORY_UNREADABLE_FIX_COMMAND,
++    INGEST_EMPTY_DETAIL_FMT,
++    INGEST_EMPTY_FIX,
 +    LICENCE_ENDED_DETAIL_FMT,
 +    LICENCE_ENDED_FIX,
 +    LICENCE_ENDED_FIX_COMMAND,
@@ -2775,31 +2822,18 @@
 +    QUARANTINED_FACTS_FIX,
 +    PENDING_FACTS_DETAIL,
 +    PENDING_FACTS_FIX,
-     INGEST_EMPTY_FIX_COMMAND,
-     INGEST_NO_INPUT_TITLE_FMT,
-     INGEST_NO_INPUT_DETAIL_FMT,
-@@ -46,20 +86,6 @@
-     INGEST_NO_INPUT_FIX,
-     INGEST_NO_INPUT_FIX_COMMAND,
-     INGEST_EMPTY_TITLE_FMT,
--    LICENCE_ACTIVE_DETAIL_FMT,
--    LICENCE_ACTIVE_TITLE,
--    LICENCE_GRACE_DETAIL_FMT,
--    LICENCE_GRACE_FIX,
--    LICENCE_GRACE_TITLE,
--    LICENCE_INACTIVE_DETAIL,
--    LICENCE_INACTIVE_FIX,
--    LICENCE_INACTIVE_TITLE,
--    LICENCE_STALE_DETAIL_FMT,
--    LICENCE_STALE_FIX,
--    LICENCE_STALE_TITLE,
--    LICENCE_TRIAL_DETAIL_FMT,
--    LICENCE_TRIAL_TITLE,
--    LICENCE_DAYS_LEFT_FMT,
++    INGEST_EMPTY_FIX_COMMAND,
++    INGEST_NO_INPUT_TITLE_FMT,
++    INGEST_NO_INPUT_DETAIL_FMT,
++    INGEST_NO_INPUT_DETAIL_NO_APP_FMT,
++    INGEST_NO_INPUT_DETAIL_NO_EXPORT_FMT,
++    INGEST_NO_INPUT_FIX,
++    INGEST_NO_INPUT_FIX_COMMAND,
++    INGEST_EMPTY_TITLE_FMT,
      INGEST_KILLED_DETAIL_FMT,
      INGEST_KILLED_FIX,
      INGEST_KILLED_FIX_COMMAND,
-@@ -68,6 +94,26 @@
+@@ -73,6 +99,26 @@
      RULE_CRASHED_DETAIL_FMT,
      RULE_CRASHED_FIX,
      RULE_CRASHED_FIX_COMMAND,
@@ -2826,7 +2860,7 @@
      ALL_UNREACHABLE_DETAIL,
      ALL_UNREACHABLE_FIX,
      ALL_UNREACHABLE_FIX_COMMAND,
-@@ -132,9 +178,6 @@
+@@ -137,9 +183,6 @@
      IMESSAGE_CAPTURE_STALLED_FIX,
      IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
      IMESSAGE_CAPTURE_STALLED_TITLE,
@@ -2836,7 +2870,7 @@
      CONVO_DISPATCH_FAILING_TITLE,
      CONVO_DISPATCH_FAILING_DETAIL,
      CONVO_DISPATCH_FAILING_FIX,
-@@ -155,6 +198,21 @@
+@@ -160,6 +203,21 @@
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -2858,7 +2892,7 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -201,20 +259,83 @@
+@@ -206,20 +264,83 @@
      REDIS_UNREACHABLE_FIX,
      REDIS_UNREACHABLE_FIX_COMMAND_FMT,
      REDIS_UNREACHABLE_TITLE,
@@ -2954,15 +2988,10 @@
      detect_ostler_prefix,
      is_native_deployment,
      is_ostler_container,
-@@ -414,13 +535,602 @@
-             "detail": OXIGRAPH_INTERNAL_ERROR_DETAIL,
-             "fix": OXIGRAPH_INTERNAL_ERROR_FIX,
-             "fix_command": OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT.format(prefix=prefix),
-+            "risk": "low",
-+            "category": "runtime",
-+        })
-+
-+    return findings
+@@ -424,8 +545,597 @@
+         })
+ 
+     return findings
 +
 +
 +def check_wiki_health(snapshot: Any) -> list[dict]:
@@ -2983,9 +3012,9 @@
 +    restarting a container inside a stopped VM does nothing at all. A fix
 +    command that cannot work is worse than none, because the customer tries
 +    it, sees it fail, and stops trusting the page.
-+
+ 
 +    So this rule names the layer that is actually broken:
-+
+ 
 +      engine down + wiki down  -> ONE finding about the engine
 +      engine up  + container   -> a finding naming the container
 +                    stopped
@@ -3061,11 +3090,11 @@
 +            "fix_command": WIKI_UNHEALTHY_FIX_COMMAND_FMT.format(
 +                name=_wiki_container_name(snapshot)
 +            ),
-             "risk": "low",
-             "category": "runtime",
-         })
++            "risk": "low",
++            "category": "runtime",
++        })
 +        return findings
- 
++
 +    # status == "unreachable" from here down.
 +    if engine_down:
 +        findings.append({
@@ -3105,9 +3134,9 @@
 +        "risk": "low",
 +        "category": "runtime",
 +    })
-     return findings
- 
- 
++    return findings
++
++
 +def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
 +    """Is anything actually WATCHING the runtime?
 +
@@ -3557,7 +3586,7 @@
  def check_import_readiness(snapshot: Any) -> list[dict]:
      """Check whether the system is ready to run the import pipeline."""
      findings = []
-@@ -755,23 +1465,19 @@
+@@ -760,23 +1470,19 @@
  
  
  def check_gdpr_export_age(snapshot: Any) -> list[dict]:
@@ -3592,38 +3621,37 @@
  
  
  def check_docker_resources(snapshot: Any) -> list[dict]:
-@@ -981,47 +1687,96 @@
+@@ -986,47 +1692,96 @@
      )
  
  
 -def _imessage_chat_db_readable() -> bool:
 -    """True if SOMETHING in this Doctor process can open chat.db.
--
++def _ostler_engine_root():
++    from pathlib import Path
+ 
 -    Used purely as a "FDA is granted on this machine" liveness probe
 -    for the auto-dismiss path in :func:`check_imessage_fda`. The
 -    file exists on every macOS install; failing to open it is the
 -    signal the user has not yet granted Full Disk Access for the
 -    binary doing the probing.
-+def _ostler_engine_root():
-+    from pathlib import Path
++    root = (os.environ.get("OSTLER_DIR") or "").strip()
++    return Path(root).expanduser() if root else Path.home() / ".ostler"
  
 -    We use ``sqlite3.connect`` rather than ``os.access`` because
 -    macOS reports the path as readable from a stat() perspective
 -    even when TCC denies the actual open -- we have to attempt the
 -    real SQLite open to get the truthful answer.
-+    root = (os.environ.get("OSTLER_DIR") or "").strip()
-+    return Path(root).expanduser() if root else Path.home() / ".ostler"
  
 -    Any failure (missing file, permission denied, OSError on the
 -    sqlite extension import) is treated as "not readable" -- safer
 -    to keep the card visible than to wrongly auto-dismiss.
 -    """
 -    import sqlite3
- 
--    path = _imessage_chat_db_path()
 +def _parse_utc(value):
 +    from datetime import datetime, timezone
-+
+ 
+-    path = _imessage_chat_db_path()
 +    if not value or not isinstance(value, str):
 +        return None
      try:
@@ -3724,7 +3752,7 @@
  
  
  def check_imessage_fda(snapshot: Any) -> list[dict]:
-@@ -1033,10 +1788,10 @@
+@@ -1038,10 +1793,10 @@
      1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
         pipeline_signals.json (the install-time probe found the
         daemon could not open chat.db once the LaunchAgent loaded).
@@ -3739,7 +3767,7 @@
  
      A missing key on the snapshot (``None``) means the install ran
      before CX-60 shipped -- we stay quiet rather than firing a
-@@ -1060,11 +1815,9 @@
+@@ -1065,11 +1820,9 @@
          # the daemon was already healthy). Either way: no card.
          return findings
  
@@ -3754,7 +3782,7 @@
      if _imessage_chat_db_readable():
          return findings
  
-@@ -1084,437 +1837,289 @@
+@@ -1089,437 +1842,289 @@
      return findings
  
  
@@ -3860,11 +3888,16 @@
 -    no messages are being read -- so we surface an actionable card.
  
 -    Fires when BOTH:
+-
+-    1. The crash signature is present in the log tail, AND
+-    2. A live re-probe from this Doctor process *also* cannot open chat.db.
 +def check_ollama_pin(snapshot: Any) -> list[dict]:
 +    """Ollama is not on Ostler's pinned version (CM051 #2977).
  
--    1. The crash signature is present in the log tail, AND
--    2. A live re-probe from this Doctor process *also* cannot open chat.db.
+-    The live re-probe is the auto-dismiss path (shared with
+-    :func:`check_imessage_fda`): the crash lines linger in the appended log
+-    after FDA is finally granted, so without the re-probe the card would never
+-    clear. Once FDA is granted and Messages is readable, the card disappears.
 +    install.sh writes ``~/.ostler/state/ollama-pin`` on every pin attempt:
 +    ``ollama_pin=installed`` when the tested engine went in, ``deferred``
 +    when the download, fingerprint check or unpack failed on a working
@@ -3872,11 +3905,6 @@
 +    row. A missing file means an install that predates the record: quiet,
 +    because "no record" is not "unpinned". READ-ONLY.
  
--    The live re-probe is the auto-dismiss path (shared with
--    :func:`check_imessage_fda`): the crash lines linger in the appended log
--    after FDA is finally granted, so without the re-probe the card would never
--    clear. Once FDA is granted and Messages is readable, the card disappears.
--
 -    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9. The fix-command
 -    opens System Settings -> Privacy & Security -> Full Disk Access.
 +    Customer copy lives in ``diagnostic_copy.py`` per Rule 0.9.
@@ -4064,19 +4092,12 @@
  
 -    for path in state_files:
 -        values = _read_slot_state(path)
-+    result = prefs.get("last_upgrade_result")
-+    if not isinstance(result, dict):
-+        # Missing key, explicit null, or a non-object value: no trail.
-+        return findings
- 
+-
 -        # A completed pass at any point means this feed is not starved.
 -        completed = values.get("last_completed", "")
 -        if completed.isdigit() and int(completed) > 0:
 -            continue
-+    status = result.get("status")
-+    version = result.get("version")
-+    applied = _format_upgrade_applied(result.get("timestamp"))
- 
+-
 -        # Only claim starvation once the feed has yielded many times in a
 -        # row. Without this a brand-new install would accuse every feed the
 -        # moment it is registered.
@@ -4093,6 +4114,32 @@
 -            continue
 -        if int(raw_yields) < INGEST_FEED_STARVED_AFTER_YIELDS:
 -            continue
+-
+-        feed = path.stem
+-        starved.append(_INGEST_FEED_LABELS.get(feed, feed))
+-
+-    if not starved:
++    result = prefs.get("last_upgrade_result")
++    if not isinstance(result, dict):
++        # Missing key, explicit null, or a non-object value: no trail.
+         return findings
+ 
+-    if len(starved) == 1:
+-        feeds = starved[0]
+-    else:
+-        feeds = ", ".join(starved[:-1]) + " and " + starved[-1]
++    status = result.get("status")
++    version = result.get("version")
++    applied = _format_upgrade_applied(result.get("timestamp"))
+ 
+-    findings.append({
+-        "severity": "warning",
+-        "title": INGEST_FEED_STARVED_TITLE,
+-        "detail": INGEST_FEED_STARVED_DETAIL.format(feeds=feeds),
+-        "fix": INGEST_FEED_STARVED_FIX,
+-        "risk": "low",
+-        "category": "installation",
+-    })
 +    if status == "success":
 +        if applied:
 +            detail = LAST_UPGRADE_SUCCESS_DETAIL_FMT.format(applied=applied)
@@ -4128,18 +4175,12 @@
 +            "category": "upgrade",
 +        })
 +    # Unknown status value: do not guess. Return no findings.
++
+     return findings
  
--        feed = path.stem
--        starved.append(_INGEST_FEED_LABELS.get(feed, feed))
-+    return findings
  
--    if not starved:
--        return findings
- 
--    if len(starved) == 1:
--        feeds = starved[0]
--    else:
--        feeds = ", ".join(starved[:-1]) + " and " + starved[-1]
+-def _format_vault_last_write(iso_ts: str | None) -> str | None:
+-    """Convert an ISO 8601 timestamp into a "DD-MM HH:MM" label.
 +# Runtime signature the iMessage capture bundle logs on every tick while it
 +# cannot open ~/Library/Messages/chat.db (Full Disk Access not yet granted).
 +# Matched as two tokens rather than one literal so incidental whitespace /
@@ -4151,34 +4192,38 @@
 +# Cap how much of the (potentially long-lived, appended-to) error log we read.
 +_IMESSAGE_ERR_TAIL_BYTES = 65536
  
--    findings.append({
--        "severity": "warning",
--        "title": INGEST_FEED_STARVED_TITLE,
--        "detail": INGEST_FEED_STARVED_DETAIL.format(feeds=feeds),
--        "fix": INGEST_FEED_STARVED_FIX,
--        "risk": "low",
--        "category": "installation",
--    })
--    return findings
+-    Returns ``None`` if the value cannot be parsed -- the rule then
+-    skips rendering the "live" row rather than surfacing a
+-    half-formed banner (same defensive posture as
+-    ``_format_backfill_month``).
  
+-    No timezone conversion is applied: the CM044 vault writer is
+-    expected to persist a wall-clock-local timestamp (it runs on the
+-    same Mac Doctor runs on), so we format it as-is rather than
+-    assuming a UTC offset that may not match what the writer meant.
 +def _imessage_bundle_err_path() -> "Any":
 +    """Path to the iMessage capture bundle's stderr log.
- 
--def _format_vault_last_write(iso_ts: str | None) -> str | None:
--    """Convert an ISO 8601 timestamp into a "DD-MM HH:MM" label.
++
 +    Honours ``OSTLER_LOGS_DIR`` then ``OSTLER_DIR`` (the installer sets
 +    ``OSTLER_DIR=~/.ostler`` and points launchd logs at ``${OSTLER_DIR}/logs``),
 +    falling back to ``~/.ostler/logs/imessage-bundle.err``. Mirrors
 +    ``web_ui._ostler_logs_dir`` so the resolution stays in lockstep, and lets
 +    tests point it at a fixture via ``OSTLER_LOGS_DIR`` without touching HOME.
-+    """
+     """
+-    if not iso_ts:
+-        return None
+-    from datetime import datetime as _dt
+-    raw = iso_ts.strip()
+-    if raw.endswith("Z"):
+-        raw = raw[:-1] + "+00:00"
+-    try:
+-        parsed = _dt.fromisoformat(raw)
+-    except (TypeError, ValueError):
+-        return None
+-    return parsed.strftime("%d-%m %H:%M")
 +    import os
 +    from pathlib import Path
  
--    Returns ``None`` if the value cannot be parsed -- the rule then
--    skips rendering the "live" row rather than surfacing a
--    half-formed banner (same defensive posture as
--    ``_format_backfill_month``).
 +    override = os.environ.get("OSTLER_LOGS_DIR")
 +    if override:
 +        base = Path(override)
@@ -4189,11 +4234,14 @@
 +        )
 +    return base / "imessage-bundle.err"
  
--    No timezone conversion is applied: the CM044 vault writer is
--    expected to persist a wall-clock-local timestamp (it runs on the
--    same Mac Doctor runs on), so we format it as-is rather than
--    assuming a UTC offset that may not match what the writer meant.
-+
+-def _vault_path_with_trailing_slash(raw: str | None) -> str | None:
+-    """Normalise a vault path for customer copy.
+ 
+-    LOCK-3's ``vault_path`` is the writer's absolute path (e.g.
+-    ``<home>/Documents/Ostler``). For rendering into a sentence
+-    we want a trailing "/" so "under <home>/Documents/Ostler/"
+-    reads correctly. Returns ``None`` on missing/blank so callers can
+-    switch to a path-less minimal string.
 +def _imessage_capture_crash_logged() -> bool:
 +    """True if the iMessage capture stderr log shows the pre-FDA SQLite crash.
 +
@@ -4203,18 +4251,14 @@
 +    permission error) is treated as "no crash observed" so the rule stays
 +    quiet rather than firing a false positive.
      """
--    if not iso_ts:
+-    if not raw:
 -        return None
--    from datetime import datetime as _dt
--    raw = iso_ts.strip()
--    if raw.endswith("Z"):
--        raw = raw[:-1] + "+00:00"
+-    text = raw.strip()
+-    if not text:
+-        return None
+-    return text if text.endswith("/") else text + "/"
 +    path = _imessage_bundle_err_path()
-     try:
--        parsed = _dt.fromisoformat(raw)
--    except (TypeError, ValueError):
--        return None
--    return parsed.strftime("%d-%m %H:%M")
++    try:
 +        if not path.is_file():
 +            return False
 +        with open(path, "rb") as fh:
@@ -4229,43 +4273,11 @@
 +    return all(token in tail for token in _IMESSAGE_SQLITE_CRASH_TOKENS)
  
  
--def _vault_path_with_trailing_slash(raw: str | None) -> str | None:
--    """Normalise a vault path for customer copy.
+-def check_vault_state(snapshot: Any) -> list[dict]:
+-    """v1.0.13 Markdown vault diagnostic row (BRIEF_pro_vault_writer, LOCK-3).
 +def check_imessage_capture_stalled(snapshot: Any) -> list[dict]:
 +    """#172 Doctor card: the iMessage capture bundle is crash-looping on
 +    SQLite because Full Disk Access has not been granted yet.
- 
--    LOCK-3's ``vault_path`` is the writer's absolute path (e.g.
--    ``<home>/Documents/Ostler``). For rendering into a sentence
--    we want a trailing "/" so "under <home>/Documents/Ostler/"
--    reads correctly. Returns ``None`` on missing/blank so callers can
--    switch to a path-less minimal string.
--    """
--    if not raw:
--        return None
--    text = raw.strip()
--    if not text:
--        return None
--    return text if text.endswith("/") else text + "/"
-+    Distinct from :func:`check_imessage_fda` (which fires on the install-time
-+    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
-+    every capture tick logs
-+    ``sqlite3.OperationalError: unable to open database file`` to
-+    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
-+    no messages are being read -- so we surface an actionable card.
-+
-+    Fires when BOTH:
- 
-+    1. The crash signature is present in the log tail, AND
-+    2. The signed assistant's most recent recorded chat.db read did not
-+       succeed. Doctor itself never opens chat.db.
- 
--def check_vault_state(snapshot: Any) -> list[dict]:
--    """v1.0.13 Markdown vault diagnostic row (BRIEF_pro_vault_writer, LOCK-3).
-+    That record is the auto-dismiss path (shared with
-+    :func:`check_imessage_fda`): the crash lines linger in the appended log
-+    after FDA is finally granted, so without the re-probe the card would never
-+    clear. Once FDA is granted and Messages is readable, the card disappears.
  
 -    Reads vault state EXCLUSIVELY from ``snapshot.vault_state``,
 -    which ``status_collector.collect_vault_state`` populates from
@@ -4273,10 +4285,17 @@
 -    LOCK-3 name ``OSTLER_VAULT_STATE_FILE``). This rule never
 -    enumerates ``~/Documents/Ostler/`` itself -- Doctor does not
 -    inspect user files.
--
++    Distinct from :func:`check_imessage_fda` (which fires on the install-time
++    probe signal): this rule reads the RUNTIME evidence. Before FDA is granted
++    every capture tick logs
++    ``sqlite3.OperationalError: unable to open database file`` to
++    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
++    no messages are being read -- so we surface an actionable card.
+ 
 -    Four states (see ``VaultStateInfo`` docstring in
 -    ``status_collector.py`` for the full LOCK-3 contract):
--
++    Fires when BOTH:
+ 
 -    - ``None`` snapshot / status "none" -- Hub-only, never Pro (or a
 -      writer that has never materialised anything). No row.
 -    - "preview" -- Pro trial active. Renders count + path from the
@@ -4293,11 +4312,18 @@
 -    - "paused" -- Pro lapsed after a paid stint. Renders ``vault_path``
 -      when available so the customer sees which folder their files
 -      are frozen in.
--
++    1. The crash signature is present in the log tail, AND
++    2. The signed assistant's most recent recorded chat.db read did not
++       succeed. Doctor itself never opens chat.db.
+ 
 -    Severity is "info" throughout -- none of these states are faults,
 -    they are a status readout. No fix / fix_command, matching the
 -    ``check_backfill_progress`` convention for informational rows.
--
++    That record is the auto-dismiss path (shared with
++    :func:`check_imessage_fda`): the crash lines linger in the appended log
++    after FDA is finally granted, so without the re-probe the card would never
++    clear. Once FDA is granted and Messages is readable, the card disappears.
+ 
 -    LOCK-3 field rename vs the pre-lock #272 draft:
 -      * ``page_count``   -> ``counts.total_pages``
 -      * ``last_write_ts`` -> ``last_write_at``
@@ -4409,7 +4435,7 @@
  # Dispatch failures are logged as a non-zero return code from the CM048
  # conversation processor. Counted over the log TAIL only: the log is appended
  # to forever, so counting the whole file would keep surfacing failures the
-@@ -1626,6 +2231,7 @@
+@@ -1631,6 +2236,7 @@
      return findings
  
  
@@ -4417,7 +4443,7 @@
  _NON_COUNT_KEYS = frozenset({"rc", "exit", "status", "code"})
  
  
-@@ -1643,7 +2249,6 @@
+@@ -1648,7 +2254,6 @@
      # meaning success, not a count of zero items. Scanning values blindly
      # flagged `status=run rc=0` as an empty import and would have
      # manufactured a finding on every healthy source that reports its rc.
@@ -4425,7 +4451,7 @@
      pairs = re.findall(r"(\w+)\s*=\s*(\d+)", payload)
      counts = [v for k, v in pairs if k.lower() not in _NON_COUNT_KEYS]
      return bool(counts) and all(v == "0" for v in counts)
-@@ -1674,10 +2279,10 @@
+@@ -1679,10 +2284,10 @@
      """Surface ingest sources that were killed, or that imported nothing.
  
      THE DEFECT THIS EXISTS FOR. install.sh writes one marker per source under
@@ -4440,7 +4466,7 @@
  
          browsing   status=error  rc=124  sent=0,skipped=0
          people     status=error  rc=124  sent=0
-@@ -1767,8 +2372,830 @@
+@@ -1772,8 +2377,830 @@
                  "category": "ingest",
              })
      return findings
@@ -5271,7 +5297,7 @@
  def _pretty_date(iso: str | None) -> str | None:
      """Render an ISO timestamp as a plain date, or None if unparseable.
  
-@@ -1891,63 +3318,18 @@
+@@ -1930,63 +3357,18 @@
      return []
  
  
@@ -5340,7 +5366,7 @@
      check_redis_health,
      check_gateway_health,
      check_import_readiness,
-@@ -1961,10 +3343,14 @@
+@@ -2000,10 +3382,14 @@
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
