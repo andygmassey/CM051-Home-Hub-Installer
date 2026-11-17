@@ -34106,7 +34106,7 @@ if [[ "$REMOTECAPTURE_INSTALLED" == true ]]; then
     <key>KeepAlive</key>
     <true/>
     <key>ProcessType</key>
-    <string>Interactive</string>
+    <string>Interactive</string><key>EnvironmentVariables</key><dict><key>OSTLER_TRANSCRIPTS_DIR</key><string>${USER_FACING_ROOT:-${HOME}/Ostler}/Transcripts</string></dict>
     <key>StandardOutPath</key>
     <string>${LOGS_DIR}/ostler-remotecapture.log</string>
     <key>StandardErrorPath</key>
