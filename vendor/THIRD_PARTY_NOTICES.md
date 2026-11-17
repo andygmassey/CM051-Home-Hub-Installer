@@ -49,7 +49,7 @@ must not be hand-edited.
    + SECURITY_LOCALHOST_AUTH_DESIGN.md, CM019 docker-compose.yml +
    docker-compose.v2.yml + .github/workflows/multi-arch.yml,
    CM043/deployment/single-mac/docker-compose.yml, CM051/install.sh.
-   Andy's running Mac Mini deployment still has `redis:7-alpine`
+   The owner's running Mac Mini deployment still has `redis:7-alpine`
    live; rotation to Valkey on the active container is a separate
    ops task (low risk: `docker pull valkey/valkey:8-alpine`,
    recreate the container).
@@ -349,4 +349,4 @@ blockers. Everything else is mechanical verification work.
   - Hub installer flag: CM051 `ostler --licenses` (TODO)
   - Website page: `licenses.html` (TODO)
 - **Pre-existing precedent:** Auvi / Auvi Trade iOS Acknowledgements
-  (Andy's earlier MIT-attribution work, informal context only)
+  (the owner's earlier MIT-attribution work, informal context only)

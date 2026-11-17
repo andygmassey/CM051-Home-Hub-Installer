@@ -2,7 +2,7 @@ name: imessage-probe-cannot-hang
 
 # #664: an AppleEvent to Messages must never be able to hang the install.
 #
-# Found on Andy's v1.0.36 box walk. `osascript -e 'tell application "Messages"
+# Found on the owner's v1.0.36 box walk. `osascript -e 'tell application "Messages"
 # to count of accounts'` raises a TCC "wants to control Messages" prompt
 # whenever the Automation grant is absent -- which on a wiped box is always --
 # and then BLOCKS until a human clicks. Unattended, nobody ever does.

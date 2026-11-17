@@ -2,7 +2,7 @@ name: engine-provenance
 
 # The record that says whose container engine it is.
 #
-# Andy asked on 2026-08-24 whether we could write something to absolve us if a
+# The owner asked on 2026-08-24 whether we could write something to absolve us if a
 # customer disrupts what we install. The answer implemented here is that a
 # clause does not do that job -- EVIDENCE does. This guards the module that
 # records what was on the box before we touched it, so a health card can say

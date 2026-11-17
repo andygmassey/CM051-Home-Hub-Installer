@@ -2,7 +2,7 @@
 #
 # Walk finding #874, measured live on the v1.0.44 upgrade walk 2026-08-24 at
 # step 26/37. The modal opened with "System Settings is open at Full Disk
-# Access" -- it was not, and Andy opened it himself -- and told him to find
+# Access" -- it was not, and the owner opened it himself -- and told him to find
 # "Ostler" in a list whose row reads OstlerAssistant.
 #
 # Both defects are the same shape as #876: an action whose failure is

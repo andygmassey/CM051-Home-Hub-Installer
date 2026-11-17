@@ -2,7 +2,7 @@ name: install-log-hygiene
 
 # The install log a CUSTOMER reads must not contain our scaffolding.
 #
-# On 2026-08-20 Andy walked the v1.0.37 DMG. The install SUCCEEDED -- exit 0,
+# On 2026-08-20 the owner walked the v1.0.37 DMG. The install SUCCEEDED -- exit 0,
 # 42 minutes, 8/8 health checks, 9,559 wiki pages -- and he was angry anyway,
 # because the log read like a debug session: 14 "CX-nn probe: entering/exiting"
 # lines and one `$MSG_OK_ENRICH_AGENT_LOADED` printed as the literal variable
