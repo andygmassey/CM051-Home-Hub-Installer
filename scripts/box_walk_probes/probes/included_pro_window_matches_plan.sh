@@ -12,24 +12,34 @@
 # fix. This probe reads what the installer actually wrote, so it proves the
 # shipped path, not the gate called by hand.
 #
-# READ-ONLY. The licence file is tested for existence only, never opened. Only
-# these state fields leave the box: status, source, included_plan,
-# included_days, included_provisional, included_from, expires_at.
+# TWO ARMS, both required for a PASS.
+#   A  the installed state (~/.ostler/state/subscription_state.json) against
+#      OSTLER_INCPRO_EXPECT (founding | ff | standard), which the walker sets from
+#      the signed test licence it staged at ~/.ostler/license/license.json before
+#      the install. Read-only.
+#   B  NO LICENCE gets 0 days. A box cannot be installed without a licence
+#      (install.sh ERR-02-LICENCE-REQUIRED), so B calls the INSTALLED gate
+#      (~/.ostler/services/ical-server/subscription_gate.py) exactly as install.sh
+#      does with nothing verified (tier_state unverified, no plan), with
+#      OSTLER_SUBSCRIPTION_STATE pointed at a temporary file. WALK_WRITES: that
+#      temporary directory only, removed in the same call; the real state is
+#      never touched.
 #
-# REQUIRED: OSTLER_INCPRO_EXPECT = founding | ff | standard | none, set by the
-# walker from how the box was installed (the signed test licence staged before
-# the install, or no licence). Unset is CANNOT-RUN: the box cannot say which
-# plan it was meant to have.
+# The licence file is tested for existence only, never opened. Only these
+# state fields leave the box: status, source, included_plan, included_days,
+# included_provisional, included_from, expires_at.
 #
-#   PASS        founding: active, plan founding, 180 days (+-1); none: no active window
-#   FAIL        the window does not match the plan (including 0 days for a founding licence)
-#   CANNOT-RUN  expectation unset, licence staging contradicts it, state unreadable,
+#   PASS        A: active, plan as expected, 180 days (+-1) for founding; and B: no active window
+#   FAIL        either arm's window is wrong (including 0 days for a founding licence)
+#   CANNOT-RUN  expectation unset, no licence staged, state unreadable, gate missing,
 #               or the transport failed
+#
+# WALK_READ_ONLY: arm B writes one state file into a mktemp -d directory on the box and removes it in the same call; nothing another probe reads is changed.
 set -u
 . "$(dirname "$0")/../lib/probe.sh"
 
 PROBE_NAME="included_pro_window_matches_plan"
-PROBE_QUESTION="does ~/.ostler/state/subscription_state.json carry the included Pro window the installed licence's plan buys (founding 180 days, no licence 0)?"
+PROBE_QUESTION="does the installed state carry the window the staged licence's plan buys (founding 180 days), and does the installed gate grant 0 days with no licence?"
 
 _JUDGE="$(cd "$(dirname "$0")/.." && pwd)/lib/included_pro.py"
 
@@ -49,6 +59,36 @@ print("STATE=ok")
 for k in ("status", "source", "included_plan", "included_days", "included_provisional", "included_from", "expires_at"):
     print("%s=%s" % (k, d.get(k, "")))
 PY
+fi
+g="$HOME/.ostler/services/ical-server/subscription_gate.py"
+if [ ! -f "$g" ]; then echo NOLIC_GATE=absent
+else
+  echo NOLIC_GATE=present
+  t="$(mktemp -d)"
+  OSTLER_SUBSCRIPTION_STATE="$t/state.json" /usr/bin/python3 - "$(dirname "$g")" >/dev/null 2>&1 <<'"'"'PY'"'"'
+import sys
+from datetime import datetime, timezone
+sys.path.insert(0, sys.argv[1])
+from subscription_gate import activate_first_month_free
+activate_first_month_free(datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                          licence_tier=None, licence_tier_state="unverified",
+                          licence_expires_at=None, included_plan=None)
+PY
+  echo "NOLIC_RC=$?"
+  if [ ! -e "$t/state.json" ]; then echo NOLIC_STATE=absent
+  else /usr/bin/python3 - "$t/state.json" <<'"'"'PY'"'"'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    assert isinstance(d, dict)
+except Exception:
+    print("NOLIC_STATE=unparseable"); sys.exit(0)
+print("NOLIC_STATE=ok")
+for k in ("status", "source", "included_plan"):
+    print("NOLIC_%s=%s" % (k, d.get(k, "")))
+PY
+  fi
+  rm -rf "$t"
 fi'
 
 self_test() {
@@ -58,7 +98,7 @@ self_test() {
     }
     # The known-bad capture: the v1.0.133 shape, a founding licence and no window.
     local cap why rc; cap="$(mktemp)"
-    printf 'LICENCE=present\nSTATE=absent\n' > "${cap}"
+    printf 'LICENCE=present\nSTATE=absent\nNOLIC_GATE=present\nNOLIC_RC=0\nNOLIC_STATE=absent\n' > "${cap}"
     probe_examined 1 "known-bad capture (founding licence, no state written)"
     why="$(python3 "${_JUDGE}" "${cap}" founding)"; rc=$?
     rm -f "${cap}"
@@ -70,15 +110,13 @@ self_test() {
 }
 
 run_probe() {
-    [ -n "${OSTLER_INCPRO_EXPECT:-}" ] \
-        || probe_cannot_run "OSTLER_INCPRO_EXPECT is unset (founding | none): the walker must say how this box was installed"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was read"
     local cap why rc; cap="$(mktemp)"
     box_run "${_BOX_READ}" > "${cap}" \
         || { rm -f "${cap}"; probe_cannot_run "the box read failed; nothing was judged"; }
-    why="$(python3 "${_JUDGE}" "${cap}" "${OSTLER_INCPRO_EXPECT}")"; rc=$?
+    why="$(python3 "${_JUDGE}" "${cap}" "${OSTLER_INCPRO_EXPECT:-}")"; rc=$?
     rm -f "${cap}"
-    probe_examined 1 "subscription_state.json (expectation ${OSTLER_INCPRO_EXPECT})"
+    probe_examined 2 "arms: installed subscription_state.json (expect ${OSTLER_INCPRO_EXPECT:-unset}) and the installed gate with no licence"
     case "${rc}" in
         0) probe_pass "${why}" ;;
         1) probe_fail_or_advisory "${why}" ;;

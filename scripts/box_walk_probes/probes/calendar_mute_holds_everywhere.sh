@@ -3,6 +3,8 @@
 # its events vanish from every Hub surface, and does an unmuted calendar's event
 # stay? (backlog T2, cut v1.0.134)
 #
+# WALK_WRITES: two synthetic pwg:Meeting nodes and one synthetic person in Oxigraph, and one exclude_calendar owner instruction that mutes a REAL listed calendar for the length of the run; teardown deletes the seeded nodes (before>0, after=0) and cancels the instruction.
+#
 # Product under test:
 #   CM041 #266 (fix/t2-calendar-id-rules, head 3a60cb0a0, DRAFT):
 #     GET  /api/v1/calendars            assistant_api/ical-server.py:11325, :5380

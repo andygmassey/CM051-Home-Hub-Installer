@@ -8,8 +8,14 @@ Reads the KEY=VALUE capture the box printed (never the licence: only whether
   founding  the box was installed with a signed plan=founding licence:
             status active, source first_month_free, included_plan founding,
             included_days 180, and expires_at - included_from = 180 days (+-1).
-  none      the box was installed with NO licence: no state file, or a state
-            whose status is not active. Any active window is FAIL (0 expected).
+
+A box cannot be INSTALLED without a licence (install.sh refuses,
+ERR-02-LICENCE-REQUIRED; scripts/ttywalk.sh LICENCE PREFLIGHT), so "no licence
+gets 0 days" is proven by the second arm instead: the INSTALLED gate
+(~/.ostler/services/ical-server/subscription_gate.py) is called the way
+install.sh calls it with nothing verified (tier_state unverified, no plan),
+writing to a temporary state file only (OSTLER_SUBSCRIPTION_STATE). Lines
+prefixed NOLIC_. PASS: no state, or a state that is not active.
 
 Exit / verdict: 0 PASS, 1 FAIL, 78 CANNOT-RUN. One reason line on stdout.
 A capture the judge cannot read is CANNOT-RUN, never PASS.
@@ -42,7 +48,7 @@ def _iso(v):
 def judge(cap, expect):
     """Return (rc, reason)."""
     if expect not in ("founding", "ff", "standard", "none"):
-        return 78, "OSTLER_INCPRO_EXPECT must be founding, ff, standard or none (got %r)" % expect
+        return 78, "OSTLER_INCPRO_EXPECT must be founding, ff or standard (got %r)" % expect
     lic = cap.get("LICENCE")
     state = cap.get("STATE")
     if lic not in ("present", "absent") or state not in ("absent", "ok", "unreadable", "unparseable"):
@@ -87,6 +93,33 @@ def judge(cap, expect):
     return 0, "%s licence installed: status active, plan %s, window %.2f days (want %s)" % (expect, expect, days, want)
 
 
+def judge_nolic(cap):
+    """The no-licence arm (installed gate, temporary state). (rc, reason)."""
+    if cap.get("NOLIC_GATE") != "present":
+        return 78, "no-licence arm: the installed subscription_gate.py was not found (%s)" % (cap.get("NOLIC_GATE") or "no NOLIC_GATE line")
+    if cap.get("NOLIC_RC") != "0":
+        return 78, "no-licence arm: the installed gate raised (rc %s)" % cap.get("NOLIC_RC")
+    st = cap.get("NOLIC_STATE")
+    if st == "absent":
+        return 0, "no-licence arm: nothing written, 0 days"
+    if st != "ok":
+        return 78, "no-licence arm: the temporary state could not be read (%s)" % st
+    if cap.get("NOLIC_status") != "active":
+        return 0, "no-licence arm: state status=%s, 0 days" % cap.get("NOLIC_status")
+    return 1, "no-licence arm: the installed gate granted an ACTIVE window with nothing verified (source=%s, plan=%s); 0 expected" % (cap.get("NOLIC_source"), cap.get("NOLIC_included_plan"))
+
+
+def judge_both(cap, expect):
+    a_rc, a_why = judge(cap, expect)
+    b_rc, b_why = judge_nolic(cap)
+    why = "%s | %s" % (a_why, b_why)
+    if 1 in (a_rc, b_rc):
+        return 1, why
+    if a_rc == 0 and b_rc == 0:
+        return 0, why
+    return 78, why
+
+
 GOOD = ("LICENCE=present\nSTATE=ok\nstatus=active\nsource=first_month_free\nincluded_plan=founding\n"
         "included_days=180\nincluded_provisional=False\nincluded_from=2026-11-18T00:00:00Z\n"
         "expires_at=2027-05-17T00:00:00Z\n")
@@ -109,14 +142,43 @@ CASES = [
 ]
 
 
+NOLIC_OK = "NOLIC_GATE=present\nNOLIC_RC=0\nNOLIC_STATE=absent\n"
+NOLIC_CASES = [
+    ("no-licence: nothing written", NOLIC_OK, 0),
+    ("no-licence: inactive state", "NOLIC_GATE=present\nNOLIC_RC=0\nNOLIC_STATE=ok\nNOLIC_status=inactive\n", 0),
+    ("no-licence: an active window", "NOLIC_GATE=present\nNOLIC_RC=0\nNOLIC_STATE=ok\nNOLIC_status=active\nNOLIC_source=first_month_free\n", 1),
+    ("no-licence: gate missing", "NOLIC_GATE=absent\n", 78),
+    ("no-licence: gate raised", "NOLIC_GATE=present\nNOLIC_RC=1\n", 78),
+    ("no-licence: no lines", "", 78),
+]
+BOTH_CASES = [
+    ("both arms hold", GOOD + NOLIC_OK, "founding", 0),
+    ("founding holds, no-licence grants", GOOD + "NOLIC_GATE=present\nNOLIC_RC=0\nNOLIC_STATE=ok\nNOLIC_status=active\n", "founding", 1),
+    ("founding 0 days, no-licence holds", "LICENCE=present\nSTATE=absent\n" + NOLIC_OK, "founding", 1),
+    ("founding holds, no-licence unmeasured", GOOD, "founding", 78),
+    ("expectation unset", GOOD + NOLIC_OK, "", 78),
+]
+
+
 def self_test():
     bad = 0
+    for name, text, want in NOLIC_CASES:
+        rc, why = judge_nolic(parse(text))
+        ok = rc == want
+        bad += 0 if ok else 1
+        print("  %s %-52s want=%s got=%s" % ("held  " if ok else "FAILED", name, want, rc))
+    for name, text, exp, want in BOTH_CASES:
+        rc, why = judge_both(parse(text), exp)
+        ok = rc == want
+        bad += 0 if ok else 1
+        print("  %s %-52s want=%s got=%s" % ("held  " if ok else "FAILED", name, want, rc))
     for name, text, exp, want in CASES:
         rc, why = judge(parse(text), exp)
         ok = rc == want
         bad += 0 if ok else 1
         print("  %s %-52s want=%s got=%s" % ("held  " if ok else "FAILED", name, want, rc))
-    print("included_pro judge: %d of %d cases held" % (len(CASES) - bad, len(CASES)))
+    total = len(CASES) + len(NOLIC_CASES) + len(BOTH_CASES)
+    print("included_pro judge: %d of %d cases held" % (total - bad, total))
     return 0 if bad == 0 else 1
 
 
@@ -124,9 +186,9 @@ if __name__ == "__main__":
     if sys.argv[1:2] == ["--self-test"]:
         sys.exit(self_test())
     if len(sys.argv) != 3:
-        print("usage: included_pro.py <capture-file> <founding|ff|standard|none> | --self-test")
+        print("usage: included_pro.py <capture-file> <founding|ff|standard> | --self-test")
         sys.exit(78)
     with open(sys.argv[1]) as fh:
-        rc, why = judge(parse(fh.read()), sys.argv[2])
+        rc, why = judge_both(parse(fh.read()), sys.argv[2])
     print(why)
     sys.exit(rc)
