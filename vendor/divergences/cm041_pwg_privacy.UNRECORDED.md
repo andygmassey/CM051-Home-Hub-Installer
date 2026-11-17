@@ -13,3 +13,5 @@ Revision (CM041 be69c80, Archie blockers on #295): adds `outbound_ok` (L1, L2 se
 Revision (CM041 866a7aa, canonical scale): the file is replaced by the CM041 866a7aa text, byte-identical. L0 is PUBLIC on the canonical scale; the "L0 = owner-private" rulings are withdrawn. The file adds `may_leave` (the outbound table), `outbound_ok` (a thin wrapper for the Hub route), `legacy_l0_guard` (an unmigrated L0 is withheld until the per-writer relabel; migrated when `privacy_scale == canonical-2026-11`), `CANONICAL_SCALE_KEY`/`CANONICAL_SCALE_VALUE`, and `provenance_verdict` reverted to the pre-canonical verdicts.
 
 Tree: cm041/pwg_privacy (canonical re-graft, CM041 866a7aa).
+
+Revision (CM041 531ac94, per-request destination). Tree: cm041/pwg_privacy. The file is byte-identical to CM041 531ac94: `DESTINATIONS` is now owner_local, owner_channel, cloud, others, export; the table has owner_local (L3 labelled); an undeclared or unknown destination is cloud; `resolve_destination` is added; `ROUTE_DESTINATION` is removed.

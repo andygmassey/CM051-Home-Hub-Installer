@@ -2275,7 +2275,7 @@ def _qdrant_fact_is_explicit_l3(fact):
     return pwg_privacy.is_l3(fact)
 
 
-def _filter_qdrant_facts(facts, owner_level=None):
+def _filter_qdrant_facts(facts, owner_level=None, destination=None):
     """Fail-closed L3 filter for a Qdrant person payload's ``facts`` field.
 
     Read-side guard for people_search(). The /people/search reader copies
@@ -2296,7 +2296,8 @@ def _filter_qdrant_facts(facts, owner_level=None):
     inherit a coarse person-level clearance from, so each fact must clear
     itself. Non-list shapes are dropped whole (un-auditable).
     """
-    return pwg_privacy.filter_outbound_facts(facts, owner_level)
+    return pwg_privacy.filter_outbound_facts(
+        facts, owner_level, destination or pwg_privacy.DEFAULT_DESTINATION)
 
 
 # 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
@@ -2305,26 +2306,29 @@ def _filter_qdrant_facts(facts, owner_level=None):
 # not parse are withheld. Untagged passes, as these readers always did.
 
 
-def _outbound_level_ok(record):
+def _outbound_level_ok(record, destination=None):
     """True when a person or debt record may leave the box.
 
     LEGACY: no level under any spelling passes (the 133 untagged rule).
     Anything else follows the outbound table for the Hub route.
     """
-    return pwg_privacy.outbound_ok(record, legacy_absent_serves=True)
+    return pwg_privacy.outbound_ok(
+        record, destination=destination or pwg_privacy.DEFAULT_DESTINATION,
+        legacy_absent_serves=True)
 
 
-def _fact_outbound_ok(fact):
+def _fact_outbound_ok(fact, destination=None):
     """True when one fact may leave the box (outbound table, Hub route).
 
     A fact with no tag is refused: it is L3 under the canonical rule.
     """
     if not isinstance(fact, dict):
         return False
-    return pwg_privacy.outbound_ok(fact)
+    return pwg_privacy.outbound_ok(
+        fact, destination=destination or pwg_privacy.DEFAULT_DESTINATION)
 
 
-def people_search(query, limit=10, timeout=30):
+def people_search(query, limit=10, timeout=30, destination=None):
     """Semantic search across the Qdrant people collection.
 
     ``timeout`` is ONE budget for the embed and the Qdrant search together,
@@ -2404,7 +2408,7 @@ def people_search(query, limit=10, timeout=30):
         # is still searchable (search coverage must not collapse for the many
         # points that predate the privacy_level default), and their individual
         # facts are still fail-closed filtered below.
-        if not _outbound_level_ok(p):
+        if not _outbound_level_ok(p, destination):
             continue
         entry = {
             "name": dn,
@@ -2424,10 +2428,10 @@ def people_search(query, limit=10, timeout=30):
         # Fail-closed L3 filter: the Qdrant `facts` payload is copied
         # verbatim into the response with no downstream privacy re-check.
         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
-        facts = _filter_qdrant_facts(p.get("facts"))
+        facts = _filter_qdrant_facts(p.get("facts"), destination=destination)
         # Outbound: each fact is checked against the outbound table here
         # (canonical L0 served, unmigrated L0 withheld by legacy_l0_guard).
-        facts = [f for f in facts if _fact_outbound_ok(f)]
+        facts = [f for f in facts if _fact_outbound_ok(f, destination)]
         if facts:
             entry["facts"] = facts
         results.append(entry)
@@ -13116,7 +13120,7 @@ def _still_learning_note():
     return {"interests_so_far": n, "text": f"Still learning: {n} interests found so far"}
 
 
-def api_preferences_derived(limit=8, min_confidence=0.4, tier=None):
+def api_preferences_derived(limit=8, min_confidence=0.4, tier=None, destination=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph; see _api_preferences_derived_core. An empty
     answer also carries ``still_learning`` (see _still_learning_note)."""
@@ -13149,7 +13153,7 @@ def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None):
     except Exception as exc:  # noqa: BLE001
         return {"generated_at": _ts, "items": [], "degraded": True,
                 "cannot_check": "derived module unavailable: " + type(exc).__name__}
-    reader = _dp.DerivedGraphReader(_sparql_select_unscoped)
+    reader = _dp.DerivedGraphReader(_sparql_select_unscoped, destination=destination)
     return _dp.build_derived_preferences_response(
         reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
 
@@ -13314,6 +13318,24 @@ def _instrumented(fn):
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    # Destination of the current request (Archie, 2026-11-17). Undeclared or
+    # unknown = cloud (fail closed). Set per request in do_GET and do_POST.
+    _destination = pwg_privacy.DEFAULT_DESTINATION
+
+    def log_message(self, format, *args):
+        pass
+
+    def end_headers(self):
+        # Every route response is tagged with the destination it was served for.
+        self.send_header("X-Ostler-Served-For", self._destination)
+        super().end_headers()
+
+    def _declare_destination(self, parsed):
+        declared = self.headers.get("X-Ostler-Destination")
+        if declared is None:
+            declared = parse_qs(parsed.query).get("destination", [None])[0]
+        self._destination = pwg_privacy.resolve_destination(declared)
 
     def send_response(self, code, message=None):
         self._ical_status = code
@@ -13480,6 +13502,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in self._VERSIONED_TO_LEGACY:
             parsed = parsed._replace(path=self._VERSIONED_TO_LEGACY[parsed.path])
+        self._declare_destination(parsed)
 
         # Host allowlist + service-token auth BEFORE any route dispatch.
         if not self._guard("GET", parsed.path):
@@ -13609,7 +13632,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
-                result = people_search(q, limit=limit)
+                result = people_search(q, limit=limit, destination=self._destination)
             except Exception as e:
                 result = {"results": [], "count": 0, "query": q,
                           "degraded": True, "reason": str(e), "error": str(e)}
@@ -14323,7 +14346,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(
                     {"error": "tier must be broad, specific or all"}).encode())
                 return
-            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier)
+            result = api_preferences_derived(limit=limit, min_confidence=min_conf, tier=tier,
+                                             destination=self._destination)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -14448,6 +14472,7 @@ class Handler(BaseHTTPRequestHandler):
     @_instrumented
     def do_POST(self):
         parsed = urlparse(self.path)
+        self._declare_destination(parsed)
 
         # Host allowlist + service-token auth BEFORE any route dispatch.
         # No POST route is public: every POST either writes facts, mutates

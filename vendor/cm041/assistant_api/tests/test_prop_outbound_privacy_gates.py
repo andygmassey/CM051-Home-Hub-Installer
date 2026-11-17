@@ -170,7 +170,7 @@ def test_mutant_fact_gate_lets_l3_through_is_caught():
         for k in pwg_privacy.FACT_PRIVACY_KEYS
     )
     with patch.object(server, "_filter_qdrant_facts",
-                      lambda facts, owner_level=None: facts if isinstance(facts, list) else []):
+                      lambda *a, **k: a[0] if isinstance(a[0], list) else []):
         msgs = _expect_red(_fact_property(mutant))
     assert any("L1/L2/L3" in m or "unmigrated L0" in m for m in msgs)
 
@@ -180,13 +180,13 @@ def test_control_outbound_gate_masks_disabled_filter():
     withholds every L3/untagged fact on single-spelling data, so the property
     holds there. That is defence in depth, and it is why the mutant below must
     disable BOTH layers."""
-    with patch.object(pwg_privacy, "filter_outbound_facts", lambda facts, owner_level=None: facts):
+    with patch.object(pwg_privacy, "filter_outbound_facts", lambda *a, **k: a[0]):
         _fact_property(None, facts=SINGLE_SPELLING_FACT)()
 
 
 def test_mutant_both_fact_layers_disabled_is_caught():
     """Mutant: filter AND outbound gate both admit everything. Property 1 must fail."""
-    with patch.object(pwg_privacy, "filter_outbound_facts", lambda facts, owner_level=None: facts):
+    with patch.object(pwg_privacy, "filter_outbound_facts", lambda *a, **k: a[0]):
         _expect_red(_fact_property(lambda fact: True, facts=SINGLE_SPELLING_FACT))
 
 
@@ -253,7 +253,7 @@ def test_person_tagged_camel_case_l3_is_not_served():
 
 def test_mutant_person_gate_serves_l3_is_caught():
     """Mutant: the person gate admits L3. The property must fail on it."""
-    with patch.object(server, "_outbound_level_ok", lambda raw: True):
+    with patch.object(server, "_outbound_level_ok", lambda *a, **k: True):
         _expect_red(test_persons_never_served_when_tagged_l0_l3_or_garbage)
 
 

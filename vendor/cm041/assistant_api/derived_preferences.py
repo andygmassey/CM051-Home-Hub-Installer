@@ -27,20 +27,17 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple
 
+import pwg_privacy  # the one outbound table; repo-root module, see ical-server.py
+
 CONTRACT_VERSION = "derived-preferences.v1"
 
 # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
 PWG_NS = "https://schema.ostler.ai/ontology#"
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
-# The levels a derived node may carry and still be served OUTBOUND (this route
-# feeds the assistant's channel replies and briefs). Canonical outbound table
-# (pwg_privacy.may_leave, Hub route = "others"): L1 is redacted-only, L2 and L3
-# are never served, and an unparseable level fails closed. Canonical L0 is
-# public, but this route has no relabel-contract check yet, so an L0 node could
-# be an unmigrated legacy L0: nothing carrying a level is served here. A node
-# with NO level is served as LEGACY: behavioural evidence, or a graph written
-# before CM019 #423. Widen this only with the legacy_l0_guard contract check.
-SERVED_PRIVACY_LEVELS = ()
+# Derived nodes are routed through pwg_privacy.may_leave like every other Hub
+# route (Archie, 2026-11-17). The SQL does not filter on level: the Python gate
+# decides, so the outbound table is the only decider. A node with NO level is
+# served as LEGACY (behavioural evidence, or a graph written before CM019 #423).
 # A stated dislike is rare and decisive ("never serve me coriander"), but the
 # round-robin cap ranks it by confidence among hundreds of likes. Negatives are
 # therefore read in their own pass, bounded here and NOT counted against `limit`.
@@ -106,9 +103,12 @@ class DerivedGraphReader:
     would double every row.
     """
 
-    def __init__(self, sparql: Callable[[str], list], derived_graph: str = DERIVED_GRAPH):
+    def __init__(self, sparql: Callable[[str], list], derived_graph: str = DERIVED_GRAPH,
+                 destination: Optional[str] = None):
         self._sparql = sparql
         self._graph = derived_graph
+        # The request's destination. Undeclared or unknown = cloud (fail closed).
+        self.destination = pwg_privacy.resolve_destination(destination)
 
     def get_derived_preferences(
         self,
@@ -119,12 +119,9 @@ class DerivedGraphReader:
         negative_only: bool = False,
         **_kw,
     ) -> List[AffinityView]:
-        served = ", ".join(f'"{lvl}"' for lvl in SERVED_PRIVACY_LEVELS)
-        level_filter = (f"FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
-                        if served else "FILTER(!BOUND(?privacy))\n")
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
-            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
+            "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy ?scale WHERE {\n"
             f"  GRAPH <{self._graph}> {{\n"
             "    ?s a pwg:DerivedPreference ;\n"
             "       pwg:dimension ?dimension ;\n"
@@ -135,7 +132,7 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
             "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
-            f"    {level_filter}"
+            "    OPTIONAL { ?s pwg:privacyScale ?scale }\n"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
             + ("    FILTER(?strength < 0)\n" if negative_only else "")
             + "  }\n"
@@ -150,8 +147,11 @@ class DerivedGraphReader:
         views: List[AffinityView] = []
         for b in self._sparql(q):
             privacy = (b.get("privacy") or "").strip().upper()
-            if privacy and privacy not in SERVED_PRIVACY_LEVELS:
-                # Belt to the query's braces: never serve an L3 or unparseable row.
+            # The outbound table decides, per destination. A relabelled L0 carries
+            # privacy_scale; an unmigrated L0 is withheld by legacy_l0_guard.
+            if not pwg_privacy.outbound_ok(
+                    {"privacy_level": privacy, "privacy_scale": b.get("scale") or ""},
+                    destination=self.destination, legacy_absent_serves=True):
                 continue
             subj_uri = b.get("s")
             because = (

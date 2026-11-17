@@ -10,28 +10,30 @@ design PRIVACY_SCALE_DESIGN_2026-11-16.md section 1):
 
     Missing or unknown level = L3.
 
-OUTBOUND TABLE, by destination (``may_leave``):
+OUTBOUND, per request (Archie, 2026-11-17, replaces the "strictest destination"
+rule). Every Hub-route request carries ``destination``. An undeclared or unknown
+destination counts as ``cloud`` (fail closed). ``may_leave(level, destination)``
+is the only decider.
 
-    level  owner_channel  cloud    others   export
-    L0     full           full     full     full
-    L1     full           redacted redacted redacted
-    L2     full (own      no       no       no
-           WhatsApp or
-           iMessage brief)
-    L3     no             no       no       no
+    level  owner_local  owner_channel  cloud     others    export
+    L0     full         full           full      full      full
+    L1     full         full           redacted  redacted  redacted
+    L2     full         full           no        no        no
+    L3     labelled     no             no        no        no
 
-  owner_channel = the owner's own WhatsApp or iMessage brief.
+  owner_local   = the Hub UI, and the owner-scoped bearer once it lands.
+  owner_channel = the owner's own brief and own-channel replies.
   cloud         = a cloud model.   others = other people.   export = any file.
-  Every Hub route is outbound: ``outbound_ok`` asks the table for destination
-  ``others``, the strictest destination a Hub route can reach. ``others``,
-  ``cloud`` and ``export`` agree in every row, so the choice of the three is
-  not load-bearing.
+
+  "full" and "labelled" serve; "redacted" serves only the redacted form, which
+  no route produces yet, so it is withheld; "no" never serves.
+  Every route response is tagged ``served_for: <destination>``.
 
 LEGACY, named wherever it remains:
 
   * ``legacy_l0_guard``: an UNMIGRATED L0 from the old PWG/CM041 writers meant
-    "owner-private". It is withheld outbound until that store's per-writer
-    relabel has run. A record is migrated when it carries the relabel
+    "owner-private". It is withheld, for every destination, until that store's
+    per-writer relabel has run. A record is migrated when it carries the relabel
     contract (``CANONICAL_SCALE_KEY``); a raw value never does.
   * ``legacy_absent_serves``: an untagged person is served by the old 133
     rule. Canonical rule: a missing tag is L3. Only the person gate passes it.
@@ -74,18 +76,28 @@ CANONICAL_SCALE_KEY = "privacy_scale"
 CANONICAL_SCALE_VALUE = "canonical-2026-11"
 
 # The destinations of the outbound table.
-DESTINATIONS = ("owner_channel", "cloud", "others", "export")
-# What a Hub route can reach: the strictest destination (see module docstring).
-ROUTE_DESTINATION = "others"
+DESTINATIONS = ("owner_local", "owner_channel", "cloud", "others", "export")
+# An undeclared or unknown destination is cloud: fail closed.
+DEFAULT_DESTINATION = "cloud"
 
-# The outbound table. "full" = may leave as is; "redacted" = only the redacted
-# form may leave; "no" = never leaves. Lift verbatim with the module.
+# The outbound table. "full" = serves; "labelled" = serves, labelled private;
+# "redacted" = only the redacted form may leave (no route produces it, so it is
+# withheld); "no" = never leaves. Lift verbatim with the module.
 _OUTBOUND_TABLE = {
-    "L0": {"owner_channel": "full", "cloud": "full", "others": "full", "export": "full"},
-    "L1": {"owner_channel": "full", "cloud": "redacted", "others": "redacted", "export": "redacted"},
-    "L2": {"owner_channel": "full", "cloud": "no", "others": "no", "export": "no"},
-    "L3": {"owner_channel": "no", "cloud": "no", "others": "no", "export": "no"},
+    "L0": {"owner_local": "full", "owner_channel": "full", "cloud": "full", "others": "full", "export": "full"},
+    "L1": {"owner_local": "full", "owner_channel": "full", "cloud": "redacted", "others": "redacted", "export": "redacted"},
+    "L2": {"owner_local": "full", "owner_channel": "full", "cloud": "no", "others": "no", "export": "no"},
+    "L3": {"owner_local": "labelled", "owner_channel": "no", "cloud": "no", "others": "no", "export": "no"},
 }
+SERVING_VERDICTS = ("full", "labelled")
+
+
+def resolve_destination(value):
+    """The destination a request declared, or ``cloud`` when it declared none
+    or an unknown one (fail closed)."""
+    if value in DESTINATIONS:
+        return value
+    return DEFAULT_DESTINATION
 
 
 class _Absent:
@@ -162,13 +174,12 @@ def effective_level(record, owner_level=None):
 
 
 def may_leave(level, destination):
-    """The outbound table. Returns "full", "redacted" or "no".
+    """The outbound table: "full", "labelled", "redacted" or "no".
 
-    ``level`` is one of "L0".."L3" or ``ABSENT``/"UNREADABLE" (both "no").
-    An unknown ``destination`` raises: the table fails closed, never open.
+    ``level`` is one of "L0".."L3", or ``ABSENT``/"UNREADABLE" (both "no").
+    An unknown ``destination`` is resolved to ``cloud`` (fail closed).
     """
-    if destination not in DESTINATIONS:
-        raise ValueError(f"unknown outbound destination: {destination!r}")
+    destination = resolve_destination(destination)
     if level is ABSENT or level not in _OUTBOUND_TABLE:
         return "no"
     return _OUTBOUND_TABLE[level][destination]
@@ -213,33 +224,33 @@ def is_l3(record, owner_level=None):
     return level is ABSENT or level in ("L3", "UNREADABLE")
 
 
-def outbound_ok(record, owner_level=None, destination=ROUTE_DESTINATION,
+def outbound_ok(record, owner_level=None, destination=DEFAULT_DESTINATION,
                 legacy_absent_serves=False):
-    """True when a record may leave by ``destination``: the table says "full".
+    """True when a record may be served to ``destination`` (table verdict is
+    "full" or "labelled"). An undeclared destination is cloud.
 
-    Defaults to the Hub-route case (``ROUTE_DESTINATION``). A "redacted" cell is
-    NOT servable here, because no Hub route redacts. An unmigrated L0 is
-    withheld through ``legacy_l0_guard``.
-
-    ``legacy_absent_serves`` is LEGACY (the 133 untagged rule). Only the person
-    gate passes it. A fact with no tag is refused by default.
+    An unmigrated L0 is withheld through ``legacy_l0_guard`` for every
+    destination. ``legacy_absent_serves`` is LEGACY (the 133 untagged rule):
+    only the person gate and the derived-preferences route pass it. A fact with
+    no tag is refused by default.
     """
+    destination = resolve_destination(destination)
     level = effective_level(record, owner_level)
     if level is ABSENT:
         return bool(legacy_absent_serves)
     if legacy_l0_guard(record):
         return False
-    return may_leave(level, destination) == "full"
+    return may_leave(level, destination) in SERVING_VERDICTS
 
 
-def filter_outbound_facts(facts, owner_level=None):
+def filter_outbound_facts(facts, owner_level=None, destination=DEFAULT_DESTINATION):
     """Visible subset of a facts *list* under :func:`outbound_ok`, fail-closed.
 
     ``facts`` MUST be a list; any other shape is dropped whole -> ``[]``.
     """
     if not isinstance(facts, list):
         return []
-    return [f for f in facts if outbound_ok(f, owner_level)]
+    return [f for f in facts if outbound_ok(f, owner_level, destination)]
 
 
 def filter_l3_facts(facts, owner_level=None):
