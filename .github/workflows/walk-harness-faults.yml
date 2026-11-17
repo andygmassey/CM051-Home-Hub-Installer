@@ -7,6 +7,9 @@ name: walk-harness-faults
 on:
   pull_request:
     paths:
+      - 'scripts/box_walk_probes/lib/walk_vm_resources.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'tests/test_walk_header_carries_vm_resources.py'
       - 'scripts/box_walk_probes/lib/pair_offwindow.py'
       - 'scripts/box_walk_probes/lib/todo_reminders_probe.py'
       - 'scripts/box_walk_probes/lib/wow_moments.py'
@@ -39,3 +42,6 @@ jobs:
       - name: a same-title line at a different time, or a count with a different number, is not a morning-brief repeat
         if: always()
         run: python3 tests/test_morning_brief_repeat_not_digits.py
+      - name: the walk record carries the VM's cpus, memory, disk and vm_stat free pages at start and end
+        if: always()
+        run: python3 tests/test_walk_header_carries_vm_resources.py
