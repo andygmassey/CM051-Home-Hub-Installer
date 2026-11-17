@@ -1717,3 +1717,14 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "core_memory_holds_no_prefetch_block"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, calendar_mute_holds_everywhere row):
+  # T2, cut 134. Declared here because every probe on disk must be invoked by the
+  # cut; the promote scope decides it never refuses a promote. It cannot PASS on a
+  # box until a feed seam exists, so on a walk it reads CANNOT-RUN, named.
+  - id: box-walk-calendar-mute-holds-everywhere
+    title: "advisory: an owner's calendar mute hides a listed calendar's events on every Hub surface that carries events, and an unmuted calendar's event stays"
+    incident: "T2 (backlog row, cut 134): a calendar 'ignore' rule was stored but did not hold on the calendar, today, meeting-upcoming, timeline and meeting-prep surfaces. CM041 #266 binds the rule to the calendar UUID; this probe proves the binding on the Hub."
+    proof:
+      kind: box_walk_probe
+      probe: "calendar_mute_holds_everywhere"
