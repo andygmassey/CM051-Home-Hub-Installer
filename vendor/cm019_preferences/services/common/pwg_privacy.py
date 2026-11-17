@@ -10,22 +10,21 @@ design PRIVACY_SCALE_DESIGN_2026-11-16.md section 1):
 
     Missing or unknown level = L3.
 
-OUTBOUND, per request (Archie, 2026-11-17, replaces the "strictest destination"
-rule). Every Hub-route request carries ``destination``. An undeclared or unknown
-destination counts as ``cloud`` (fail closed). ``may_leave(level, destination)``
-is the only decider.
+OUTBOUND, per request. THE TABLE IS NOT IN THIS FILE: it is the shared
+``privacy_scale_canonical.tsv`` [outbound] section, read through its loader
+``privacy_scale.py`` (CM041 #297, byte-identical in every repo, sha256-pinned).
+Destinations (Archie 2026-11-17, the shared table's names win): owner_local,
+owner_own_brief, thread_participants, cloud_model, others, export, and
+``unknown`` = undeclared, which takes the strictest row. Every Hub-route
+request carries ``destination``; an undeclared or unrecognised one is
+``unknown``. ``may_leave(level, destination)`` is the only decider.
 
-    level  owner_local  owner_channel  cloud     others    export
-    L0     full         full           full      full      full
-    L1     full         full           redacted  redacted  redacted
-    L2     full         full           no        no        no
-    L3     labelled     no             no        no        no
-
-  owner_local   = the Hub UI, and the owner-scoped bearer once it lands. It is
-                  EXEMPT from legacy_l0_guard, and shows L3 and legacy L0 labelled
-                  "private" (``served_label``).
-  owner_channel = the owner's own brief and own-channel replies.
-  cloud         = a cloud model.   others = other people.   export = any file.
+  owner_local      = the Hub UI on this Mac (loopback), and the owner-scoped
+                     bearer once it lands. Shows L3, untagged and legacy L0
+                     labelled "private" (``served_label``).
+  owner_own_brief  = the owner's own brief and own-channel replies.
+  thread_participants = a reply drafted into a thread, from that thread only.
+  cloud_model = a cloud model.  others = other people.  export = any file.
 
   "full" and "labelled" serve; "redacted" serves only the redacted form, which
   no route produces yet, so it is withheld; "no" never serves.
@@ -37,8 +36,10 @@ LEGACY, named wherever it remains:
     "owner-private". It is withheld, for every destination, until that store's
     per-writer relabel has run. A record is migrated when it carries the relabel
     contract (``CANONICAL_SCALE_KEY``); a raw value never does.
-  * ``legacy_absent_serves``: an untagged person is served by the old 133
-    rule. Canonical rule: a missing tag is L3. Only the person gate passes it.
+  * The 133 untagged rule (``legacy_absent_serves``) is RETIRED (Archie
+    2026-11-17): a missing tag is L3, so ``outbound_ok`` serves an ABSENT
+    record to owner_local (labelled "private") and every other destination
+    follows the table (withheld).
 
 ORDER for ``effective_level`` (strictest wins):
     L0 < L1 < L2 < UNREADABLE < L3.
@@ -59,8 +60,13 @@ one helper; do not fork a second copy.
 """
 from __future__ import annotations
 
-# The four canonical levels.
-VALID_PRIVACY_LEVELS = frozenset({"L0", "L1", "L2", "L3"})
+# The scale, the outbound table and the stamp come from the shared table.
+try:  # package context
+    from . import privacy_scale as _scale
+except ImportError:  # root on sys.path (ical-server, brief, tests)
+    import privacy_scale as _scale
+
+VALID_PRIVACY_LEVELS = frozenset(_scale.LEVELS)
 
 # Privacy-level keys a per-fact dict might carry. A Qdrant payload fact stores
 # it snake-cased; an Oxigraph-mirrored fact could arrive under any spelling.
@@ -72,31 +78,26 @@ PRIVACY_PREDICATES = (
     "urn:ostler:privacyLevel",
 )
 
-# The relabel contract. A per-writer relabel writes this beside the canonical
-# level on every record it migrates. A record without it is unmigrated.
-CANONICAL_SCALE_KEY = "privacy_scale"
-CANONICAL_SCALE_VALUE = "canonical-2026-11"
+# The relabel contract ([scale_stamp] in the shared table). A record carrying
+# the stamp value under either spelling is migrated; one without it is not.
+# ONE spelling, the table's field (Archie 2026-11-17: ``privacyScale`` wins).
+CANONICAL_SCALE_KEY = _scale.SCALE_STAMP_FIELD
+SCALE_STAMP_KEYS = (CANONICAL_SCALE_KEY,)
+CANONICAL_SCALE_VALUE = _scale.SCALE_STAMP_VALUE
 
-# The destinations of the outbound table.
-DESTINATIONS = ("owner_local", "owner_channel", "cloud", "others", "export")
-# An undeclared or unknown destination is cloud: fail closed.
-DEFAULT_DESTINATION = "cloud"
+# The destinations of the shared table. ``unknown`` (undeclared) is the
+# strictest row and is what an undeclared or unrecognised destination becomes.
+DESTINATIONS = _scale.DESTINATIONS
+DEFAULT_DESTINATION = "unknown"
+OWNER_LOCAL = "owner_local"
 
-# The outbound table. "full" = serves; "labelled" = serves, labelled private;
-# "redacted" = only the redacted form may leave (no route produces it, so it is
-# withheld); "no" = never leaves. Lift verbatim with the module.
-_OUTBOUND_TABLE = {
-    "L0": {"owner_local": "full", "owner_channel": "full", "cloud": "full", "others": "full", "export": "full"},
-    "L1": {"owner_local": "full", "owner_channel": "full", "cloud": "redacted", "others": "redacted", "export": "redacted"},
-    "L2": {"owner_local": "full", "owner_channel": "full", "cloud": "no", "others": "no", "export": "no"},
-    "L3": {"owner_local": "labelled", "owner_channel": "no", "cloud": "no", "others": "no", "export": "no"},
-}
+# Verdicts that serve ("full" as is, "labelled" with the private label).
 SERVING_VERDICTS = ("full", "labelled")
 
 
 def resolve_destination(value):
-    """The destination a request declared, or ``cloud`` when it declared none
-    or an unknown one (fail closed)."""
+    """The destination a request declared, or ``unknown`` (the strictest row)
+    when it declared none or one the table does not list."""
     if value in DESTINATIONS:
         return value
     return DEFAULT_DESTINATION
@@ -112,9 +113,13 @@ class _Absent:
 
 ABSENT = _Absent()
 
-# Strictness, least to most restrictive. UNREADABLE sits between L2 and L3: a
-# present value that does not parse is withheld, but it is not known to be L3.
-_RANK = {"L0": 0, "L1": 1, "L2": 2, "UNREADABLE": 3, "L3": 4}
+# Strictness, read from the table's ranks. UNREADABLE sits just below the most
+# private level: a present value that does not parse is withheld, but it is
+# not known to be L3. Doubling the table rank leaves that gap.
+_TOP = _scale.DEFAULT_LEVEL
+_BOTTOM = min(_scale.LEVELS, key=_scale.RANK.__getitem__)
+_RANK = {lvl: 2 * r for lvl, r in _scale.RANK.items()}
+_RANK["UNREADABLE"] = _RANK[_TOP] - 1
 
 
 def parse_privacy_level(value):
@@ -171,37 +176,39 @@ def effective_level(record, owner_level=None):
     if not present:
         return ABSENT
     if len(present) < len(classes):
-        present.append("L3")        # a missing tag beside a present one is L3
+        present.append(_TOP)        # a missing tag beside a present one is L3
     return max(present, key=_RANK.__getitem__)
 
 
 def may_leave(level, destination):
     """The outbound table: "full", "labelled", "redacted" or "no".
 
-    ``level`` is one of "L0".."L3", or ``ABSENT``/"UNREADABLE" (both "no").
-    An unknown ``destination`` is resolved to ``cloud`` (fail closed).
+    Read from the shared table (``privacy_scale.outbound_rule``). ``level`` is
+    one of the table's levels, or ``ABSENT``/"UNREADABLE": a missing or
+    unknown level IS the most private level, so it gets that column
+    ("labelled" for owner_local, "no" everywhere else).
+    An undeclared or unknown ``destination`` is ``unknown`` (strictest row).
     """
     destination = resolve_destination(destination)
-    if level is ABSENT or level not in _OUTBOUND_TABLE:
-        return "no"
-    return _OUTBOUND_TABLE[level][destination]
+    if level is ABSENT or level not in VALID_PRIVACY_LEVELS:
+        level = _TOP
+    return _scale.outbound_rule(level, destination)
 
 
 def _is_unmigrated_l0(item):
     if item is None:
         return False
     if isinstance(item, dict):
-        if effective_level(item) != "L0":
-            return False
-        return item.get(CANONICAL_SCALE_KEY) != CANONICAL_SCALE_VALUE
-    return _classify_value(item) == "L0"
+        stamp = next((item[k] for k in SCALE_STAMP_KEYS if item.get(k)), None)
+        return _scale.is_legacy_l0(effective_level(item), stamp)
+    return _scale.is_legacy_l0(_classify_value(item), None)
 
 
 def legacy_l0_guard(item, *sources):
     """True when the item or any linked source is an UNMIGRATED L0.
 
     LEGACY. The old PWG L0 meant "owner-private", so it is withheld outbound
-    until the store's per-writer relabel has run: old PWG L0 meant owner-private;
+    until the store's per-writer relabel has run (LEGACY: old PWG L0 meant owner-private);
     withheld until relabelled. A record is migrated when it carries
     ``CANONICAL_SCALE_KEY == CANONICAL_SCALE_VALUE``; the relabel writes that
     beside the new level. A raw value carries no contract, so it is always
@@ -219,42 +226,48 @@ def _record_level(record):
 def is_l3(record, owner_level=None):
     """Owner-local fail-closed test. ``True`` => HIDE the record.
 
-    OWNER-LOCAL ONLY: it serves L0, L1 and L2, so it must never gate a Hub
-    route. Hidden when the effective level is L3, UNREADABLE, or ABSENT.
+    OWNER-LOCAL ONLY (Archie, 2026-11-17): it serves L0, L1 and L2, so it must
+    never gate a Hub route; every route goes through ``may_leave``
+    (``outbound_ok``). Hidden when the effective level is the most private
+    level, UNREADABLE, or ABSENT.
     """
     level = effective_level(record, owner_level)
-    return level is ABSENT or level in ("L3", "UNREADABLE")
+    return level is ABSENT or _RANK[level] >= _RANK["UNREADABLE"]
 
 
-def outbound_ok(record, owner_level=None, destination=DEFAULT_DESTINATION,
-                legacy_absent_serves=False):
-    """True when a record may be served to ``destination`` (table verdict is
-    "full" or "labelled"). An undeclared destination is cloud.
+# The shared table's [legacy] row for an unmigrated old-PWG/CM041 L0.
+_LEGACY_L0_SCALE = "pwg_cm041_ladder"
 
-    An unmigrated L0 is withheld through ``legacy_l0_guard`` for every
-    destination. ``legacy_absent_serves`` is LEGACY (the 133 untagged rule):
-    only the person gate and the derived-preferences route pass it. A fact with
-    no tag is refused by default.
+
+def _treated_level(record, owner_level=None):
+    """The level ``may_leave`` reads for a record: its effective level, or the
+    table's [legacy] treat_as when the record is an unmigrated L0 (no row ->
+    the most private level, fail closed)."""
+    level = effective_level(record, owner_level)
+    if level is not ABSENT and legacy_l0_guard(record):
+        return _scale.legacy_treat_as(_LEGACY_L0_SCALE, _BOTTOM) or _TOP
+    return level
+
+
+def outbound_ok(record, owner_level=None, destination=DEFAULT_DESTINATION):
+    """True when a record may be served to ``destination``: the shared table's
+    verdict (``may_leave``) is "full" or "labelled". Undeclared = ``unknown``.
+
+    A missing tag is the most private level, so it is served (labelled) to
+    owner_local only. An unmigrated L0 is read as the table's [legacy]
+    treat_as (L3): withheld everywhere except owner_local, where it is
+    labelled.
     """
     destination = resolve_destination(destination)
-    level = effective_level(record, owner_level)
-    if level is ABSENT:
-        return bool(legacy_absent_serves)
-    # owner_local is EXEMPT from the legacy guard: legacy L0 meant owner-private,
-    # which is exactly what the owner's own Hub UI is for (Archie, 2026-11-17).
-    if destination != "owner_local" and legacy_l0_guard(record):
-        return False
+    level = _treated_level(record, owner_level)
     return may_leave(level, destination) in SERVING_VERDICTS
 
 
 def served_label(record, owner_level=None, destination=DEFAULT_DESTINATION):
-    """The label a served owner_local item carries: "private" for an L3 item, or
-    an unmigrated legacy L0 (owner-private). None for anything else, and for
-    every other destination (those never see these items)."""
-    if resolve_destination(destination) != "owner_local":
-        return None
-    level = effective_level(record, owner_level)
-    if level == "L3" or (level == "L0" and legacy_l0_guard(record)):
+    """"private" when the table's verdict for this record and destination is
+    "labelled" (owner_local: L3, untagged, unreadable, legacy L0), else None."""
+    level = _treated_level(record, owner_level)
+    if may_leave(level, resolve_destination(destination)) == "labelled":
         return "private"
     return None
 
@@ -293,18 +306,21 @@ def sparql_effective_level(subject_var="s", out_var="effLevel"):
     """
     s = subject_var
     preds = ", ".join(f"<{p}>" for p in PRIVACY_PREDICATES)
-    # Rank of a non-blank value, offset by one so that 0 means "no non-blank".
-    # L0=1 L1=2 L2=3 UNREADABLE=4 L3=5. A blank value is rank 0 and sets _bl.
-    rank = (
-        'IF(?_pn = "", 0, IF(?_pn = "L0", 1, IF(?_pn = "L1", 2, '
-        'IF(?_pn = "L2", 3, IF(?_pn = "L3", 5, 4)))))'
-    )
+    # Rank of a non-blank value, offset by one so that 0 means "no non-blank":
+    # _RANK + 1, read from the shared table. A value that is not a level gets
+    # the UNREADABLE rank. A blank value is rank 0 and sets _bl.
+    by_rank = sorted(VALID_PRIVACY_LEVELS, key=_RANK.__getitem__)
+    rank = str(_RANK["UNREADABLE"] + 1)
+    for lvl in reversed(by_rank):
+        rank = 'IF(?_pn = "%s", %d, %s)' % (lvl, _RANK[lvl] + 1, rank)
+    rank = 'IF(?_pn = "", 0, %s)' % rank
     name = r'BIND(REPLACE(UCASE(STR(?_pv)), "\\s", "") AS ?_pn)'
     blank = 'BIND(IF(?_pn = "", 1, 0) AS ?_bl)'
-    level = (
-        'IF(?_anyb = 1, "L3", IF(?_mr = 5, "L3", IF(?_mr = 4, "UNREADABLE", '
-        'IF(?_mr = 3, "L2", IF(?_mr = 2, "L1", "L0")))))'
-    )
+    # Back from the max rank to a class; any blank beside a value is the top.
+    level = '"%s"' % by_rank[0]
+    for cls in sorted(list(VALID_PRIVACY_LEVELS) + ["UNREADABLE"], key=_RANK.__getitem__)[1:]:
+        level = 'IF(?_mr = %d, "%s", %s)' % (_RANK[cls] + 1, cls, level)
+    level = 'IF(?_anyb = 1, "%s", %s)' % (_TOP, level)
     return (
         "{ SELECT ?%(s)s (%(level)s AS ?%(out)s) WHERE { "
         "SELECT ?%(s)s (MAX(?_rk) AS ?_mr) (MAX(?_bl) AS ?_anyb) WHERE { "
@@ -335,16 +351,17 @@ def provenance_verdict(own, sources=()):
                             so it is visible. Not a withhold.
     """
     own_c = _classify(own)
-    if own_c == "L3":
+    if own_c == _TOP:
         return "l3"
     if own_c == "UNREADABLE":
         return "unknown"
     classes = [_classify(s) for s in sources]
-    if "L3" in classes:
+    if _TOP in classes:
         return "l3"
     if "UNREADABLE" in classes:
         return "unknown"
-    if own_c in ("L0", "L1", "L2") or any(c in ("L0", "L1", "L2") for c in classes):
+    readable = VALID_PRIVACY_LEVELS - {_TOP}
+    if own_c in readable or any(c in readable for c in classes):
         return "ok"
     return "legacy_untagged"
 
