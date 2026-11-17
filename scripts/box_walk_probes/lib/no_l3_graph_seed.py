@@ -76,6 +76,11 @@ def build(payload):
     from src.settings import Settings
 
     settings = Settings(user_id=payload["owner"])
+    # The store the seed writes to. Unset on the box (the CM048 default, localhost:7878);
+    # the end-to-end test points it at a local shim. A dedicated name, not
+    # OSTLER_OXIGRAPH_URL, so no ambient CM048 setting can retarget the probe's writes.
+    if os.environ.get("NO_L3_SEED_OXIGRAPH_URL"):
+        settings.oxigraph_url = os.environ["NO_L3_SEED_OXIGRAPH_URL"]
     stamp = payload["stamp"]
     person_id = "other:walkfx-" + stamp
     person_uri = ingest._urn(person_id.replace(":", "/"))
@@ -293,6 +298,7 @@ def main():
                 de.write_decision(url, w["decision"], now_iso=NOW_ISO)
                 written["decision_" + w["level"]] = {"written": 1, "writer": "decision_extractor.write_decision"}
 
+        plan = plan_writes(settings, writes)
         try:
             excluded, to_delete = run_units(update, count, post_ttl, write_one, ttl, graph, plan,
                                             teardown, exclude_existing=True)

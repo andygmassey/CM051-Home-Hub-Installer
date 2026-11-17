@@ -20,6 +20,7 @@ Synthetic data only; HOME is redirected to a temp dir.
 Run: python3 tests/test_no_l3_seed_real_store.py -v
 """
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -315,6 +316,109 @@ class ProbeSeedOutput(unittest.TestCase):
         print("\n[probe] unparseable seed stdout -> exact_error=%r" % box.EXACT_ERROR)
         self.assertTrue(box.EXACT_ERROR, "the unknown teardown must be recorded")
         self.assertEqual(box.EXACT_TEARDOWN, [], "no teardown may be invented")
+
+
+class _Shim:
+    """A local Oxigraph HTTP surface over a real pyoxigraph Store: /store, /update and
+    /query, with the status codes the server returns (400 on a SPARQL parse error)."""
+
+    def __init__(self, store):
+        import http.server
+        import threading
+        import urllib.parse
+        import pyoxigraph as ox
+        self.store = store
+        shim = self
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _reply(self, code, body=b"", ctype="text/plain"):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                url = urllib.parse.urlsplit(self.path)
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8")
+                try:
+                    if url.path == "/store":
+                        g = urllib.parse.parse_qs(url.query).get("graph", [None])[0]
+                        shim.store.load(body.encode("utf-8"), format=ox.RdfFormat.TURTLE,
+                                        to_graph=ox.NamedNode(g))
+                        return self._reply(204)
+                    if url.path == "/update":
+                        shim.store.update(body)
+                        return self._reply(204)
+                    if url.path == "/query":
+                        res = shim.store.query(body)
+                        names = [v.value for v in res.variables]
+                        rows = [{n: {"type": "literal", "value": str(sol[n].value)}
+                                 for n in names if sol[n] is not None} for sol in res]
+                        return self._reply(200, json.dumps({"head": {}, "results": {"bindings": rows}})
+                                           .encode(), "application/json")
+                    return self._reply(404)
+                except SyntaxError as exc:
+                    return self._reply(400, str(exc).encode())
+                except Exception as exc:  # noqa: BLE001 -- a shim fault must surface as a 500
+                    return self._reply(500, ("%s: %s" % (type(exc).__name__, exc)).encode())
+
+        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), H)
+        self.url = "http://127.0.0.1:%d" % self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+class SeedMainEndToEnd(unittest.TestCase):
+    """Runs the seed's main() as the probe does: a subprocess, the JSON payload as argv,
+    Settings from the environment, and a REAL pyoxigraph store behind an HTTP shim."""
+
+    def test_main_runs_posts_and_its_teardown_restores_the_pre_seed_count(self):
+        import pyoxigraph as ox
+        import subprocess
+        store = _live_store(ox)
+        pre_visible = len(_visible(store))
+        seed_dir = _stage(SEED_SRC.read_text(encoding="utf-8")).parent
+        env = dict(os.environ)
+        env.update({
+            "HOME": tempfile.mkdtemp(prefix="no_l3_e2e_home_"),
+            "PYTHONPATH": os.pathsep.join([str(ROOT / "vendor" / "cm048_pipeline"), str(ROOT / "vendor")]),
+            "OSTLER_USER_ID": PAYLOAD["owner"],
+        })
+        with _Shim(store) as shim:
+            env["NO_L3_SEED_OXIGRAPH_URL"] = shim.url
+            payload = dict(PAYLOAD, post=True)
+            p = subprocess.run([sys.executable, str(seed_dir / "no_l3_graph_seed.py"),
+                                json.dumps(payload)], env=env, capture_output=True, text=True,
+                               timeout=240, cwd=str(seed_dir))
+        print("\n[e2e] rc=%d stderr_tail=%r" % (p.returncode, p.stderr.strip()[-300:]))
+        self.assertEqual(p.returncode, 0, "main() must exit 0: %s" % p.stderr.strip()[-400:])
+        out = json.loads(p.stdout.strip().splitlines()[-1])
+        self.assertTrue(out["posted"], "the seed must post the Turtle")
+        self.assertEqual(sorted(out["writes"]), ["decision_L2", "decision_L3", "topic_L2", "topic_L3"],
+                         "every topic and decision write must be recorded as done")
+        self.assertGreater(len(out["teardown_sparql"]), 0, "the teardown list must be printed")
+        seeded = len(_visible(store)) - pre_visible
+        print("[e2e] seeded quads visible=%d, teardown statements=%d, excluded=%s"
+              % (seeded, len(out["teardown_sparql"]), out.get("excluded_quads")))
+        self.assertGreater(seeded, 0, "the seed must have written visible quads")
+        for sparql in out["teardown_sparql"]:
+            store.update(sparql)
+        after = len(_visible(store))
+        print("[e2e] after teardown visible=%d (pre-seed %d)" % (after, pre_visible))
+        self.assertEqual(after, pre_visible, "applying the teardown must restore the pre-seed count")
+        self.assertEqual(len(list(store.quads_for_pattern(
+            ox.NamedNode("urn:ostler:live/item-1"), None, None, None))), 1, "live row lost")
 
 
 def _nt_literal(lit):
