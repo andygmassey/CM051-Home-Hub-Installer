@@ -1135,3 +1135,67 @@ MINORS_UNREADABLE_FIX = (
     "mark them again from their page."
 )
 MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"
+
+
+# ---------------------------------------------------------------------------
+# Licence state (task #421)
+#
+# The Doctor had NO licence surface at all. Measured on the v1.0.36 box:
+# 41,088 bytes of Doctor HTML containing the strings "licence", "license",
+# "subscription" and "Pro" exactly ZERO times, while
+# ~/.ostler/state/subscription_state.json on the same machine recorded
+# status=active, source=first_month_free, expires 2026-09-17. The customer
+# could not find out what they were paying for, or when it ran out, from the
+# one page built to tell them how their Hub is doing.
+#
+# The vault tile's pro_state field does not cover this: it is written by the
+# Markdown vault writer, which has not been built, so vault-state.json does not
+# exist and that whole tile renders nothing.
+LICENCE_ACTIVE_TITLE = "Ostler Pro is active"
+LICENCE_ACTIVE_DETAIL_FMT = (
+    "Your Ostler Pro features are switched on{until_clause}. Nothing needs "
+    "doing. This is here so the date is somewhere you can find it."
+)
+
+# The included window is 180 days for a founding Hub and 90 for a standard one
+# (subscription_gate.INCLUDED_DAYS). It used to be a month, and this copy said
+# so; it now names the window by what is left of it rather than by a length.
+LICENCE_TRIAL_TITLE = "Ostler Pro is active, included with your Hub"
+LICENCE_TRIAL_DETAIL_FMT = (
+    "Buying the Hub includes Ostler Pro, and that is what is running "
+    "now{until_clause}. When it ends, the Hub keeps working and keeps "
+    "everything it has already learned. The Pro extras are the part that pauses."
+)
+
+# One line, the same on every arm that has a window to count, so the number a
+# customer reads is the same number whichever arm they are on.
+LICENCE_DAYS_LEFT_FMT = "Days of Ostler Pro left: {days}."
+
+LICENCE_GRACE_TITLE = "Ostler Pro has lapsed, and is in its grace period"
+LICENCE_GRACE_DETAIL_FMT = (
+    "Your subscription expired{expired_clause} and Ostler is in the short "
+    "grace period that follows{grace_clause}. Everything still runs for now. "
+    "When the grace period ends the Pro extras pause, and the Hub carries on "
+    "without them."
+)
+LICENCE_GRACE_FIX = "Renew from the Ostler app on your iPhone"
+
+LICENCE_INACTIVE_TITLE = "Ostler Pro is not active"
+LICENCE_INACTIVE_DETAIL = (
+    "The Pro extras are switched off. Your Hub keeps working and keeps "
+    "everything it has already learned; this only affects the Pro features."
+)
+LICENCE_INACTIVE_FIX = "Subscribe from the Ostler app on your iPhone"
+
+# The stale-writer arm. This is a statement about our own bookkeeping, not
+# about the customer, so the copy must not imply they have done anything wrong
+# or that they have lost access.
+LICENCE_STALE_TITLE = "Ostler cannot tell you your subscription state accurately"
+LICENCE_STALE_DETAIL_FMT = (
+    "The stored subscription record still reads \"{status}\" but its expiry "
+    "date ({expires_at}) has already passed, which means the check that moves "
+    "it forward has not run. Your access is not affected by this, and nothing "
+    "has been charged or cancelled. It means this panel cannot promise the "
+    "state below is current."
+)
+LICENCE_STALE_FIX = "Open the Ostler app on your iPhone to refresh the record"

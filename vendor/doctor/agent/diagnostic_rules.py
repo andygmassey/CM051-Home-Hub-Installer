@@ -27,6 +27,20 @@ from typing import Any
 from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
 
 from diagnostic_copy import (
+    LICENCE_ACTIVE_DETAIL_FMT,
+    LICENCE_ACTIVE_TITLE,
+    LICENCE_GRACE_DETAIL_FMT,
+    LICENCE_GRACE_FIX,
+    LICENCE_GRACE_TITLE,
+    LICENCE_INACTIVE_DETAIL,
+    LICENCE_INACTIVE_FIX,
+    LICENCE_INACTIVE_TITLE,
+    LICENCE_STALE_DETAIL_FMT,
+    LICENCE_STALE_FIX,
+    LICENCE_STALE_TITLE,
+    LICENCE_TRIAL_DETAIL_FMT,
+    LICENCE_TRIAL_TITLE,
+    LICENCE_DAYS_LEFT_FMT,
     MINORS_UNREADABLE_TITLE,
     MINORS_UNREADABLE_DETAIL_FMT,
     MINORS_UNREADABLE_FIX,
@@ -3182,6 +3196,128 @@ def check_minors_registry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def _pretty_date(iso: str | None) -> str | None:
+    """Render an ISO timestamp as a plain date, or None if unparseable.
+
+    Customer copy gets a date, never a Zulu timestamp. Returning None on a
+    bad parse lets the caller drop the clause entirely rather than print
+    something like "until None".
+    """
+    if not isinstance(iso, str) or not iso:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(
+            iso.replace("Z", "+00:00"),
+        ).strftime("%-d %B %Y")
+    except (ValueError, TypeError):
+        return None
+
+
+def check_licence_state(snapshot: Any) -> list[dict]:
+    """Tell the customer what their subscription is doing.
+
+    THE DEFECT THIS EXISTS FOR. The Doctor had no licence surface at all.
+    Measured on the v1.0.36 box 2026-08-18: /doctor served 41,088 bytes of
+    HTML, a must-be-present control matched 87 times, and the strings
+    "licence", "license", "subscription" and "Pro" matched ZERO times. On the
+    same machine ~/.ostler/state/subscription_state.json read
+    status=active, source=first_month_free, expires_at=2026-09-17.
+
+    So the customer could not learn from the Doctor what they were paying
+    for or when it ended. This is not the vault tile arriving late: that
+    tile reads vault-state.json, which does not exist on that box because
+    the Markdown vault writer was never built, so it renders nothing.
+
+    RULE 0.7 IS RESPECTED. VaultStateInfo's docstring records that Doctor
+    must not re-derive licence gating, because that would put the decision
+    in two components. This rule DERIVES NOTHING. It reports the status
+    subscription_gate.expire_check() already wrote. The single computed
+    field, expires_at_is_past, is a claim about our own writer being stale,
+    not about entitlement.
+
+    THE STALE ARM RETURNS EARLY AND ON PURPOSE. If the record says "active"
+    but its expiry has passed, we say only that we cannot vouch for it. We
+    do NOT also render "Ostler Pro is active", because printing a verdict we
+    have just said is untrustworthy is how a panel launders a stale value
+    into a confident one.
+    """
+    licence = getattr(snapshot, "licence_state", None)
+    if licence is None:
+        # No file. On a machine that has never had a licence written that is
+        # the honest answer, and it is NOT the same as "you are inactive".
+        return []
+
+    status = (getattr(licence, "status", None) or "").strip().lower()
+
+    if getattr(licence, "expires_at_is_past", False) and status == "active":
+        return [{
+            "severity": "warning",
+            "title": LICENCE_STALE_TITLE,
+            "detail": LICENCE_STALE_DETAIL_FMT.format(
+                status=status,
+                expires_at=_pretty_date(licence.expires_at) or licence.expires_at,
+            ),
+            "fix": LICENCE_STALE_FIX,
+            "fix_command": "",
+            "risk": "low",
+            "category": "licence",
+        }]
+
+    def _days_line(days) -> str:
+        return " " + LICENCE_DAYS_LEFT_FMT.format(days=days) if isinstance(days, int) else ""
+
+    if status == "active":
+        until = _pretty_date(getattr(licence, "expires_at", None))
+        until_clause = f" until {until}" if until else ""
+        is_trial = getattr(licence, "source", None) == "first_month_free"
+        return [{
+            "severity": "info",
+            "title": LICENCE_TRIAL_TITLE if is_trial else LICENCE_ACTIVE_TITLE,
+            "detail": (
+                LICENCE_TRIAL_DETAIL_FMT if is_trial else LICENCE_ACTIVE_DETAIL_FMT
+            ).format(until_clause=until_clause)
+            + _days_line(getattr(licence, "days_left", None)),
+            "fix": "",
+            "fix_command": "",
+            "risk": "low",
+            "category": "licence",
+        }]
+
+    if status == "grace":
+        expired = _pretty_date(getattr(licence, "expires_at", None))
+        grace_end = _pretty_date(getattr(licence, "grace_period_end", None))
+        return [{
+            "severity": "warning",
+            "title": LICENCE_GRACE_TITLE,
+            "detail": LICENCE_GRACE_DETAIL_FMT.format(
+                expired_clause=f" on {expired}" if expired else "",
+                grace_clause=f", which runs until {grace_end}" if grace_end else "",
+            ),
+            "fix": LICENCE_GRACE_FIX,
+            "fix_command": "",
+            "risk": "low",
+            "category": "licence",
+        }]
+
+    if status == "inactive":
+        return [{
+            "severity": "warning",
+            "title": LICENCE_INACTIVE_TITLE,
+            # Inactive has no window left, whatever the record's expiry says.
+            "detail": LICENCE_INACTIVE_DETAIL + _days_line(0),
+            "fix": LICENCE_INACTIVE_FIX,
+            "fix_command": "",
+            "risk": "low",
+            "category": "licence",
+        }]
+
+    # A status this build does not recognise. Stay quiet rather than render a
+    # raw enum the customer cannot act on, and rather than guess which of
+    # active/inactive a future value means.
+    return []
+
+
 ALL_RULES = [
     check_minors_registry,
     check_scheduled_agents,
@@ -3212,6 +3348,7 @@ ALL_RULES = [
     check_imessage_capture_stalled,
     check_conversation_dispatch_failures,
     check_licence_expiry,
+    check_licence_state,
     check_parked_facts,
     check_time_machine_exclusion,
 ]

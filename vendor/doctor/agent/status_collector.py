@@ -261,6 +261,58 @@ class HydrateMarkerInfo:
 
 
 @dataclass
+class LicenceStateInfo:
+    """What ``subscription_state.json`` currently records.
+
+    WHY THIS EXISTS SEPARATELY FROM ``VaultStateInfo``.
+
+    ``VaultStateInfo.pro_state`` is written by the LOCK-3 Markdown vault
+    writer, and that writer has not been built. On a real v1.0.36 box
+    ``~/.ostler/vault-state.json`` does not exist at all, so
+    ``collect_vault_state()`` returns None, the tile renders nothing, and
+    the whole Doctor page contains the strings "licence", "license",
+    "subscription" and "Pro" exactly ZERO times. Measured on .224:
+    41,088 bytes of HTML, 87 hits for a must-be-present control, 0 hits
+    for any licence word. Meanwhile the customer had an ACTIVE
+    subscription recorded on the same machine.
+
+    So this is not the vault's licence field arriving late. It is a
+    separate fact, with a separate owner, that no Doctor surface read.
+
+    RULE 0.7 IS RESPECTED, AND DELIBERATELY SO. ``VaultStateInfo``'s
+    docstring records that Doctor must not re-derive vault status from
+    the licence cache, because that would duplicate licence-gating
+    across two components. This collector does not derive ANYTHING. It
+    reports the ``status`` that ``subscription_gate.expire_check()``
+    already wrote. The decision stays in the gate; only the display
+    lives here. The one thing it does compute is whether the gate's own
+    state looks STALE (see ``expires_at_is_past``), which is a statement
+    about the writer, not about entitlement.
+
+    Field names are taken verbatim from
+    ``vendor/cm041/assistant_api/subscription_gate.py`` so a rename on
+    the writer side breaks the cross-component test rather than silently
+    emptying this tile.
+    """
+
+    status: str | None = None
+    source: str | None = None
+    expires_at: str | None = None
+    grace_period_end: str | None = None
+    last_validated_at: str | None = None
+    # True when ``expires_at`` is in the past while ``status`` still
+    # reads "active". That combination means expire_check() has not run,
+    # not that the customer is entitled. Surfaced so a stale gate cannot
+    # masquerade as a healthy subscription.
+    expires_at_is_past: bool = False
+    # Whole days of the recorded window left, measured against the same clock
+    # as ``expires_at_is_past``. Floored like subscription_gate.expiry_warning
+    # ("6.5 days left reads as 6"), and 0 once the expiry has passed. None
+    # when there is no readable expiry, which is not the same as 0.
+    days_left: int | None = None
+
+
+@dataclass
 class SystemSnapshot:
     timestamp: str = ""
     hostname: str | None = None
@@ -320,6 +372,10 @@ class SystemSnapshot:
     # ({status, marks, error}). Read by check_gdpr_export_age and the "Your data
     # exports" section. None means not collected.
     export_imports: dict | None = None
+
+    # Read from subscription_state.json, which exists on every installed box
+    # (HR015 LicenceStateInfo, taken at the 134 doctor re-pin).
+    licence_state: LicenceStateInfo | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +852,94 @@ def _safe_bool(value) -> bool | None:
     return None
 
 
+def _licence_state_path() -> Path:
+    """Resolve subscription_state.json, honouring the writer's own override.
+
+    ``OSTLER_SUBSCRIPTION_STATE`` is read because that is exactly what
+    ``subscription_gate._state_file()`` reads. If the two disagreed, a test
+    or a relocated install would point the writer at one file and Doctor at
+    another, and Doctor would report on a file nobody writes.
+    """
+    override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
+    if override:
+        return Path(override)
+    return Path.home() / ".ostler" / "state" / "subscription_state.json"
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    """Parse the writer's Zulu ISO-8601. Returns None on anything unexpected."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def collect_licence_state(now: datetime | None = None) -> LicenceStateInfo | None:
+    """Read ``subscription_state.json``. Doctor is READ-ONLY here.
+
+    ``now`` names the clock ``expires_at_is_past`` is measured against, and
+    defaults to the real one, so production behaviour is unchanged. It exists
+    because the only honest fixture for this reader is a REAL box record, and
+    a real record carries real dates that stop being in the future. Measured
+    2026-09-17: the recorded box state expired at 12:12:28Z, the suite went
+    red twenty hours later without a line of code changing, and nothing on
+    main had run since, so the repository was red and nobody knew. A test that
+    reads the wall clock is a test with an expiry date on it.
+
+    Returns ``None`` when the file is absent, unreadable or not a JSON
+    object. Absent is the honest answer on a machine that has never had a
+    licence written, and it is NOT the same as "no subscription": the
+    render layer must distinguish "we have nothing to say" from
+    "we looked and you are inactive".
+
+    RULE 0.7. This does not decide entitlement. ``status`` is reported
+    exactly as ``subscription_gate.expire_check()`` last wrote it. The one
+    derived field, ``expires_at_is_past``, is a statement about the WRITER
+    being stale, not about the customer being entitled: status "active"
+    with an expiry in the past means expire_check has not run, and a
+    surface that showed "active" there would be repeating a stale claim
+    rather than reporting one.
+    """
+    path = _licence_state_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("subscription_state.json unreadable at %s: %s", path, exc)
+        return None
+    if not isinstance(data, dict):
+        logger.warning("subscription_state.json at %s is not a JSON object", path)
+        return None
+
+    status = data.get("status")
+    if not isinstance(status, str):
+        status = None
+
+    expires_at = _safe_iso_string(data.get("expires_at"))
+    expires_dt = _parse_iso_utc(expires_at)
+    clock = now or datetime.now(timezone.utc)
+    expires_at_is_past = bool(expires_dt is not None and expires_dt < clock)
+    days_left = None
+    if expires_dt is not None:
+        days_left = max(0, int((expires_dt - clock).total_seconds() // 86400))
+
+    return LicenceStateInfo(
+        status=status,
+        source=data.get("source") if isinstance(data.get("source"), str) else None,
+        expires_at=expires_at,
+        grace_period_end=_safe_iso_string(data.get("grace_period_end")),
+        last_validated_at=_safe_iso_string(data.get("last_validated_at")),
+        expires_at_is_past=expires_at_is_past,
+        days_left=days_left,
+    )
+
+
 def collect_full_snapshot() -> SystemSnapshot:
     """
     Collect a complete safe diagnostic snapshot.
@@ -812,6 +956,7 @@ def collect_full_snapshot() -> SystemSnapshot:
     network = collect_network_checks()
     pipeline_signals = collect_pipeline_signals()
     backfill_checkpoint = collect_backfill_checkpoint()
+    licence_state = collect_licence_state()
     ram_total_gb, ram_available_gb = collect_memory()
     hydrate_markers = collect_hydrate_markers()
     export_imports = export_status.collect_import_state()
@@ -834,6 +979,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         ram_total_gb=ram_total_gb,
         ram_available_gb=ram_available_gb,
         export_imports=export_imports,
+        licence_state=licence_state,
     )
 
 

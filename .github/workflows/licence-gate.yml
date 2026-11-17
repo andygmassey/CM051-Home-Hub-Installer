@@ -39,6 +39,11 @@ on:
       # cannot see half its own subject is not watching it.
       - 'vendor/cm041/assistant_api/subscription_gate.py'
       - 'vendor/cm052_ai_conversations/src/cm052/subscription_gate.py'
+      # The Doctor's licence row reads what that gate writes (134 re-pin).
+      - 'vendor/doctor/agent/status_collector.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - 'vendor/doctor/agent/diagnostic_copy.py'
+      - 'tests/test_doctor_shows_included_pro_days.py'
       # A gate must trigger on changes to ITSELF, or it can be quietly
       # narrowed in a PR that never runs it.
       - '.github/workflows/licence-gate.yml'
@@ -114,3 +119,13 @@ jobs:
       - name: the signed licence plan reaches the included-Pro gate
         if: always()
         run: bash tests/test_licence_plan_reaches_the_gate.sh
+
+      # The included window the gate grants (180 founding, 90 standard, none
+      # without a licence) is the number the Doctor shows the owner. Real
+      # vendored gate writes, real vendored Doctor reads. Money copy.
+      - name: install the Doctor's runtime deps for the licence-row check
+        if: always()
+        run: python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+      - name: the Doctor shows the included-Pro days the gate granted
+        if: always()
+        run: python3 tests/test_doctor_shows_included_pro_days.py
