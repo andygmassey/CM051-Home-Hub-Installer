@@ -1534,7 +1534,7 @@ def render_dashboard(
     # Build service status cards
     service_cards = ""
     for svc in snapshot.services:
-        color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(svc.status, "rgba(236,232,221,0.40)")
+        color = {"healthy": "#2C4A2C", "unhealthy": "#8A6D1F", "unreachable": "#A82A2A"}.get(svc.status, "rgba(20, 18, 14,0.40)")
         icon = {"healthy": "&#10003;", "unhealthy": "&#9888;", "unreachable": "&#10007;"}.get(svc.status, "?")
         service_cards += f"""
         <div class="status-card">
@@ -1559,7 +1559,7 @@ def render_dashboard(
     )
     container_cards = ""
     for c in snapshot.docker_containers:
-        color = {"running": "#2C4A2C", "exited": "#7A1F1F", "paused": "#5C4611"}.get(c.state, "rgba(236,232,221,0.40)")
+        color = {"running": "#2C4A2C", "exited": "#A82A2A", "paused": "#8A6D1F"}.get(c.state, "rgba(20, 18, 14,0.40)")
         container_cards += f"""
         <div class="status-card">
             <div class="status-indicator" style="background:{color}">&#9632;</div>
@@ -1580,7 +1580,7 @@ def render_dashboard(
     # Build disk usage
     disk_items = ""
     for d in snapshot.disk_usage:
-        bar_color = "#2C4A2C" if d.percent_used < 80 else "#5C4611" if d.percent_used < 95 else "#7A1F1F"
+        bar_color = "#2C4A2C" if d.percent_used < 80 else "#8A6D1F" if d.percent_used < 95 else "#A82A2A"
         disk_items += f"""
         <div class="disk-item">
             <div class="disk-label">{d.mount_point}</div>
@@ -1675,7 +1675,7 @@ def render_dashboard(
     # Build findings
     findings_html = ""
     for f in findings:
-        sev_color = {"critical": "#7A1F1F", "warning": "#5C4611", "info": "#2C4A2C"}.get(f["severity"], "rgba(236,232,221,0.40)")
+        sev_color = {"critical": "#A82A2A", "warning": "#8A6D1F", "info": "#2C4A2C"}.get(f["severity"], "rgba(20, 18, 14,0.40)")
         sev_icon = {"critical": "&#9888;", "warning": "&#9888;", "info": "&#10003;"}.get(f["severity"], "?")
         fix_html = ""
         if f.get("fix_command"):
@@ -1722,14 +1722,14 @@ def render_dashboard(
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
 
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -1738,8 +1738,8 @@ def render_dashboard(
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
             --green: #2C4A2C;
-            --red: #7A1F1F;
-            --yellow: #5C4611;
+            --red: #A82A2A;
+            --yellow: #8A6D1F;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -1864,7 +1864,7 @@ def render_dashboard(
             font-size: 0.9rem;
             color: white;
             flex-shrink: 0;
-            box-shadow: 0 0 10px rgba(0,0,0,0.20);
+            box-shadow: 0 0 10px rgba(20,18,14,0.05);
         }}
         .status-name {{
             font-family: var(--font-display);
@@ -2255,7 +2255,7 @@ def render_dashboard(
 
         <div class="section" id="supportSection">
             <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
-            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#6B655C; line-height:1.6; margin-bottom:1rem;">
                 {SUPPORT_SECTION_INTRO}
             </p>
             <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
@@ -2267,10 +2267,10 @@ def render_dashboard(
 
         <div class="chat-section">
             <div class="section-title">{DASHBOARD_SECTION_HELP}</div>
-            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
+            <p style="color:#6B655C; line-height:1.6; margin-bottom:1rem;">
                 {DASHBOARD_HELP_PARAGRAPH_1}
             </p>
-            <p style="color:#4A463F; line-height:1.6; font-size:0.85rem;">
+            <p style="color:#6B655C; line-height:1.6; font-size:0.85rem;">
                 {DASHBOARD_HELP_PARAGRAPH_2}
             </p>
         </div>
@@ -2322,9 +2322,9 @@ def render_dashboard(
             // Update findings
             let fhtml = '';
             findings.forEach(f => {{
-                const sevColors = {{critical:'#7A1F1F',warning:'#5C4611',info:'#2C4A2C'}};
+                const sevColors = {{critical:'#A82A2A',warning:'#8A6D1F',info:'#2C4A2C'}};
                 const sevIcons = {{critical:'&#9888;',warning:'&#9888;',info:'&#10003;'}};
-                const sc = sevColors[f.severity]||'rgba(236,232,221,0.40)';
+                const sc = sevColors[f.severity]||'rgba(20, 18, 14,0.40)';
                 const si = sevIcons[f.severity]||'?';
                 let fixHtml = '';
                 if (f.fix_command) {{
@@ -2355,10 +2355,10 @@ def render_dashboard(
             // Update services
             let shtml = '';
             snap.services.forEach(s => {{
-                const colors = {{healthy:'#2C4A2C',unhealthy:'#5C4611',unreachable:'#7A1F1F'}};
+                const colors = {{healthy:'#2C4A2C',unhealthy:'#8A6D1F',unreachable:'#A82A2A'}};
                 const icons = {{healthy:'&#10003;',unhealthy:'&#9888;',unreachable:'&#10007;'}};
                 shtml += '<div class="status-card">'
-                    + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(236,232,221,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
+                    + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(20, 18, 14,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
                     + '<div class="status-info"><div class="status-name">' + s.name + '</div>'
                     + '<div class="status-detail">' + s.status + (s.status_code ? ' (HTTP ' + s.status_code + ')' : '') + '</div></div></div>';
             }});
@@ -2367,9 +2367,9 @@ def render_dashboard(
             // Update containers
             let chtml = '';
             snap.containers.forEach(c => {{
-                const colors = {{running:'#2C4A2C',exited:'#7A1F1F',paused:'#5C4611'}};
+                const colors = {{running:'#2C4A2C',exited:'#A82A2A',paused:'#8A6D1F'}};
                 chtml += '<div class="status-card">'
-                    + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(236,232,221,0.40)') + '">&#9632;</div>'
+                    + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(20, 18, 14,0.40)') + '">&#9632;</div>'
                     + '<div class="status-info"><div class="status-name">' + c.name + '</div>'
                     + '<div class="status-detail">' + c.state + ' &ndash; ' + c.status + '</div></div></div>';
             }});
@@ -2388,7 +2388,7 @@ def render_dashboard(
             // Update disk
             let dhtml = '';
             snap.disk.forEach(d => {{
-                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#5C4611' : '#7A1F1F';
+                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#8A6D1F' : '#A82A2A';
                 dhtml += '<div class="disk-item"><div class="disk-label">' + d.mount + '</div>'
                     + '<div class="disk-bar-bg"><div class="disk-bar" style="width:' + d.percent_used + '%;background:' + bc + '"></div></div>'
                     + '<div class="disk-detail">' + Math.round(d.free_gb) + ' GB free of ' + Math.round(d.total_gb) + ' GB (' + d.percent_used + '%)</div></div>';
@@ -2515,7 +2515,7 @@ def render_dashboard(
 def render_history(history_entries: list[dict]) -> str:
     """Render the snapshot history page."""
     if not history_entries:
-        rows = f'<tr><td colspan="5" style="text-align:center;color:rgba(236,232,221,0.50);padding:2rem">{HISTORY_EMPTY}</td></tr>'
+        rows = f'<tr><td colspan="5" style="text-align:center;color:rgba(20, 18, 14,0.50);padding:2rem">{HISTORY_EMPTY}</td></tr>'
     else:
         rows = ""
         prev_services: dict[str, str] = {}
@@ -2531,10 +2531,10 @@ def render_history(history_entries: list[dict]) -> str:
                 name = s["name"]
                 status = s["status"]
                 prev = prev_services.get(name)
-                color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(status, "rgba(236,232,221,0.50)")
+                color = {"healthy": "#2C4A2C", "unhealthy": "#8A6D1F", "unreachable": "#A82A2A"}.get(status, "rgba(20, 18, 14,0.50)")
                 changed = ""
                 if prev and prev != status:
-                    changed = f' <span style="color:#5C4611;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
+                    changed = f' <span style="color:#8A6D1F;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
                 svc_parts.append(f'<span style="color:{color}">{name}: {status}</span>{changed}')
                 prev_services[name] = status
 
@@ -2549,9 +2549,9 @@ def render_history(history_entries: list[dict]) -> str:
             warn = sum(1 for f in findings if f.get("severity") == "warning")
             finding_parts = []
             if crit:
-                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
+                finding_parts.append(f'<span style="color:#A82A2A">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
             if warn:
-                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
+                finding_parts.append(f'<span style="color:#8A6D1F">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
             if not finding_parts:
                 finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
 
@@ -2571,12 +2571,12 @@ def render_history(history_entries: list[dict]) -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
+            --ostler-ink: #F8F8F4;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
@@ -2621,7 +2621,7 @@ def render_history(history_entries: list[dict]) -> str:
             border: 1px solid var(--ostler-hairline-faint);
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
+            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
         }}
         th {{
             text-align: left;
@@ -4647,14 +4647,14 @@ def _render_import_evernote_page(active_job_id=None) -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -4663,8 +4663,8 @@ def _render_import_evernote_page(active_job_id=None) -> str:
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
             --green: #2C4A2C;
-            --yellow: #5C4611;
-            --red: #7A1F1F;
+            --yellow: #8A6D1F;
+            --red: #A82A2A;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -4839,7 +4839,7 @@ def _render_import_evernote_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #5C4611; }}
+        .status-pill.partial {{ background: #8A6D1F; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -5160,14 +5160,14 @@ def _render_import_notion_page(active_job_id=None) -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -5176,8 +5176,8 @@ def _render_import_notion_page(active_job_id=None) -> str:
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
             --green: #2C4A2C;
-            --yellow: #5C4611;
-            --red: #7A1F1F;
+            --yellow: #8A6D1F;
+            --red: #A82A2A;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -5352,7 +5352,7 @@ def _render_import_notion_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #5C4611; }}
+        .status-pill.partial {{ background: #8A6D1F; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -5673,14 +5673,14 @@ def _render_import_obsidian_page(active_job_id=None) -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -5689,8 +5689,8 @@ def _render_import_obsidian_page(active_job_id=None) -> str:
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
             --green: #2C4A2C;
-            --yellow: #5C4611;
-            --red: #7A1F1F;
+            --yellow: #8A6D1F;
+            --red: #A82A2A;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -5865,7 +5865,7 @@ def _render_import_obsidian_page(active_job_id=None) -> str:
         }}
         .status-pill.running {{ background: var(--yellow); }}
         .status-pill.succeeded {{ background: var(--green); }}
-        .status-pill.partial {{ background: #5C4611; }}
+        .status-pill.partial {{ background: #8A6D1F; }}
         .status-pill.failed {{ background: var(--red); }}
         .status-meta {{
             font-family: var(--font-mono);
@@ -6472,14 +6472,14 @@ def _render_pair_ios_page() -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -6487,7 +6487,7 @@ def _render_pair_ios_page() -> str:
             --text-secondary: rgba(20, 18, 14, 0.74);
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
-            --red: #7A1F1F;
+            --red: #A82A2A;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -6653,7 +6653,7 @@ def _render_pair_ios_page() -> str:
             border-radius: 8px;
             font-size: 0.82rem;
             margin-bottom: 1.4rem;
-            border-left: 3px solid #e0a437;
+            border-left: 3px solid #8A6D1F;
             background: rgba(224, 164, 55, 0.10);
             color: var(--text-secondary);
             line-height: 1.5;
@@ -6871,9 +6871,9 @@ def _render_whatsapp_pair_page() -> str:
         /* PRIVACY: no webfont @import. A local-first product must not beacon
            the customer IP+timestamp to a font CDN. Matches pair-ios. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
-            --ostler-chassis: #ECE8DD;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
@@ -7078,9 +7078,9 @@ def _render_extension_setup_page() -> str:
         /* PRIVACY: no webfont @import. A local-first product must not beacon
            the customer IP+timestamp to a font CDN. Matches whatsapp-pair. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
-            --ostler-chassis: #ECE8DD;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
@@ -7404,14 +7404,14 @@ def _render_config_page() -> str:
     <style>
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         :root {{
-            --ostler-ink: #0d0b08;
-            --ostler-ink-deep: #07060a;
+            --ostler-ink: #F8F8F4;
+            --ostler-ink-deep: #ECEBE5;
             --ostler-panel: #FFFFFF;
             --ostler-panel-elev: #FFFFFF;
-            --ostler-chassis: #ECE8DD;
+            --ostler-chassis: #14120e;
             --ostler-accent: #7A1F1F;
             --ostler-accent-hover: #6E1717;
-            --ostler-accent-warm: #7A1F1F;
+            --ostler-accent-warm: #A82A2A;
             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
             --text: var(--ostler-chassis);
@@ -7419,7 +7419,7 @@ def _render_config_page() -> str:
             --text-muted: rgba(20, 18, 14, 0.50);
             --text-faint: rgba(20, 18, 14, 0.32);
             --green: #2C4A2C;
-            --red: #7A1F1F;
+            --red: #A82A2A;
             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;

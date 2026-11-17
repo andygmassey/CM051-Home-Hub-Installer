@@ -231,8 +231,34 @@ else:
     ok("all %d colour token(s) agree across every :root block" % len(values))
 
 # --- 3. the page renders LIGHT ----------------------------------------------
+# WHICH TOKEN IS THE GROUND IS READ FROM THE BODY RULE, NOT ASSUMED. This arm
+# used to take --ostler-chassis as the ground and --ostler-ink as the text. The
+# vendored tree's body rule is `background: var(--ostler-ink); color:
+# var(--text)` with `--text: var(--ostler-chassis)`, so that assumption had the
+# roles backwards: it scored a page painted #0d0b08 with #ECE8DD text as LIGHT.
+# The doctor re-pin (CB134-DOCTOR-PANEL) takes upstream's palette, whose roles
+# are the body rule's, so the roles are now resolved from that rule.
+def _body_var(prop):
+    for body in re.findall(r"\bbody \{\{(.*?)\}\}", src, re.S):
+        m = re.search(r"(?<![-a-z])" + prop + r"\s*:\s*var\((--[a-z0-9-]+)\)", body)
+        if m:
+            return m.group(1)
+    return None
+
+
+_aliases = {}
+for block in root_blocks:
+    for name, value in re.findall(r"(--[a-z0-9-]+)\s*:\s*var\((--[a-z0-9-]+)\)\s*;", block):
+        _aliases[name] = value
+GROUND = _body_var("background")
+TEXT = _body_var("color")
+TEXT = _aliases.get(TEXT, TEXT)
+if not GROUND or not TEXT:
+    cant("could not read the body rule's background and color tokens, so the "
+         "ground and text roles are unknown")
+print("     ROLES (from the body rule): ground %s, text %s" % (GROUND, TEXT))
 grounds = []
-for name in ("--ostler-chassis", "--ostler-panel", "--ostler-panel-elev"):
+for name in (GROUND, "--ostler-panel", "--ostler-panel-elev"):
     for v in values.get(name, ()):
         m = re.match(r"^#[0-9a-f]{6}$", v)
         if m:
@@ -250,8 +276,8 @@ else:
            % ", ".join("%s=%s" % (n, v) for n, v in grounds))
 
 # --- 4. body text is legible on that ground ---------------------------------
-text_vals = {v for v in values.get("--ostler-ink", set()) if re.match(r"^#[0-9a-f]{6}$", v)}
-ground_vals = {v for v in values.get("--ostler-chassis", set()) if re.match(r"^#[0-9a-f]{6}$", v)}
+text_vals = {v for v in values.get(TEXT, set()) if re.match(r"^#[0-9a-f]{6}$", v)}
+ground_vals = {v for v in values.get(GROUND, set()) if re.match(r"^#[0-9a-f]{6}$", v)}
 if not text_vals or not ground_vals:
     bad("could not resolve both a text colour and a ground colour to hex, so "
         "legibility was NOT measured")

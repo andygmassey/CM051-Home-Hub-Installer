@@ -241,7 +241,7 @@ def render_documents_access_posture() -> str:
         how_to_fix = (
             '\n                <details style="margin-top:8px">'
             '\n                    <summary style="cursor:pointer;font-size:12px;'
-            "color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',"
+            "color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',"
             'Menlo,monospace;letter-spacing:0.04em">'
             f"\n                        {html.escape(_HOW_TO_FIX_LABEL)}"
             "\n                    </summary>"
