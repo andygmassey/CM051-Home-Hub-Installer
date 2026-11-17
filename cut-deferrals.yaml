@@ -32,6 +32,34 @@
 # ============================================================================
 
 pr_exemptions:
+  # v1.0.133, ORM 2026-11-17 on Archie ruling (via Aesop): CM051 PRs crossing 48h within the 8h candidate-plus-tag window, re-measured at commit time (PR_AGE_HOURS=40).
+  - ref: "CM051-Home-Hub-Installer#3547"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3551"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3552"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3553"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3555"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3556"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3557"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3558"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3559"
+    reason: "134 drain in progress; INTERNAL 133 tag (Archie ruling 2026-11-17; frozen-branch cut, not on cut/v1.0.133, cannot change a 133 byte). NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
   # v1.0.133, ORM 2026-11-17 on Archie ruling B (via Aesop): the 10 v1.0.132 exemptions carried VERBATIM from cut/v1.0.132 (review_by unchanged).
   - ref: "CM051-Home-Hub-Installer#3464"
     reason: "pr_exemptions (Archie 2026-11-15): #3464 #3461 #3457 #3435 #3434 #3432 #3428 #3421 #3374 #3365 #3357, frozen-branch cut: not on cut/v1.0.132, cannot change a DMG byte; review_by 2026-11-20, inside the triage Archie owes under issue 3397; no further re-date."
