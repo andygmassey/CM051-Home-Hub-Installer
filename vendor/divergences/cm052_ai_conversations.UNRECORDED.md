@@ -52,3 +52,5 @@ The verifier PASS path reports tier_state `absent` for every production licence 
 - sha256 now: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
 - previous: `b3c42937c78562afa4da297155117e77131f9cccfa8f6150c89dd5b7d4d5f161` (CM052 `fd7bf5c02`)
 - digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
+
+Tree `cm052_ai_conversations`: `vendor/cm052_ai_conversations/src/cm052/subscription_gate.py` re-grafted byte-identical. Tree pin stays `1ec05783`.
