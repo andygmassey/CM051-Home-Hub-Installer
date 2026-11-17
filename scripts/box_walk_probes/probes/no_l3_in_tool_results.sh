@@ -91,6 +91,24 @@ decide() {
     esac
 }
 
+# The fake box for the self-test's mid-run disconnect (stage ok, launch ok, first
+# poll ALIVE, then every ssh fails). Defined at top level ON PURPOSE: bash 3.2
+# (/bin/bash on macOS, the shell the walk and CI run) mis-parses a `case` whose
+# patterns end in `)` when it sits inside $( ... ), and the self-test died with
+# rc 127 ("-p*) return 0: command not found") on the macOS runner while bash 5
+# passed it.
+_st_disconnect_box_run() {
+    printf '%s\n' "$1" >> "${_ST_LOG}"
+    case "$1" in
+        *no_l3_preflight*) printf 'PF_RUNNING=1\nPF_SHA=%s\nPF_START_EPOCH=2000\nPF_START_ISO=2026-11-17T01:00:00Z\nPF_MTIME_EPOCH=1000\nPF_MTIME_ISO=2026-11-16T10:00:00Z\n' "$(printf 'a%.0s' $(seq 64))"; return 0 ;;
+        *OSTLER_OXIGRAPH_URL*) echo AMBIENT=0; return 0 ;;
+        *"mkdir -p"*) return 0 ;;
+        *nohup*) echo 4242; return 0 ;;
+        *"kill -0"*) if grep -q ALIVEONCE "${_ST_LOG}"; then return 255; fi; echo ALIVEONCE >> "${_ST_LOG}"; echo ALIVE; return 0 ;;
+        *) return 255 ;;
+    esac
+}
+
 self_test() {
     # A FAILING fake box run must come out CANNOT-RUN (exit 78), never PASS or
     # FAIL. Run in a subshell so probe_cannot_run's exit stays contained.
@@ -107,18 +125,9 @@ self_test() {
     # staging dir must never be removed while the pid could still be alive.
     local log out2
     log="$(mktemp)"
+    _ST_LOG="${log}"
     out2="$( box_reachable() { return 0; }
-      box_run() {
-          printf '%s\n' "$1" >> "${log}"
-          case "$1" in
-              *no_l3_preflight*) printf 'PF_RUNNING=1\nPF_SHA=%s\nPF_START_EPOCH=2000\nPF_START_ISO=2026-11-17T01:00:00Z\nPF_MTIME_EPOCH=1000\nPF_MTIME_ISO=2026-11-16T10:00:00Z\n' "$(printf 'a%.0s' $(seq 64))"; return 0 ;;
-              *OSTLER_OXIGRAPH_URL*) echo AMBIENT=0; return 0 ;;
-              *"mkdir -p"*) return 0 ;;
-              *nohup*) echo 4242; return 0 ;;
-              *"kill -0"*) if grep -q ALIVEONCE "${log}"; then return 255; fi; echo ALIVEONCE >> "${log}"; echo ALIVE; return 0 ;;
-              *) return 255 ;;
-          esac
-      }
+      box_run() { _st_disconnect_box_run "$@"; }
       OSTLER_NO_L3_POLL_S=0 OSTLER_NO_L3_POLL_FAILS=3 EXPECTED_ICAL_SHA256=$(printf 'a%.0s' $(seq 64)) OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe 2>&1 )"
     fake_rc=$?
     probe_examined 1 "mid-run disconnect"

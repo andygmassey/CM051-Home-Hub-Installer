@@ -22,6 +22,7 @@ Run: python3 tests/test_no_l3_seed_real_store.py -v
 import importlib.util
 import json
 import os
+import site
 import re
 import shutil
 import sys
@@ -392,6 +393,10 @@ class SeedMainEndToEnd(unittest.TestCase):
         env = dict(os.environ)
         env.update({
             "HOME": tempfile.mkdtemp(prefix="no_l3_e2e_home_"),
+            # A fresh HOME moves the user site (~/.local) with it, and CI's
+            # `pip install` lands there: the child then cannot import httpx
+            # (seen on ubuntu-latest). Pin the user base to the parent's.
+            "PYTHONUSERBASE": site.getuserbase(),
             "PYTHONPATH": os.pathsep.join([str(ROOT / "vendor" / "cm048_pipeline"), str(ROOT / "vendor")]),
             "OSTLER_USER_ID": PAYLOAD["owner"],
         })
@@ -434,6 +439,7 @@ class SeedRefusesAmbientStore(unittest.TestCase):
         env = {k: v for k, v in os.environ.items()
                if k not in ("OSTLER_OXIGRAPH_URL", "NO_L3_SEED_OXIGRAPH_URL")}
         env.update({"HOME": tempfile.mkdtemp(prefix="no_l3_refuse_home_"),
+                    "PYTHONUSERBASE": site.getuserbase(),  # see the e2e test: a fresh HOME hides the user site
                     "PYTHONPATH": os.pathsep.join([str(ROOT / "vendor" / "cm048_pipeline"),
                                                    str(ROOT / "vendor")])})
         env.update(env_extra)
