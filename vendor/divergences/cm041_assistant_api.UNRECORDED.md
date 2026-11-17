@@ -2324,3 +2324,32 @@ Tests: `tests/test_133_named_graph_and_privacy_key.py` (byte-identical to CM041)
 runs against a real pyoxigraph store. `tests/test_l3_withheld_moat_readers.py`
 fixture rows now carry the `p` binding the new SELECT returns. Both are wired into
 `.github/workflows/cm041-133-outbound-privacy.yml`, floor 48.
+
+## 133 regraft of CM041 #278 @2dbac8c (red-team CM041-01/02)
+
+Grafted from CM041 `assistant_api/ical-server.py` at `2dbac8c`, applied as the
+CM041 diff `e028d27..2dbac8c`, not hand-copied. Byte-identical to CM041 (function
+compare): `_count_withheld`, `_withheld_view`, `_topic_mention_verdict`,
+`_conversation_levels_for`, `_interest_privacy_verdict`, `_level_verdict`,
+`_INTEREST_PRIVACY_KEYS`, `topics_list`, `topic_mentions`.
+
+Effect: topic readers take the strictest level across mention, conversation node
+and facts drawn from the conversation; an explicit L0 is withheld in topics and
+in preferences (counted under `unknown`).
+
+CM051-local, not in CM041:
+- `_read_across_graphs(body)`: identity shim beside `_graph_scoped`. CM041's
+  `_conversation_levels_for` calls upstream's `read_across_graphs`, which this tree
+  does not import (see the note above `_graph_scoped`). `_sparql_select` already
+  graph-scopes every query here, so the identity is equivalent at that call site.
+  Without it topics and topic_mentions return 503 (NameError), measured.
+- `decisions_list` (merge-aware and conversation-store, earlier local block) and
+  the `api_preferences` Art. 9 pre-check are kept unchanged, as before.
+
+Checked: `_conversation_levels_for` against a real Oxigraph store through
+`_graph_scoped` (USER_ID set): default-graph L3 conversation -> L3, default L2 -> L2,
+named-graph L3 -> L3. The CM051 133 tests: 48 passed.
+
+Not grafted in this commit: CM041's new tests (`test_topic_conversation_level_134.py`,
+`test_interest_l0_withheld_134.py`, `test_prop_outbound_privacy_gates.py`) and the
+CI hypothesis dependency. They stay CM041-side.

@@ -2009,6 +2009,15 @@ def _graph_scoped(sparql):
     return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
 
 
+# CM051-LOCAL (133 regraft of CM041 #278 @2dbac8c). CM041's
+# _conversation_levels_for wraps its body in read_across_graphs, which this
+# tree does not import (see the note above). Every _sparql_select here is
+# already graph-scoped by _graph_scoped, so at that call site the wrapper is
+# the identity. Keeps the grafted function byte-identical to CM041.
+def _read_across_graphs(body):
+    return body
+
+
 def _audit_person_removal(uri, component, reason):
     """Record a Person removal in the append-only deletion audit (walk #15).
 
@@ -7804,14 +7813,75 @@ def _count_withheld(withheld, verdict):
     if verdict == "unknown":
         withheld["unknown"] += 1
         return False
+    if verdict == "l0":
+        # L0 is withheld and counted in the unknown bucket: the response keeps
+        # its two-key withheld shape (every consumer of it reads those two).
+        withheld["unknown"] += 1
+        return False
     if verdict == "legacy_untagged":
         withheld["legacy_untagged"] += 1
     return True
 
 
 def _withheld_view(withheld):
-    """The withheld block of a response: the two withheld counts only."""
+    """The withheld block of a response: the withheld counts only."""
     return {"l3": withheld["l3"], "unknown": withheld["unknown"]}
+
+
+def _topic_mention_verdict(own, conv_levels):
+    """Visibility of one topic mention (CM041 #278, 134 red-team CM041-01).
+
+    The mention's own level and EVERY level its conversation carries are read
+    together and the STRICTEST wins: L3, L0 or an unreadable value in any of
+    them withholds. A missing mention level never overrides a present
+    conversation level. Nothing readable anywhere is legacy_untagged: served
+    and counted (the 133 rule)."""
+    classes = [pwg_privacy._classify(x) for x in [own, *conv_levels]]
+    if "L3" in classes:
+        return "l3"
+    if "UNREADABLE" in classes:
+        return "unknown"
+    if "L0" in classes:
+        return "l0"
+    if "L1" in classes or "L2" in classes:
+        return "ok"
+    return "legacy_untagged"
+
+
+def _conversation_levels_for(convs):
+    """{conversation uri: [raw level, ...]} for the given conversations, read
+    from the conversation node AND from the facts drawn from it (CM048 stamps
+    the conversation's level on those). A URI that cannot go into a VALUES
+    clause safely maps to an unreadable marker, so it is withheld, not served.
+    Raises on an Oxigraph failure; the caller answers degraded."""
+    out = {}
+    safe = []
+    for c in sorted({c for c in convs if c}):
+        if re.fullmatch(r"[^<>\s\"{}|^`\\]+", c):
+            safe.append(c)
+        else:
+            out.setdefault(c, []).append("unreadable-conversation-uri")
+    if not safe:
+        return out
+    values = " ".join("<" + c + ">" for c in safe)
+    # CM048 writes its facts to a named graph: the facts' level is read through
+    # the same default-plus-named UNION every other CM048 reader uses.
+    body = (
+        "  VALUES ?conv { " + values + " }\n"
+        "  { ?conv pwg:privacyLevel ?lvl }\n"
+        "  UNION { ?src <urn:ostler:fromConversation> ?conv ; <urn:ostler:privacyLevel> ?lvl }\n"
+        "  UNION { ?src pwg:fromConversation ?conv ; pwg:privacyLevel ?lvl }\n"
+    )
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'.format(ns=PWG_NS)
+        + 'SELECT ?conv ?lvl WHERE {\n'
+        + _read_across_graphs(body)
+        + '\n}'
+    )
+    for r in rows:
+        if r.get("conv") and r.get("lvl") is not None:
+            out.setdefault(r["conv"], []).append(r["lvl"])
+    return out
 
 
 def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
@@ -8023,6 +8093,7 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
             '  }}\n'
             '}}'.format(ns=PWG_NS)
         )
+        conv_levels = _conversation_levels_for([r.get("conv") for r in rows])
     except Exception as exc:
         return {
             "topics": [],
@@ -8046,9 +8117,9 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
         if not r.get("m") or r["m"] in agg["_seen"]:
             continue
         agg["_seen"].add(r["m"])
-        # Mention level and its conversation's level, most-restrictive wins;
-        # a mention with no conversation or no level is unknown (fail closed).
-        verdict = pwg_privacy.provenance_verdict(r.get("mpriv"), [r.get("cpriv")])
+        # The mention inherits its conversation's level: strictest wins.
+        verdict = _topic_mention_verdict(
+            r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(r.get("conv"), []))
         if not _count_withheld(withheld, verdict):
             continue
         agg["weight"] += _as_int(r.get("w"))
@@ -8118,6 +8189,7 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
             '  }}\n'
             '}}'.format(ns=PWG_NS, slug=slug)
         )
+        conv_levels = _conversation_levels_for([r.get("conversation") for r in rows])
     except Exception as exc:
         return {
             "slug": slug,
@@ -8138,7 +8210,8 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
         # level are both known and neither is L3 (fail closed). The topic
         # label is taken only from a visible mention, so a label that exists
         # only through withheld mentions is not disclosed.
-        verdict = pwg_privacy.provenance_verdict(r.get("mpriv"), [r.get("cpriv")])
+        verdict = _topic_mention_verdict(
+            r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(conv, []))
         if not _count_withheld(withheld, verdict):
             continue
         if r.get("label") and not label:
@@ -12869,13 +12942,24 @@ def _interest_privacy_verdict(it):
     """
     raws = [it.get(k) if isinstance(it, dict) else None
             for k in _INTEREST_PRIVACY_KEYS]
-    verdicts = [pwg_privacy.provenance_verdict(raw) for raw in raws]
-    for strict in ("l3", "unknown"):
+    verdicts = [_level_verdict(raw) for raw in raws]
+    for strict in ("l3", "unknown", "l0"):
         if strict in verdicts:
             return strict
     if "ok" in verdicts:
         return "ok"
     return "legacy_untagged"
+
+
+def _level_verdict(raw):
+    """One raw level's verdict, with L0 withheld (red-team 134 CM041-02).
+
+    ``provenance_verdict`` serves an explicit L0 as "ok". An L0 item must not
+    reach the daemon's preference tool or any outbound reader, so it is its
+    own counted withhold here. Everything else is provenance_verdict's answer."""
+    if pwg_privacy._classify(raw) == "L0":
+        return "l0"
+    return pwg_privacy.provenance_verdict(raw)
 
 
 def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
