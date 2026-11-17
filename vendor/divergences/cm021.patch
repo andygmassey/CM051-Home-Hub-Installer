@@ -1,13 +1,19 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -26,8 +26,4 @@
+ 
+ [tool.setuptools.packages.find]
+ where = ["."]
+-# _vendor holds the settling-progress helper copied from HR015 at a pinned SHA.
+-# Ship it inside the wheel so the pwg-email-ingest console script can import it
+-# from any install location. See _vendor/ostler_settling_progress/ header for
+-# the upstream commit SHA and the re-vendor procedure.
+-include = ["src*", "_vendor*"]
++include = ["src*"]
 --- a/src/cli.py
 +++ b/src/cli.py
-@@ -54,11 +54,13 @@
- from __future__ import annotations
- 
- import argparse
-+import email.utils
- import json
- import os
-+import re
+@@ -60,7 +60,7 @@
+ import re
  import sys
  import time
 -import urllib.parse
@@ -15,10 +21,90 @@
  from datetime import datetime, timedelta, timezone
  from pathlib import Path
  from typing import Any, Dict, Optional, Set
-@@ -73,7 +75,17 @@
+@@ -72,86 +72,18 @@
+ from src.filters import EmailFilter
+ from src.parsers.fast_mbox_parser import FastEmail, FastMboxParser
  
+-# Vendored HR015 helper -- see _vendor/ostler_settling_progress/ for the pinned
+-# upstream SHA. Wraps the atomic shard write used by the CM044 wiki-homepage
+-# "still getting to know you" panel. All settling calls are wrapped in
+-# try/except so a full disk (or any writer failure) never aborts ingest.
+-from _vendor.ostler_settling_progress.settling_progress import (
+-    report_settling_progress,
+-)
+ 
+-
  _OXIGRAPH_DEFAULT = "http://localhost:7878"
  
+-# How often (in wall-clock seconds) we tick the settling-progress shard during
+-# the streaming loop. The panel is a low-frequency read on the CM044 side;
+-# every-item writes would produce thousands of tiny fsyncs during the heaviest
+-# phase of install, which is what the throttle exists to prevent.
+-_SETTLING_TICK_SECONDS = 30.0
+-
+-
+-def _count_backfill_queue(mbox_path: Path) -> int:
+-    """Pre-scan an mbox file counting message-separator lines.
+-
+-    Uses the same predicate FastMboxParser.stream() uses to detect a new
+-    message boundary: a line that starts with 'From ' (space, not colon),
+-    is at least 6 bytes long, and has an '@' in the first 100 bytes (which
+-    filters From: headers and casual 'From ' in message bodies).
+-
+-    Reads the file in binary mode line-by-line so a partially-decoded mbox
+-    (mixed encodings, common on real-world Apple Mail exports) doesn't error
+-    out here. The count matches the FastMboxParser's yield count closely
+-    enough for a progress bar; exact accuracy is not required.
+-
+-    O(bytes). ~5-10s on a 1GB mbox; negligible against the ingest cost.
+-    Returns 0 on any I/O error -- the settling helper treats a 0-total shard
+-    as 'source present but nothing to do' which renders correctly.
+-    """
+-    try:
+-        count = 0
+-        with open(mbox_path, "rb") as fh:
+-            for raw in fh:
+-                if raw.startswith(b"From ") and len(raw) > 5 and b"@" in raw[:100]:
+-                    # Ignore 'From:' headers (which start with 'From:' not 'From ')
+-                    # -- the space check above already excludes those, but be
+-                    # explicit.
+-                    if not raw.startswith(b"From:"):
+-                        count += 1
+-        return count
+-    except OSError as exc:
+-        _stderr(
+-            f"pwg-email-ingest: settling-progress pre-scan failed "
+-            f"({type(exc).__name__}: {exc}); reporting total=0."
+-        )
+-        return 0
+-
+-
+-def _safe_report_settling(
+-    *,
+-    done: int,
+-    total: int,
+-    needs_source: bool,
+-    started_at: str,
+-) -> None:
+-    """Report emails-channel settling progress, swallowing any failure.
+-
+-    The helper itself already swallows I/O errors, but a producer-side bug
+-    (bad type, unexpected exception) must not abort the ingest loop. This
+-    wrapper is the belt-and-braces guarantee.
+-    """
+-    try:
+-        report_settling_progress(
+-            channel="emails",
+-            done=done,
+-            total=total,
+-            needs_source=needs_source,
+-            started_at=started_at,
+-        )
+-    except Exception as exc:  # noqa: BLE001 -- must never abort ingest
+-        _stderr(
+-            f"pwg-email-ingest: settling-progress write failed "
+-            f"({type(exc).__name__}: {exc}); ingest continues."
+-        )
 +# Canonical PWG ontology namespace. Must match the writer-side IRI
 +# scheme used in vendor/ostler_fda/pwg_ingest.py (the FDA ingest
 +# path that creates Person nodes from iMessage, WhatsApp, and Mail).
@@ -29,11 +115,9 @@
 +# the wiki for every customer.
 +PWG_NS = "https://schema.ostler.ai/ontology#"
  
-+
- def _stderr(msg: str) -> None:
-     """Write a diagnostic line to stderr, never stdout.
  
-@@ -84,15 +96,32 @@
+ def _stderr(msg: str) -> None:
+@@ -164,15 +96,32 @@
      print(msg, file=sys.stderr, flush=True)
  
  
@@ -72,43 +156,8 @@
  
  
  def _escape_sparql_literal(value: str) -> str:
-@@ -124,16 +153,41 @@
-     same correspondent) advance the timestamp monotonically. The
-     rdf:type + skos:prefLabel land via INSERT DATA only -- if they
-     already exist Oxigraph treats the re-insert as a no-op.
-+
-+    THE displayName IS TIERED AND ONLY EVER MOVES UP (CM051 #2361).
-+    A sender with no name used to get NO displayName at all, and the
-+    people index reads only Persons that have one, so every email-only
-+    correspondent was in the graph and absent from search and the wiki:
-+    28 of them on the v1.0.102 walk box, the whole of the people-count
-+    disagreement. The tier table is the one ostler_fda uses
-+    (_upsert_display_name): an email address is tier 1 and is written
-+    PROVISIONAL; a human name is tier 2 and clears the flag. Tier 1
-+    never replaces anything but an absent name or a provisional
-+    non-email handle; tier 2 replaces anything still provisional; a
-+    real name already present is never touched.
-     """
--    name_lit = _escape_sparql_literal(name) if name else ""
-     email_lit = _escape_sparql_literal(email)
+@@ -238,7 +187,7 @@
  
-     label = name if name else email
-     label_lit = _escape_sparql_literal(label)
- 
-+    display = name if (name and "@" not in name) else email
-+    display_lit = _escape_sparql_literal(display)
-+    is_human_name = display is name and bool(name)
-+
-+    if is_human_name:
-+        guard = "!BOUND(?dn) || BOUND(?prov)"
-+        flag = ""
-+    else:
-+        guard = '!BOUND(?dn) || (BOUND(?prov) && !CONTAINS(STR(?dn), "@"))'
-+        flag = (
-+            f'  <{person_iri}> pwg:displayNameProvisional '
-+            '"true"^^<http://www.w3.org/2001/XMLSchema#boolean> .'
-+        )
-+
      parts = []
      parts.append("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>")
 -    parts.append("PREFIX pwg: <urn:pwg:>")
@@ -116,63 +165,10 @@
      parts.append("PREFIX skos: <http://www.w3.org/2004/02/skos/core#>")
      parts.append("")
      parts.append(f"DELETE {{ <{person_iri}> pwg:lastContactEmail ?old }}")
-@@ -143,18 +197,597 @@
-     parts.append(f"  <{person_iri}> rdf:type pwg:Person ;")
-     parts.append(f"                 pwg:email \"{email_lit}\" ;")
-     parts.append(f"                 skos:prefLabel \"{label_lit}\" .")
--    if name_lit:
--        parts.append(f"  <{person_iri}> pwg:displayName \"{name_lit}\" .")
-     if last_contact_iso:
-         ts_lit = _escape_sparql_literal(last_contact_iso)
-         parts.append(
-             f"  <{person_iri}> pwg:lastContactEmail "
-             f"\"{ts_lit}\"^^<http://www.w3.org/2001/XMLSchema#dateTime> ."
-         )
-+    parts.append("} ;")
-+    parts.append("")
-+    parts.append("DELETE {")
-+    parts.append(f"  <{person_iri}> pwg:displayName ?dn .")
-+    parts.append(f"  <{person_iri}> pwg:displayNameProvisional ?prov .")
-     parts.append("}")
-+    parts.append("INSERT {")
-+    parts.append(f"  <{person_iri}> pwg:displayName \"{display_lit}\" .")
-+    if flag:
-+        parts.append(flag)
-+    parts.append("}")
-+    parts.append("WHERE {")
-+    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayName ?dn }}")
-+    parts.append(f"  OPTIONAL {{ <{person_iri}> pwg:displayNameProvisional ?prov }}")
-+    parts.append(f"  FILTER ({guard})")
-+    parts.append("}")
-     return "\n".join(parts)
-+
-+
-+
-+# --- Automated and organisation senders are not people (CM051 v1.0.106) ---
-+#
-+# Andy's v1.0.105 walk: the People list was full of card issuers, trade
-+# bodies, shops and promotions, because every inbound sender became a
-+# pwg:Person. The domain filter above only knows a curated list. These are
-+# the signals a mail client itself uses to tell bulk and machine mail from a
-+# person writing: RFC 2369 list headers, RFC 3834 Auto-Submitted, the
-+# Precedence convention, the feedback and campaign headers every bulk
-+# sending platform stamps, and the no-reply family of local parts.
-+
-+_AUTOMATED_HEADERS = (
-+    "list-unsubscribe", "list-id", "list-post", "feedback-id",
-+    "x-campaign-id", "x-mc-user", "x-mailgun-sid", "x-sg-eid",
-+    "x-ses-outgoing",
-+    # NOT x-auto-response-suppress: Exchange/Outlook can stamp it on
-+    # ordinary person-to-person mail, so it would demote real people.
-+)
-+_BULK_PRECEDENCE = {"bulk", "list", "junk"}
-+_AUTOMATED_LOCAL_RE = re.compile(
-+    r"(^|[._+-])(no[._-]?reply|do[._-]?not[._-]?reply|notifications?|alerts?|"
-+    r"news(letters?)?|marketing|mailer[._-]?daemon|postmaster|bounces?|"
-+    r"promo(tions?)?|offers?|deals|digest|updates?|info)([._+-]|$)"
-+)
-+
-+
+@@ -299,6 +248,130 @@
+ )
+ 
+ 
 +# F7 (walk #16): Quidco and HSBC Hong Kong became People because their mail
 +# carried NO list header this parser sees, and neither the local part
 +# ("quidco", "onlineservices") nor the display name ("Quidco", "HSBC Hong
@@ -297,24 +293,14 @@
 +    return None
 +
 +
-+def automated_sender_reason(email: FastEmail) -> Optional[str]:
-+    """Why this message is machine or bulk mail, or None for a person.
-+
-+    Returns a short category, never a header value, so the reason can be
-+    counted in the JSON summary without leaking anything about the mail.
-+    """
-+    headers = {k.lower(): (v or "") for k, v in (email.headers or {}).items()}
-+    for name in _AUTOMATED_HEADERS:
-+        if headers.get(name, "").strip():
-+            return "header"
-+    if headers.get("precedence", "").strip().lower() in _BULK_PRECEDENCE:
-+        return "precedence"
-+    auto = headers.get("auto-submitted", "").strip().lower()
-+    if auto and auto != "no":
-+        return "auto-submitted"
-+    local = (email.from_address or "").split("@", 1)[0].lower()
-+    if _AUTOMATED_LOCAL_RE.search(local):
-+        return "local-part"
+ def automated_sender_reason(email: FastEmail) -> Optional[str]:
+     """Why this message is machine or bulk mail, or None for a person.
+ 
+@@ -317,13 +390,19 @@
+     local = (email.from_address or "").split("@", 1)[0].lower()
+     if _AUTOMATED_LOCAL_RE.search(local):
+         return "local-part"
+-    return None
 +    # The display-name reason keeps its existing label; the address-shape
 +    # rule (F7) is the last resort for a sender whose NAME reads as a person
 +    # or a brand and whose ADDRESS says otherwise.
@@ -322,25 +308,21 @@
 +    if name_reason is not None:
 +        return name_reason
 +    return automated_address_reason(email.from_address)
-+
-+
-+# --- A From-header display name is not necessarily a name (CM051 #2544) ---
-+#
+ 
+ 
+ # --- A From-header display name is not necessarily a name (CM051 #2544) ---
+ #
+-# Andy's v1.0.106 walk: People rows named "A Special Offer from ExampleInsure",
+-# "Your ExampleInsure Voucher Is Here", "Claim Your Example Points",
 +# The v1.0.106 walk: People rows named after marketing subject lines (an
 +# offer from an insurer, a voucher notice, a points claim) and
-+# "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
-+# display-name slot of the From header; the bug is that nothing downstream
-+# ever asked whether the text SITTING in that slot reads as a human name.
-+# Marketing senders and phishing kits both exploit the same slot: one stuffs
-+# promotional copy there to game inbox previews, the other stuffs a borrowed
-+# human-sounding name "via" an unverified service to look trustworthy.
-+_SUBJECT_LINE_OPENERS = (
-+    "a ", "an ", "the ", "your ", "claim ", "get ", "win ", "unlock ",
-+    "save ", "act now", "don't miss", "last chance", "hurry",
-+)
-+_SENDER_ID_RE = re.compile(r"^#?[A-Z][A-Z0-9]{3,10}$")
-+_VIA_RE = re.compile(r"\bvia\b")
-+
+ # "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
+ # display-name slot of the From header; the bug is that nothing downstream
+ # ever asked whether the text SITTING in that slot reads as a human name.
+@@ -337,7 +416,58 @@
+ _SENDER_ID_RE = re.compile(r"^#?[A-Z][A-Z0-9]{3,10}$")
+ _VIA_RE = re.compile(r"\bvia\b")
+ 
 +# Escaping artefacts a mail parser can leak into a display name when the From
 +# header was quoted badly: a leading/trailing run of tildes, straight or smart
 +# quotes, and backslashes. A clean human display name never carries these, so
@@ -352,7 +334,7 @@
 +# word, and nothing refused the junk itself.
 +_LEADING_NAME_JUNK_RE = re.compile(r'^[~"\'\\“”‘’\s]+')
 +_TRAILING_NAME_JUNK_RE = re.compile(r'[~"\'\\“”‘’\s]+$')
-+
+ 
 +
 +def clean_display_name(name: Optional[str]) -> str:
 +    """Strip escaping artefacts from a display name: backslash-escaped quotes
@@ -393,62 +375,23 @@
 +    return False
 +
 +
-+def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> bool:
-+    """True when a From-header display name is shaped like marketing/subject
-+    copy or an SMS-style alphanumeric sender id, not a human name.
-+
-+    Same category of heuristic as ``automated_sender_reason`` above
-+    (vocabulary + shape, not a universal structural law) and deliberately
-+    narrow, anchored on how the measured examples actually read:
-+
-+      * SENTENCE OPENERS -- starts with a word a human name never starts
-+        with ('A ', 'Your ', 'Claim ', ...). Anchored at the START so a real
+ def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> bool:
+     """True when a From-header display name is shaped like marketing/subject
+     copy or an SMS-style alphanumeric sender id, not a human name.
+@@ -348,7 +478,7 @@
+ 
+       * SENTENCE OPENERS -- starts with a word a human name never starts
+         with ('A ', 'Your ', 'Claim ', ...). Anchored at the START so a real
+-        person's title-bearing signature ("Sarah Example, Your Account
 +        person's title-bearing signature ("Jane Doe, Your Account
-+        Manager") is untouched: 'Your' is the THIRD word there, not the
-+        first.
-+      * SENDER-ID SHAPE -- a single token (no spaces) that EITHER starts
-+        with '#' (distinctive on its own; human names do not), OR is 4-11
-+        bare uppercase letters/digits AND carries a SECOND signal (see
-+        below) -- the GSM alphanumeric sender-id length ceiling alone is
-+        not enough, because it also matches a real name typed in capitals
-+        ("JOHN", "MARIA").
-+      * "<name> VIA <service>" -- generalises identity_resolver's existing
-+        'via linkedin/via facebook/via twitter/via x' convention (which
-+        strips a trusted suffix off a contact the customer ALREADY has) to
-+        an untrusted INBOUND sender: here the name in front of "via" is
-+        unverified too, so the whole label is refused rather than salvaged.
-+
-+    Archie, 2026-10-01 (CM051 #2544 review): the all-caps/4-11-char shape
-+    alone caught every all-caps real name too ("JOHN", "MARIA" both match
-+    4-11 bare uppercase letters). A bare-shape match now ALSO needs ONE of:
-+      * a digit anywhere in the token ("EXAUTH4", "OTP2FA") -- a sender id
-+        commonly carries one, a human name typed in caps never does;
-+      * `email`'s local part (the part before '@') is itself automated-
-+        shaped (``_AUTOMATED_LOCAL_RE`` -- noreply/notifications/alerts/...,
-+        the SAME vocabulary ``automated_sender_reason`` already uses, not a
-+        second list). Requires the caller to supply `email`; the
-+        reclassify-subject-names migration (CM051 #2544's repair for rows
-+        already written) reads only a stored displayName from the graph, no
-+        email, so for IT this arm reduces to digit-only -- a KNOWN, accepted
-+        narrowing: under-cleaning a pure-letter sender id already on a box
-+        is a smaller cost than flagging a real person's capitalised name.
-+    A "known org" third signal (an allowlist of transactional-sender
-+    domains) was also discussed and is DELIBERATELY NOT implemented here:
-+    no such list exists yet in this codebase, and inventing one for this fix
-+    would be a guess dressed as data.
-+
-+    KNOWN LIMIT, stated rather than hidden: a real person named "Via" (a real,
-+    if uncommon, American surname), or one who opens their own display name
-+    with a trigger word, reads as marketing copy. The 2026-08-08
-+    identifier-quality calculus applies the same way here: the false-positive
-+    cost (a real correspondent's displayName stays the provisional email-based
-+    one tick longer -- never deleted, never blocked, just not yet promoted)
-+    is far smaller than the false-negative cost (a phishing line becomes a
-+    permanent Person page).
-+    """
-+    n = (name or "").strip()
-+    if not n:
-+        return False
+         Manager") is untouched: 'Your' is the THIRD word there, not the
+         first.
+       * SENDER-ID SHAPE -- a single token (no spaces) that EITHER starts
+@@ -394,18 +524,31 @@
+     n = (name or "").strip()
+     if not n:
+         return False
+-    lowered = n.lower()
 +    # (Andy #30) Escaping artefacts a clean human name never carries are
 +    # themselves a refusal signal -- and they can sit BEFORE the first word and
 +    # shield a sentence-opener from the match below (``~~"Unusual sign-in...``).
@@ -458,41 +401,36 @@
 +        return True
 +    probe = clean_display_name(n) or n
 +    lowered = probe.lower()
-+    if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
-+        return True
+     if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
+         return True
+-    if " " not in n:
 +    # (Andy #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
 +    # is an extraction artefact, not a human name. Multi-word, so it slips past
 +    # the single-token sender-id arm below; caught here.
 +    if _is_gibberish_name(probe):
 +        return True
 +    if " " not in probe:
-+        # A leading '#' is distinctive on its own, whatever follows --
-+        # human display names do not start with one. The stricter
-+        # all-caps/short check below is for a bare sender id with no
-+        # such marker ("EXAUTH4"), and that one needs a second signal.
+         # A leading '#' is distinctive on its own, whatever follows --
+         # human display names do not start with one. The stricter
+         # all-caps/short check below is for a bare sender id with no
+         # such marker ("EXAUTH4"), and that one needs a second signal.
+-        if n.startswith("#") and len(n) > 1:
 +        if probe.startswith("#") and len(probe) > 1:
-+            return True
+             return True
+-        if _SENDER_ID_RE.match(n):
+-            has_digit = any(ch.isdigit() for ch in n)
 +        if _SENDER_ID_RE.match(probe):
 +            has_digit = any(ch.isdigit() for ch in probe)
-+            local = (email or "").split("@", 1)[0].lower()
-+            automated_local = bool(local) and bool(_AUTOMATED_LOCAL_RE.search(local))
-+            if has_digit or automated_local:
-+                return True
-+    if _VIA_RE.search(lowered):
-+        return True
-+    return False
-+
-+
-+# The predicates THIS CLI writes for a sender. A Person carrying anything
-+# else was also seen by another source (Contacts, iMessage, WhatsApp,
-+# calendar) or enriched, and is never removed from here.
-+_EMAIL_ONLY_PREDICATES = (
-+    "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
-+    "pwg:email", "pwg:lastContactEmail", "pwg:displayName",
-+    "pwg:displayNameProvisional", "skos:prefLabel",
+             local = (email or "").split("@", 1)[0].lower()
+             automated_local = bool(local) and bool(_AUTOMATED_LOCAL_RE.search(local))
+             if has_digit or automated_local:
+@@ -422,24 +565,41 @@
+     "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>",
+     "pwg:email", "pwg:lastContactEmail", "pwg:displayName",
+     "pwg:displayNameProvisional", "skos:prefLabel",
 +    # A RETIRED merge duplicate carries only the merge markers besides.
 +    "pwg:mergedInto", "pwg:mergedAt",
-+)
+ )
  
  
 +def _demote_where(person_iri: str) -> list:
@@ -515,63 +453,75 @@
 +    ]
 +
 +
-+def _build_demote(person_iri: str) -> str:
-+    """SPARQL UPDATE removing a Person this CLI created for an automated
+ def _build_demote(person_iri: str) -> str:
+     """SPARQL UPDATE removing a Person this CLI created for an automated
+-    sender, only while it still has the email-only shape."""
 +    sender (and its retired merge duplicates), only while it still has the
 +    email-only shape."""
-+    _check_person_iri(person_iri)
+     _check_person_iri(person_iri)
+-    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+-    return "\n".join([
+-        "PREFIX pwg: <urn:pwg:>",
+-        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+-        "DELETE { <" + person_iri + "> ?p ?o }",
+-        "WHERE {",
+-        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
+-        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+-        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
+-        "}",
+-    ])
 +    return "\n".join(
 +        ["PREFIX pwg: <" + PWG_NS + ">",
 +         "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
 +         "DELETE { ?s ?p ?o }",
 +         "WHERE {"] + _demote_where(person_iri) + ["}"])
-+
-+
-+
-+_IRI_FORBIDDEN = set('<>" \t\r\n{}|\\^`')
-+
-+
-+def _check_person_iri(person_iri: str) -> None:
-+    """Refuse anything that is not a plain IRI in our person namespace
-+    before it is spliced into SPARQL (Archie, review of CM051 #2479)."""
+ 
+ 
+ 
+@@ -449,7 +609,7 @@
+ def _check_person_iri(person_iri: str) -> None:
+     """Refuse anything that is not a plain IRI in our person namespace
+     before it is spliced into SPARQL (Archie, review of CM051 #2479)."""
+-    prefix = "urn:pwg:person/"
 +    prefix = PWG_NS + "person_"
-+    if (not isinstance(person_iri, str) or not person_iri.startswith(prefix)
-+            or len(person_iri) <= len(prefix)
-+            or any(c in _IRI_FORBIDDEN for c in person_iri)):
-+        raise ValueError("refused: not a person IRI in the pwg namespace")
-+
-+
-+_BACKUP_NAME = "demoted_people.jsonl"
-+
-+
-+def _backup_path() -> Path:
-+    root = os.environ.get("OSTLER_HOME") or os.environ.get("OSTLER_DIR") or str(Path.home() / ".ostler")
-+    return Path(root) / "state" / _BACKUP_NAME
-+
-+
-+def _backup_person(endpoint: str, person_iri: str, reason: str) -> int:
-+    """Append every triple the demote WOULD remove to the backup file BEFORE
-+    the UPDATE runs. Returns the triple count. Raises on any failure, so a
-+    Person is never deleted without its backup."""
-+    _check_person_iri(person_iri)
+     if (not isinstance(person_iri, str) or not person_iri.startswith(prefix)
+             or len(person_iri) <= len(prefix)
+             or any(c in _IRI_FORBIDDEN for c in person_iri)):
+@@ -469,46 +629,135 @@
+     the UPDATE runs. Returns the triple count. Raises on any failure, so a
+     Person is never deleted without its backup."""
+     _check_person_iri(person_iri)
+-    allowed = ", ".join(_EMAIL_ONLY_PREDICATES)
+-    q = "\n".join([
+-        "PREFIX pwg: <urn:pwg:>",
+-        "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
+-        "SELECT ?p ?o WHERE {",
+-        "  <" + person_iri + "> a pwg:Person ; ?p ?o .",
+-        "  FILTER NOT EXISTS { <" + person_iri + "> ?q ?x . FILTER(?q NOT IN (" + allowed + ")) }",
+-        "  FILTER NOT EXISTS { ?other ?r <" + person_iri + "> }",
+-        "}",
+-    ])
+-    rows = _sparql_select(endpoint, q)
 +    q = "\n".join(
 +        ["PREFIX pwg: <" + PWG_NS + ">",
 +         "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>",
 +         "SELECT ?s ?p ?o WHERE {"] + _demote_where(person_iri) + ["}"])
 +    rows = _sparql_select_vars(endpoint, q, ("s", "p", "o"))
-+    if not rows:
-+        return 0
-+    path = _backup_path()
-+    path.parent.mkdir(parents=True, exist_ok=True)
-+    ts = datetime.now(timezone.utc).isoformat()
-+    with open(path, "a", encoding="utf-8") as fh:
+     if not rows:
+         return 0
+     path = _backup_path()
+     path.parent.mkdir(parents=True, exist_ok=True)
+     ts = datetime.now(timezone.utc).isoformat()
+     with open(path, "a", encoding="utf-8") as fh:
+-        for p, o in rows:
+-            fh.write(json.dumps({"at": ts, "reason": reason, "s": person_iri, "p": p, "o": o}) + "\n")
 +        for subj, p, o in rows:
 +            fh.write(json.dumps({"at": ts, "reason": reason, "s": subj, "p": p, "o": o}) + "\n")
-+        fh.flush()
-+        os.fsync(fh.fileno())
-+    return len(rows)
-+
-+
+         fh.flush()
+         os.fsync(fh.fileno())
+     return len(rows)
+ 
+ 
 +def _live_person_iri(endpoint: str, person_iri: str, max_hops: int = 16) -> str:
 +    """The live survivor for ``person_iri``: follow ``pwg:mergedInto`` until a
 +    node that carries none (DMG #27, shape sweep S2).
@@ -604,7 +554,16 @@
 +    return cur
 +
 +
-+def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
+ def _sparql_select(endpoint: str, query: str, timeout: float = 10.0) -> list:
+-    """(p, o) pairs from a SELECT. Uses the same transport as updates."""
+-    import urllib.request
+-    import urllib.parse as _up
+-    data = _up.urlencode({"query": query}).encode()
+-    req = urllib.request.Request(endpoint.rstrip("/") + "/query", data=data,
+-                                 headers={"Accept": "application/sparql-results+json",
+-                                          "Content-Type": "application/x-www-form-urlencoded"})
+-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+-        body = json.loads(resp.read().decode("utf-8"))
 +    """(p, o) pairs from a SELECT, over the same httpx transport as updates
 +    (so the store-auth shim in the service venv applies to both)."""
 +    import httpx
@@ -617,12 +576,12 @@
 +    )
 +    response.raise_for_status()
 +    body = response.json()
-+    out = []
-+    for b in body.get("results", {}).get("bindings", []):
-+        out.append((b["p"]["value"], b["o"]["value"]))
-+    return out
-+
-+
+     out = []
+     for b in body.get("results", {}).get("bindings", []):
+         out.append((b["p"]["value"], b["o"]["value"]))
+     return out
+ 
+ 
 +def _initials(name: str) -> str:
 +    """Initials only, so a dry run can show WHO would go without naming them."""
 +    return "".join(w[0] for w in (name or "").split() if w)[:4] or "?"
@@ -683,95 +642,93 @@
 +            for b in response.json().get("results", {}).get("bindings", [])]
 +
 +
-+def _sparql_select_vars(endpoint: str, query: str, var_names: tuple, timeout: float = 30.0) -> list:
-+    """Like ``_sparql_select``, but for an arbitrary SELECT whose bound
-+    variable names are given explicitly, rather than the fixed (p, o) pair
-+    that query always uses. Returns a list of tuples in ``var_names`` order;
-+    a row missing a variable (an OPTIONAL that didn't bind) contributes "".
-+    """
-+    import urllib.request
-+    import urllib.parse as _up
-+    data = _up.urlencode({"query": query}).encode()
-+    req = urllib.request.Request(
-+        endpoint.rstrip("/") + "/query", data=data,
-+        headers={"Accept": "application/sparql-results+json",
-+                 "Content-Type": "application/x-www-form-urlencoded"},
-+    )
-+    with urllib.request.urlopen(req, timeout=timeout) as resp:
-+        body = json.loads(resp.read().decode("utf-8"))
-+    out = []
-+    for b in body.get("results", {}).get("bindings", []):
-+        out.append(tuple(b.get(v, {}).get("value", "") for v in var_names))
-+    return out
-+
-+
-+def _demote(endpoint: str, person_iri: str, reason: str) -> int:
-+    """Backup, THEN delete. Returns the triples backed up (0 = nothing to do)."""
-+    n = _backup_person(endpoint, person_iri, reason)
-+    if n:
-+        _post_sparql_update(endpoint, _build_demote(person_iri))
-+    return n
-+
-+
- def _post_sparql_update(endpoint: str, query: str, timeout: float = 5.0) -> None:
-     """POST a SPARQL UPDATE to Oxigraph.
+ def _sparql_select_vars(endpoint: str, query: str, var_names: tuple, timeout: float = 30.0) -> list:
+     """Like ``_sparql_select``, but for an arbitrary SELECT whose bound
+     variable names are given explicitly, rather than the fixed (p, o) pair
+@@ -563,11 +812,6 @@
+     mbox_path = Path(args.path)
  
-@@ -184,6 +817,9 @@
+     started = time.time()
+-    # started_at anchors CM044's rate-based ETA on the "still getting to know
+-    # you" panel. Set once here; the vendored helper preserves it across
+-    # subsequent ticks so the ETA falls as work completes rather than resetting
+-    # every LaunchAgent hourly tick.
+-    settling_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+     result: Dict[str, Any] = {
+         "messages_read": 0,
          "people_extracted": 0,
-         "signatures_extracted": 0,
-         "skipped": 0,
-+        "skipped_automated": 0,
-+        "people_demoted": 0,
-+        "names_refused_subject_shaped": 0,
-         "errors": [],
-     }
+@@ -583,23 +827,12 @@
+     # counts and renders MSG_HYDRATE_EMAIL_SKIPPED_NO_MAIL_CONTENT.
+     if not mbox_path.exists():
+         _stderr(f"pwg-email-ingest: mbox not found at {mbox_path}; nothing to ingest.")
+-        # No connected source (Apple Mail export not present) -> the panel
+-        # invites the customer to connect one rather than pretending we're
+-        # working through a hidden backfill.
+-        _safe_report_settling(
+-            done=0, total=0, needs_source=True, started_at=settling_started_at,
+-        )
+         if args.json:
+             print(json.dumps(result))
+         return 0
  
-@@ -210,6 +846,7 @@
+     if mbox_path.stat().st_size == 0:
+         _stderr(f"pwg-email-ingest: mbox empty at {mbox_path}; nothing to ingest.")
+-        # Source present but empty (fresh Apple Mail account, or export ran
+-        # before any mail existed) -> the panel reads "ready".
+-        _safe_report_settling(
+-            done=0, total=0, needs_source=False, started_at=settling_started_at,
+-        )
+         if args.json:
+             print(json.dumps(result))
+         return 0
+@@ -611,43 +844,14 @@
+     cutoff: Optional[datetime] = None
+     if args.backfill_days is not None and args.backfill_days > 0:
          cutoff = datetime.now(timezone.utc) - timedelta(days=args.backfill_days)
+-
+-    # Measure backfill queue size ONCE, up front. Do not recompute per tick or
+-    # the progress bar moves backwards when new mail lands mid-stream. The
+-    # settling helper accepts total=0 as a "source present but nothing to do"
+-    # signal, so a pre-scan failure degrades to that state rather than aborting.
+-    settling_total = _count_backfill_queue(mbox_path)
+-    if settling_total == 0:
+-        _safe_report_settling(
+-            done=0, total=0, needs_source=False, started_at=settling_started_at,
+-        )
+-    else:
+-        _safe_report_settling(
+-            done=0, total=settling_total, needs_source=False,
+-            started_at=settling_started_at,
+-        )
  
      seen_emails: Set[str] = set()
-+    demoted: Set[str] = set()
+     demoted: Set[str] = set()
      email_filter = EmailFilter()
      parser = FastMboxParser(str(mbox_path), email_filter=email_filter)
  
-@@ -236,6 +873,24 @@
-             result["skipped"] += 1
-             continue
+-    # Throttle-based settling tick: emit progress at most once every
+-    # _SETTLING_TICK_SECONDS wall-clock seconds during the stream, plus one
+-    # guaranteed final tick after the loop exits.
+-    last_settling_tick = time.monotonic()
+-
+     for email in parser.stream():
+         result["messages_read"] += 1
+-        now_mono = time.monotonic()
+-        if now_mono - last_settling_tick >= _SETTLING_TICK_SECONDS:
+-            _safe_report_settling(
+-                done=result["messages_read"],
+-                total=max(settling_total, result["messages_read"]),
+-                needs_source=False,
+-                started_at=settling_started_at,
+-            )
+-            last_settling_tick = now_mono
  
-+        # Machine and bulk mail is not a person (CM051 v1.0.106). Count it,
-+        # and remove a Person this CLI made for the same sender earlier,
-+        # but only while that node still has the email-only shape.
-+        if automated_sender_reason(email) is not None:
-+            result["skipped"] += 1
-+            result["skipped_automated"] += 1
-+            addr_auto = email.from_address.lower()
-+            if not args.dry_run and addr_auto not in demoted:
-+                demoted.add(addr_auto)
-+                try:
-+                    if _demote(args.graph_endpoint, _safe_person_iri(addr_auto),
-+                               automated_sender_reason(email) or "automated"):
-+                        result["people_demoted"] += 1
-+                except Exception as exc:
-+                    if len(result["errors"]) < 5:
-+                        result["errors"].append(type(exc).__name__)
-+            continue
-+
-         # Date filter. Emails with no date header pass through;
-         # they're rare on legitimate correspondence.
-         if cutoff is not None and email.date is not None:
-@@ -264,10 +919,24 @@
-                     if email.date is not None
-                     else None
-                 )
-+                raw_name = email.from_name or ""
-+                # CM051 #2544: a From-header display name that reads as
-+                # marketing/subject copy or an alphanumeric sender id is not
-+                # a human name -- refuse it so the tier-1 email-based
-+                # provisional name is written instead (never nothing: see
-+                # the displayName tiering note on _build_upsert).
-+                if raw_name and looks_like_subject_or_sender_id(raw_name, addr):
-+                    result["names_refused_subject_shaped"] += 1
-+                    raw_name = ""
+         # Skip the user's own outbound mail -- we want correspondents,
+         # not the user. The parser's is_sent flag is best-effort
+@@ -724,8 +928,13 @@
+                 if raw_name and looks_like_subject_or_sender_id(raw_name, addr):
+                     result["names_refused_subject_shaped"] += 1
+                     raw_name = ""
 +                else:
 +                    # Write a CLEAN name: strip any stray quoting/escaping
 +                    # artefact a badly-quoted From header leaked in, so a kept
@@ -781,69 +738,45 @@
 -                    person_iri=_safe_person_iri(addr),
 +                    person_iri=_live_person_iri(args.graph_endpoint, _safe_person_iri(addr)),
                      email=addr,
--                    name=email.from_name or "",
-+                    name=raw_name,
+                     name=raw_name,
                      last_contact_iso=last_contact_iso,
-                 )
-                 _post_sparql_update(args.graph_endpoint, query)
-@@ -289,6 +958,7 @@
-         f"messages_read={result['messages_read']} "
-         f"people_extracted={result['people_extracted']} "
-         f"skipped={result['skipped']} "
-+        f"skipped_automated={result['skipped_automated']} "
-         f"errors={len(result['errors'])}"
-     )
+@@ -743,18 +952,6 @@
  
-@@ -343,9 +1013,157 @@
-         "--dry-run",
-         action="store_true",
-         help="Parse + count but do not write to Oxigraph.",
-+    )
-+
-+
-+
-+def cmd_reclassify_mail(args: argparse.Namespace) -> int:
-+    """One-off: remove Persons earlier ticks made for automated senders.
-+
-+    The hourly tick only sees new mail, so a sender turned into a Person
-+    before v1.0.106 is never looked at again. This reads the HEADERS only
-+    (never a body) of every .emlx in the Mail store, finds the automated
-+    senders, and runs the same guarded demote as the tick. Counts only in
-+    the JSON, never an address.
-+    """
-+    import email.parser
-+    from types import SimpleNamespace
-+
-+    result: Dict[str, Any] = {"files_read": 0, "unreadable": 0,
-+                              "automated_senders": 0, "people_demoted": 0,
-+                              "errors": []}
-+    root = Path(args.mail_dir).expanduser()
-+    automated: Set[str] = set()
-+    reasons: Dict[str, str] = {}
-+    hp = email.parser.BytesHeaderParser()
-+    for path in root.rglob("*.emlx"):
-+        result["files_read"] += 1
-+        try:
-+            with open(path, "rb") as fh:
-+                fh.readline()  # emlx: first line is the byte count
-+                head = b""
-+                for line in fh:
-+                    if line in (b"\n", b"\r\n"):
-+                        break
-+                    head += line
-+            msg = hp.parsebytes(head)
+     result["people_extracted"] = len(seen_emails)
+ 
+-    # Final settling tick: clamp done to total so the panel reads 100% on
+-    # completion even if the pre-scan under-counted slightly (mixed encodings
+-    # in the mbox can shift the boundary predicate by a message or two).
+-    final_done = result["messages_read"]
+-    final_total = max(settling_total, final_done)
+-    _safe_report_settling(
+-        done=final_done,
+-        total=final_total,
+-        needs_source=False,
+-        started_at=settling_started_at,
+-    )
+-
+     elapsed = time.time() - started
+     _stderr(
+         f"pwg-email-ingest: processed mbox in {elapsed:.1f}s; "
+@@ -850,17 +1047,32 @@
+                         break
+                     head += line
+             msg = hp.parsebytes(head)
+-            frm = email.utils.parseaddr(msg.get("From", ""))[1].strip().lower()
 +            frm_name, frm = email.utils.parseaddr(msg.get("From", ""))
 +            frm = frm.strip().lower()
-+        except Exception:
-+            result["unreadable"] += 1
-+            continue
-+        if "@" not in frm or frm in automated:
-+            continue
+         except Exception:
+             result["unreadable"] += 1
+             continue
+         if "@" not in frm or frm in automated:
+             continue
+-        probe = SimpleNamespace(from_address=frm, headers=dict(msg.items()))
 +        probe = SimpleNamespace(from_address=frm, from_name=frm_name, headers=dict(msg.items()))
-+        why = automated_sender_reason(probe)
-+        if why is not None:
-+            automated.add(frm)
-+            reasons[frm] = why
+         why = automated_sender_reason(probe)
+         if why is not None:
+             automated.add(frm)
+             reasons[frm] = why
 +    # Second pass, over the GRAPH rather than the mail store: an email-only
 +    # Person whose display name is an organisation's, even when its mail is
 +    # no longer in ~/Library/Mail. Same guarded demote, same backup.
@@ -858,17 +791,13 @@
 +        import random
 +        pick = random.Random(106).sample(by_name, min(20, len(by_name)))
 +        result["org_named_samples"] = sorted(_initials(n) + ":" + w for _, n, w in pick)
-+    result["automated_senders"] = len(automated)
-+    result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
-+    result["backup"] = str(_backup_path())
-+    if not args.dry_run:
-+        for addr in sorted(automated):
-+            try:
-+                if _demote(args.graph_endpoint, _safe_person_iri(addr), reasons[addr]):
-+                    result["people_demoted"] += 1
-+            except Exception as exc:
-+                if len(result["errors"]) < 5:
-+                    result["errors"].append(type(exc).__name__)
+     result["automated_senders"] = len(automated)
+     result["by_rule"] = {r: sum(1 for v in reasons.values() if v == r) for r in sorted(set(reasons.values()))}
+     result["backup"] = str(_backup_path())
+@@ -872,6 +1084,13 @@
+             except Exception as exc:
+                 if len(result["errors"]) < 5:
+                     result["errors"].append(type(exc).__name__)
 +        for iri, _name, why in by_name:
 +            try:
 +                if _demote(args.graph_endpoint, iri, why):
@@ -876,99 +805,18 @@
 +            except Exception as exc:
 +                if len(result["errors"]) < 5:
 +                    result["errors"].append(type(exc).__name__)
-+    print(json.dumps(result))
-+    return 0
-+
-+
-+def _add_reclassify_subcommand(sub: argparse._SubParsersAction) -> None:
-+    p = sub.add_parser(
-+        "reclassify-mail",
-+        help="One-off: remove Persons made for automated senders (headers only).",
-     )
-+    p.add_argument("mail_dir", nargs="?", default="~/Library/Mail")
-+    p.add_argument("--graph-endpoint", default="http://localhost:7878")
-+    p.add_argument("--dry-run", action="store_true")
+     print(json.dumps(result))
+     return 0
  
- 
-+def cmd_reclassify_subject_names(args: argparse.Namespace) -> int:
-+    """One-time repair for CM051 #2544: a box upgraded past this fix still
-+    carries Person nodes this CLI created BEFORE it, with a permanent
-+    (non-provisional) displayName that reads as marketing/subject copy or an
-+    alphanumeric sender id. Idempotent -- a graph with none already repaired
-+    reports zero and demotes nothing, safely re-runnable.
-+
-+    Unlike reclassify-mail (which re-reads mail headers), the bad value is
-+    already sitting in the graph as displayName, so this queries Oxigraph
-+    directly rather than re-scanning the Mail store. Reuses the same guarded
-+    _demote as the automated-sender repair: a Person enriched by another
-+    source (Contacts, iMessage, WhatsApp) is never touched, only ones still
-+    carrying the email-only shape.
-+    """
-+    result: Dict[str, Any] = {
-+        "people_examined": 0, "subject_shaped": 0, "people_demoted": 0,
-+        "errors": [],
-+    }
-+    query = "\n".join([
+@@ -905,7 +1124,7 @@
+         "errors": [],
+     }
+     query = "\n".join([
+-        "PREFIX pwg: <urn:pwg:>",
 +        "PREFIX pwg: <" + PWG_NS + ">",
-+        "SELECT ?person ?name WHERE {",
-+        "  ?person a pwg:Person ; pwg:displayName ?name .",
-+        "  FILTER NOT EXISTS { ?person pwg:displayNameProvisional ?prov }",
-+        "}",
-+    ])
-+    rows = _sparql_select_vars(args.graph_endpoint, query, ("person", "name"))
-+    result["people_examined"] = len(rows)
-+    # No `email` to pass here (Archie, 2026-10-01 review): this migration
-+    # reads an already-stored displayName off the graph, not the original
-+    # From header, so the automated-local-part signal is unavailable and
-+    # the sender-id-shape arm reduces to digit-only. Accepted narrowing: it
-+    # will not retroactively catch a pure-letter sender id already written,
-+    # but it will also never flag a real person's capitalised name.
-+    candidates = [(p, n) for p, n in rows if looks_like_subject_or_sender_id(n)]
-+    result["subject_shaped"] = len(candidates)
-+    if not args.dry_run:
-+        for person_iri, _name in candidates:
-+            try:
-+                if _demote(args.graph_endpoint, person_iri, "subject_shaped_name"):
-+                    result["people_demoted"] += 1
-+            except Exception as exc:
-+                if len(result["errors"]) < 5:
-+                    result["errors"].append(type(exc).__name__)
-+    print(json.dumps(result))
-+    return 0
-+
-+
-+def _add_reclassify_subject_names_subcommand(sub: argparse._SubParsersAction) -> None:
-+    p = sub.add_parser(
-+        "reclassify-subject-names",
-+        help=(
-+            "One-off repair (CM051 #2544): remove Persons already created "
-+            "with a subject-line/sender-id-shaped displayName."
-+        ),
-+    )
-+    p.add_argument("--graph-endpoint", default="http://localhost:7878")
-+    p.add_argument("--dry-run", action="store_true")
-+
-+
- def main(argv: Optional[list[str]] = None) -> int:
-     parser = argparse.ArgumentParser(
-         prog="pwg-email-ingest",
-@@ -357,10 +1175,16 @@
-     )
-     sub = parser.add_subparsers(dest="cmd", required=True)
-     _add_mbox_subcommand(sub)
-+    _add_reclassify_subcommand(sub)
-+    _add_reclassify_subject_names_subcommand(sub)
- 
-     args = parser.parse_args(argv)
-     if args.cmd == "mbox":
-         return cmd_mbox(args)
-+    if args.cmd == "reclassify-mail":
-+        return cmd_reclassify_mail(args)
-+    if args.cmd == "reclassify-subject-names":
-+        return cmd_reclassify_subject_names(args)
-     return 2
- 
- 
+         "SELECT ?person ?name WHERE {",
+         "  ?person a pwg:Person ; pwg:displayName ?name .",
+         "  FILTER NOT EXISTS { ?person pwg:displayNameProvisional ?prov }",
 --- a/src/filters.py
 +++ b/src/filters.py
 @@ -79,8 +79,11 @@
