@@ -426,6 +426,21 @@ if [ -s "$CHANGED" ]; then
     fi
 fi
 
+# --- REFUSE if the patch would record OPERATOR PII (names included) ---------
+# The numeric-shape scan above cannot see a name. This one reads the operator
+# inventory and scans the WHOLE candidate patch, '-' lines included, because
+# that is where a scrub's removed values land (aaddd392 / #592 wrote them there).
+# It runs before anything is SHOWN as well as before anything is written: the
+# dry run below prints the patch, and printing a value is publishing it to
+# whoever reads the terminal or the log. Hit -> exit 1. CANNOT-RUN -> exit 2.
+_op_rc=0
+vlib_operator_pii_patch_check "$NEW_PATCH" regenerate_divergence_patch || _op_rc=$?
+case "$_op_rc" in
+    0) ;;
+    1) exit 1 ;;
+    *) exit 2 ;;
+esac
+
 # --- SHOW what is about to be blessed ----------------------------------------
 echo "PII control   : fired on a synthetic known-bad value, so the clean result means something"
 echo "PII scan      : $(wc -l < "$CHANGED" | tr -d ' ') changed line(s) scanned, both signs, no hits"

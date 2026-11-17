@@ -86,6 +86,18 @@ gen_patch() {
         return 1
     fi
     if [ -s "$d" ]; then
+        # OPERATOR PII, '-' LINES INCLUDED, BEFORE THE PATCH REACHES THE TREE.
+        # The 2026-08-12 scrub (aaddd392 / #592) went through this writer and
+        # recorded the removed values on the patch's MINUS side, the source
+        # side, in a PUBLIC repo. Hit -> refuse (rc 1); no inventory, no rg or a
+        # scanner that examined nothing -> CANNOT-RUN (rc 2). Either way nothing
+        # is written, and the caller rolls back. Counts only are printed.
+        _gp_refused=0
+        vlib_operator_pii_patch_check "$d" sync_vendor || _gp_refused=$?
+        if [ "$_gp_refused" -ne 0 ]; then
+            rm -f "$d"
+            return 3
+        fi
         mkdir -p "$(dirname "$out")"
         mv "$d" "$out"
         _gp_new="$(grep -cE '^--- /dev/null$' "$out" || true)"
@@ -108,11 +120,15 @@ if [ "$REGEN_ONLY" = "1" ]; then
         rm -rf "$tmp"
         exit 1
     fi
-    if gen_patch "$tmp" "$abs_patch"; then
-        ensure_manifest_patch_ref "$TREE" "$patch_rel"
-    else
-        clear_manifest_patch_ref "$TREE"
-    fi
+    _gp_rc=0
+    gen_patch "$tmp" "$abs_patch" || _gp_rc=$?
+    case "$_gp_rc" in
+        0) ensure_manifest_patch_ref "$TREE" "$patch_rel" ;;
+        3) rm -rf "$tmp"
+           echo "REFUSED: no divergence patch written for $TREE; the patch on disk and the manifest are untouched." >&2
+           exit "$_gp_refused" ;;
+        *) clear_manifest_patch_ref "$TREE" ;;
+    esac
     rm -rf "$tmp"
     echo "regen-patch done for $TREE"
     exit 0
@@ -539,18 +555,29 @@ if true; then
         exit 1
     fi
 fi
-rm -rf "$_symguard_before"
 
 # Regenerate the patch from clean source@to_sha -> new vendor and bump sha.
+# $_symguard_before is kept until the patch is written: an operator-PII refusal
+# in gen_patch must ROLL BACK the swapped tree, exactly as the symbol guard does,
+# rather than leave a vendored tree that no recorded patch describes.
 tmp2="$(mktemp -d)"
 set_manifest_field "$TREE" pinned_sha "$TO_SHA"
 vlib_materialise "$TREE" "$tmp2" >/dev/null 2>&1 || true
-if gen_patch "$tmp2" "$abs_patch"; then
-    ensure_manifest_patch_ref "$TREE" "$patch_rel"
-else
-    clear_manifest_patch_ref "$TREE"
-fi
-rm -rf "$tmp2"
+_gp_rc=0
+gen_patch "$tmp2" "$abs_patch" || _gp_rc=$?
+case "$_gp_rc" in
+    0) ensure_manifest_patch_ref "$TREE" "$patch_rel" ;;
+    3) rm -rf "$tmp2"
+       echo "" >&2
+       echo "ROLLING BACK the vendored tree; the patch on disk is untouched and the pin is restored." >&2
+       rm -rf "$abs_vendor"
+       mkdir -p "$abs_vendor"
+       ( cd "$_symguard_before" && tar -cf - . ) | ( cd "$abs_vendor" && tar -xf - )
+       rm -rf "$_symguard_before"
+       exit "$_gp_refused" ;;
+    *) clear_manifest_patch_ref "$TREE" ;;
+esac
+rm -rf "$tmp2" "$_symguard_before"
 
 # The sync completed: the vendored tree now HOLDS this sha's content, so the
 # pin is earned and the trap must not undo it.

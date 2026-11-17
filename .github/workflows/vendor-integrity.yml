@@ -37,6 +37,9 @@ on:
       # vendored graft rather than deleting it. It ran nowhere.
       - 'scripts/regenerate_divergence_patch.sh'
       - 'scripts/tests/test_regenerate_divergence_patch.sh'
+      - 'scripts/tests/test_patch_writers_refuse_operator_pii.sh'
+      - 'scripts/verify_no_symbol_regression.sh'
+      - '.github/scripts/operator-pii-scan.sh'
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
@@ -215,6 +218,34 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Both divergence-patch writers scan the patch they are about to write
+      # against the operator inventory (.github/scripts/operator-pii-scan.sh,
+      # which needs ripgrep). Their self-tests below run under a SYNTHETIC
+      # inventory, and without rg they are CANNOT-RUN, never a pass. Same three
+      # routes as operator-pii-scan.yml, same reason for the bound.
+      - name: Install ripgrep
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if command -v rg >/dev/null 2>&1; then
+              echo "ripgrep already present: $(rg --version | head -1)"
+              exit 0
+          fi
+          RG_VER=14.1.1
+          RG_TGZ="ripgrep-${RG_VER}-x86_64-unknown-linux-musl"
+          if curl -fsSL --max-time 90 --retry 2 \
+                "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VER}/${RG_TGZ}.tar.gz" \
+                -o /tmp/rg.tar.gz \
+             && tar -xzf /tmp/rg.tar.gz -C /tmp \
+             && sudo install -m 0755 "/tmp/${RG_TGZ}/rg" /usr/local/bin/rg; then
+              echo "ripgrep installed from upstream release: $(rg --version | head -1)"
+              exit 0
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ripgrep
+          command -v rg >/dev/null 2>&1 || { echo "::error::ripgrep unavailable by all three routes" >&2; exit 1; }
+          echo "ripgrep installed via apt: $(rg --version | head -1)"
+
       # The manifest is read everywhere by scripts/_vendor_lib.sh, which is a
       # line-based reader and does not care whether the file is valid TOML.
       # #563 landed a hold_ack_reason with an unescaped quote and every check
@@ -335,6 +366,15 @@ jobs:
         # same job SKIPS this step, and a skipped test reports nothing at all.
         if: always()
         run: /bin/bash scripts/tests/test_regenerate_divergence_patch.sh
+
+      # PATCH-WRITER-PII-REFUSAL. aaddd392 / #592 wrote scrubbed operator-PII
+      # values onto the '-' side of vendor/divergences/*.patch. Both writers now
+      # scan the candidate patch against the operator inventory and refuse; this
+      # proves it under a synthetic inventory (term composed at runtime), with a
+      # clean-inventory control that still writes and a no-inventory CANNOT-RUN.
+      - name: The divergence-patch writers refuse operator PII, '-' lines included
+        if: always()
+        run: /bin/bash scripts/tests/test_patch_writers_refuse_operator_pii.sh
 
       - name: Vendor-freshness gate self-test
         if: always()

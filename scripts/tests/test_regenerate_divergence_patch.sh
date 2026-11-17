@@ -68,6 +68,17 @@ command -v git >/dev/null 2>&1 || { echo "CANNOT RUN: git unavailable" >&2; exit
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# THE TOOL NOW REFUSES TO RUN WITHOUT AN OPERATOR INVENTORY (CANNOT-RUN, rc 2),
+# because it scans every candidate patch against it, '-' lines included. The
+# controls below are about other guards, so they run under a temporary HOME
+# holding a SYNTHETIC inventory whose one entry is composed here and appears in
+# no fixture. The real inventory is never read. The refusal itself is proven by
+# scripts/tests/test_patch_writers_refuse_operator_pii.sh.
+command -v rg >/dev/null 2>&1 || { echo "CANNOT RUN: ripgrep (rg) unavailable; the tool's operator-PII scan needs it" >&2; exit 2; }
+export HOME="$WORK/home"
+mkdir -p "$HOME"
+printf '[family_names]\nnames = [\n    "%s",\n]\n' "$(printf '%s%s' 'Zx' 'qvwmb')" > "$HOME/.ostler-operator-pii.toml"
+
 # Build a hermetic fixture. Prints the pinned SHA.
 make_fixture() {
     local root="$1" src="$1/synthetic-source"
@@ -89,6 +100,8 @@ make_fixture() {
     # so the fixture needs the pattern library or every divergent control below
     # would CANNOT-RUN instead of exercising the guard it is aimed at.
     cp "$REPO_ROOT/.githooks/pii_patterns.sh" "$root/.githooks/" 2>/dev/null || true
+    mkdir -p "$root/.github/scripts"
+    cp "$REPO_ROOT/.github/scripts/operator-pii-scan.sh" "$root/.github/scripts/"
     cp "$src/pkg/mod.py" "$root/vendor/synthtree/pkg/mod.py"
     cat > "$root/vendor/VENDOR_MANIFEST.toml" <<EOF
 [[tree]]
