@@ -2303,29 +2303,25 @@ def _filter_qdrant_facts(facts, owner_level=None):
 # channel replies or briefs, or sent off the box, passes ONLY L1, L2 and
 # untagged. L0 (owner-private on the PWG scale), L3 and any value that does
 # not parse are withheld. Untagged passes, as these readers always did.
-_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
 
 
 def _outbound_level_ok(record):
-    """True when a record may leave the box (see rule above).
+    """True when a person or debt record may leave the box.
 
-    ``record`` is a dict (every spelling is read, strictest wins) or a raw
-    value. No level under any spelling is ABSENT: untagged passes.
+    LEGACY: no level under any spelling passes (the 133 untagged rule).
+    Anything else follows the outbound table for the Hub route.
     """
-    level = pwg_privacy.effective_level(record)
-    return level is pwg_privacy.ABSENT or level in _OUTBOUND_PRIVACY_LEVELS
+    return pwg_privacy.outbound_ok(record, legacy_absent_serves=True)
 
 
 def _fact_outbound_ok(fact):
-    """True when one fact's own level is outbound-safe (L1 or L2).
+    """True when one fact may leave the box (outbound table, Hub route).
 
-    Reads EVERY spelling via effective_level (strictest wins), so an L1 under
-    one key cannot clear a fact that carries L3 or L0 under another. A fact
-    with no parseable level is refused.
+    A fact with no tag is refused: it is L3 under the canonical rule.
     """
     if not isinstance(fact, dict):
         return False
-    return pwg_privacy.effective_level(fact) in _OUTBOUND_PRIVACY_LEVELS
+    return pwg_privacy.outbound_ok(fact)
 
 
 def people_search(query, limit=10, timeout=30):
@@ -2429,9 +2425,8 @@ def people_search(query, limit=10, timeout=30):
         # verbatim into the response with no downstream privacy re-check.
         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
         facts = _filter_qdrant_facts(p.get("facts"))
-        # 133 outbound: an explicit L0 fact on a served person is owner-private
-        # and must not leave the box. _filter_qdrant_facts only drops L3 and
-        # untagged, so the outbound level is checked per fact here.
+        # Outbound: each fact is checked against the outbound table here
+        # (canonical L0 served, unmigrated L0 withheld by legacy_l0_guard).
         facts = [f for f in facts if _fact_outbound_ok(f)]
         if facts:
             entry["facts"] = facts
@@ -7814,8 +7809,9 @@ def _count_withheld(withheld, verdict):
         withheld["unknown"] += 1
         return False
     if verdict == "l0":
-        # L0 is withheld and counted in the unknown bucket: the response keeps
-        # its two-key withheld shape (every consumer of it reads those two).
+        # L0 is withheld and counted in the unknown bucket (the 134 contract,
+        # pinned by test_l0_on_the_mention_withholds_it). The response keeps
+        # its two-key withheld shape.
         withheld["unknown"] += 1
         return False
     if verdict == "legacy_untagged":
@@ -12952,12 +12948,10 @@ def _interest_privacy_verdict(it):
 
 
 def _level_verdict(raw):
-    """One raw level's verdict, with L0 withheld (red-team 134 CM041-02).
-
-    ``provenance_verdict`` serves an explicit L0 as "ok". An L0 item must not
-    reach the daemon's preference tool or any outbound reader, so it is its
-    own counted withhold here. Everything else is provenance_verdict's answer."""
-    if pwg_privacy._classify(raw) == "L0":
+    """One raw level's verdict. An unmigrated L0 is withheld through
+    ``pwg_privacy.legacy_l0_guard`` (LEGACY); everything else is
+    provenance_verdict's answer."""
+    if pwg_privacy.legacy_l0_guard(raw):
         return "l0"
     return pwg_privacy.provenance_verdict(raw)
 

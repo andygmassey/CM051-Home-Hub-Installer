@@ -1,63 +1,92 @@
-"""Canonical fail-closed L3 privacy helper -- single source of truth.
+"""Canonical privacy helper for the Ostler Hub: one file, no repo imports.
 
-This is the ONE helper every L3 read-side decision in the CM041 Hub
-server routes through. It exists so the "hide L3 person facts" doctrine
-cannot drift between the several readers that emit person facts
-(``people_search``, ``person_context``, ``person_enrichment`` in
-``assistant_api/ical-server.py`` and ``_get_person_facts`` in
-``meeting_syncer/brief.py``).
+CANONICAL SCALE (owner-approved 2026-11-16; outbound ruling 2026-11-17,
+design PRIVACY_SCALE_DESIGN_2026-11-16.md section 1):
 
-Operator-approved doctrine (2026-06-28, Archie batch-1 F8):
+    L0  public / unredacted            least private
+    L1  personal, PII redacted
+    L2  private / sensitive
+    L3  owner-only, never off the box  most private
 
-    Read privacy from the record AND, where the record has an owning
-    person/meeting node, that node's privacyLevel too -- MOST-RESTRICTIVE
-    wins. Missing / empty / unparseable / any value not in {L0,L1,L2,L3}
-    -> treat as L3 (hidden). Only an explicit, parseable L0/L1/L2 passes.
-    Case/whitespace-insensitive. Non-list / un-auditable fact containers
-    -> drop (fail-closed).
+    Missing or unknown level = L3.
 
-This is FAIL-CLOSED: the previous helper kept untagged facts (fail-OPEN),
-which is the leak class Archie caught. An untagged fact is only visible
-when an owning node supplies a parseable, non-L3 level for it to inherit;
-with no parseable signal anywhere the fact is hidden.
+OUTBOUND TABLE, by destination (``may_leave``):
 
-OUTBOUND RULE (Archie, CM041 #295, 2026-11-17). Two classes of caller:
+    level  owner_channel  cloud    others   export
+    L0     full           full     full     full
+    L1     full           redacted redacted redacted
+    L2     full (own      no       no       no
+           WhatsApp or
+           iMessage brief)
+    L3     no             no       no       no
 
-  * OUTBOUND = any route or caller NOT proven owner-local. Today that is
-    EVERY Hub API route. Outbound readers withhold L0, L3 and UNREADABLE,
-    and serve L1, L2 and ABSENT (untagged). This is the 133 strict design.
-  * OWNER-LOCAL is ONLY two surfaces: (a) requests carrying the owner-scoped
-    bearer, once the 134 owner scope and audience marker land; (b) surfaces
-    on the owner's own Hub UI. Only these may read L0 and L3.
+  owner_channel = the owner's own WhatsApp or iMessage brief.
+  cloud         = a cloud model.   others = other people.   export = any file.
+  Every Hub route is outbound: ``outbound_ok`` asks the table for destination
+  ``others``, the strictest destination a Hub route can reach. ``others``,
+  ``cloud`` and ``export`` agree in every row, so the choice of the three is
+  not load-bearing.
 
-``effective_level`` returns the strictest class across every spelling. A
-missing tag is the ``ABSENT`` sentinel (identity, never the string); a
-present-but-unparseable tag is ``"UNREADABLE"``.
+LEGACY, named wherever it remains:
 
-VENDORING NOTE: both ``assistant_api/ical-server.py`` and
-``meeting_syncer/brief.py`` import this module. If EITHER is vendored
-downstream (e.g. CM051 ``vendor/cm041/``), THIS FILE MUST BE VENDORED
-ALONGSIDE IT. One doctrine, one helper -- do not fork a second copy.
+  * ``legacy_l0_guard``: an UNMIGRATED L0 from the old PWG/CM041 writers meant
+    "owner-private". It is withheld outbound until that store's per-writer
+    relabel has run. A record is migrated when it carries the relabel
+    contract (``CANONICAL_SCALE_KEY``); a raw value never does.
+  * ``legacy_absent_serves``: an untagged person is served by the old 133
+    rule. Canonical rule: a missing tag is L3. Only the person gate passes it.
+
+ORDER for ``effective_level`` (strictest wins):
+    L0 < L1 < L2 < UNREADABLE < L3.
+    A missing tag beside a present one counts as L3. A record with no tag at
+    all is ``ABSENT``, which the readers treat as L3.
+
+OWNER-LOCAL: ``is_l3`` and ``filter_l3_facts`` serve L0, L1 and L2 and hide
+L3, UNREADABLE and ABSENT. They are for surfaces on the owner's own Hub UI
+only, never for a Hub route.
+
+Readers MUST go through ``effective_level``: reading one key, or stopping at
+the first spelling that parses, is the leak this module exists to prevent.
+
+VENDORING NOTE: ``assistant_api/ical-server.py`` and ``meeting_syncer/brief.py``
+import this module. If EITHER is vendored downstream (e.g. CM051
+``vendor/cm041/``), THIS FILE MUST BE VENDORED ALONGSIDE IT. One doctrine,
+one helper; do not fork a second copy.
 """
 from __future__ import annotations
 
-# The four recognised privacy levels. Anything outside this set (including
-# the empty string and non-string junk) is treated as "no parseable
-# signal" and, absent any other signal, fails closed to hidden.
+# The four canonical levels.
 VALID_PRIVACY_LEVELS = frozenset({"L0", "L1", "L2", "L3"})
 
-# Privacy-level keys a per-fact dict might carry. A Qdrant payload fact
-# stores it snake-cased; an Oxigraph-mirrored fact could arrive under any
-# of these spellings. All are checked.
+# Privacy-level keys a per-fact dict might carry. A Qdrant payload fact stores
+# it snake-cased; an Oxigraph-mirrored fact could arrive under any spelling.
 FACT_PRIVACY_KEYS = ("privacy_level", "privacyLevel", "privacy", "level")
 
-# Every spelling a record-level privacy value is written under. Readers MUST
-# go through effective_level(); reading one key (or one predicate) and
-# stopping at the first hit is the leak this module exists to prevent.
+# Every spelling a record-level privacy value is written under.
 PRIVACY_PREDICATES = (
     "https://schema.ostler.ai/ontology#privacyLevel",   # pwg:privacyLevel
     "urn:ostler:privacyLevel",
 )
+
+# The relabel contract. A per-writer relabel writes this beside the canonical
+# level on every record it migrates. A record without it is unmigrated.
+CANONICAL_SCALE_KEY = "privacy_scale"
+CANONICAL_SCALE_VALUE = "canonical-2026-11"
+
+# The destinations of the outbound table.
+DESTINATIONS = ("owner_channel", "cloud", "others", "export")
+# What a Hub route can reach: the strictest destination (see module docstring).
+ROUTE_DESTINATION = "others"
+
+# The outbound table. "full" = may leave as is; "redacted" = only the redacted
+# form may leave; "no" = never leaves. Lift verbatim with the module.
+_OUTBOUND_TABLE = {
+    "L0": {"owner_channel": "full", "cloud": "full", "others": "full", "export": "full"},
+    "L1": {"owner_channel": "full", "cloud": "redacted", "others": "redacted", "export": "redacted"},
+    "L2": {"owner_channel": "full", "cloud": "no", "others": "no", "export": "no"},
+    "L3": {"owner_channel": "no", "cloud": "no", "others": "no", "export": "no"},
+}
+
 
 class _Absent:
     """Typed sentinel for 'no privacy tag at all'. Compare by identity."""
@@ -69,19 +98,16 @@ class _Absent:
 
 ABSENT = _Absent()
 
-# Strictness, least to most restrictive. ABSENT (no spelling present) is the
-# untagged case. An UNREADABLE value may be a corrupted STRICTER label, so it
-# outranks L1 and L2 and is never ignored: junk beside a valid level fails
-# closed. L0 and L3 are withheld too, and rank above L2. Order fixed by Archie
-# (CM041 #295 review): ABSENT < L1 < L2 < L0 < UNREADABLE < L3.
-_STRICT_RANK = {ABSENT: 0, "L1": 1, "L2": 2, "L0": 3, "UNREADABLE": 4, "L3": 5}
+# Strictness, least to most restrictive. UNREADABLE sits between L2 and L3: a
+# present value that does not parse is withheld, but it is not known to be L3.
+_RANK = {"L0": 0, "L1": 1, "L2": 2, "UNREADABLE": 3, "L3": 4}
 
 
 def parse_privacy_level(value):
-    """Normalise a raw privacy value to 'L0'/'L1'/'L2'/'L3', else None.
+    """Normalise a raw privacy value to 'L0'..'L3', else None.
 
-    Case- and whitespace-insensitive. ``None`` / empty / unparseable /
-    any value outside {L0,L1,L2,L3} -> ``None`` ("no parseable signal").
+    Case- and whitespace-insensitive. None, empty, or any value outside
+    {L0..L3} gives None.
     """
     if value is None:
         return None
@@ -90,32 +116,30 @@ def parse_privacy_level(value):
 
 
 def _classify_value(value):
-    """One raw spelling's value -> 'L0'..'L3', 'UNREADABLE' or 'ABSENT'."""
+    """One raw spelling's value -> 'L0'..'L3', 'UNREADABLE', or ABSENT (blank)."""
     if value is None or str(value).strip() == "":
         return ABSENT
     return parse_privacy_level(value) or "UNREADABLE"
 
 
 def effective_level(record, owner_level=None):
-    """The STRICTEST privacy class across EVERY spelling a record carries.
+    """The strictest class across EVERY spelling a record carries.
 
-    Returns one of "L0", "L1", "L2", "L3", "UNREADABLE" or the ``ABSENT``
-    sentinel (test with ``is ABSENT``).
+    Returns "L0", "L1", "L2", "L3", "UNREADABLE", or the ``ABSENT`` sentinel
+    (test with ``is ABSENT``).
 
-    ``record`` may be:
-      * a dict: every key in FACT_PRIVACY_KEYS is read, not the first hit;
-      * a list of (predicate, value) pairs (a triple view): every pair whose
-        predicate is a snake/camel key or one of PRIVACY_PREDICATES is read;
-      * a bare raw value (string / None);
-      * None: ABSENT.
-    ``owner_level``: optional raw level of the owning node, counted as one
-    more spelling (most-restrictive wins across record and owner).
+    ``record`` may be a dict (every key in FACT_PRIVACY_KEYS is read), a list
+    of (predicate, value) pairs (a triple view over PRIVACY_PREDICATES and the
+    keys above), a bare raw value, or None.
+    ``owner_level``: optional raw level of the owning node, counted as one more
+    spelling.
 
-    Order (least to most restrictive): ABSENT < L1 < L2 < L0 < UNREADABLE < L3.
-    Consequences: L0+L2 -> L0 (withheld, not numeric max); L3+L1 -> L3;
-    L0+L3 -> L3; junk+L1 -> UNREADABLE (withheld: junk never loses to a
-    valid level, it may be a corrupted stricter label); junk alone ->
-    UNREADABLE; nothing -> ABSENT (untagged).
+    Rules:
+      * ABSENT only when no spelling carries a non-blank value at all.
+      * A missing (blank) spelling beside a present one counts as L3.
+      * Otherwise the most restrictive present class wins:
+        L0 < L1 < L2 < UNREADABLE < L3.
+    So L0+L2 -> L2; L2+junk -> UNREADABLE; L1+L3 -> L3; blank+L1 -> L3.
     """
     if isinstance(record, dict):
         values = [record[k] for k in FACT_PRIVACY_KEYS if k in record]
@@ -128,13 +152,53 @@ def effective_level(record, owner_level=None):
         values = [record]
     if owner_level is not None:
         values.append(owner_level)
-    if not values:
+    classes = [_classify_value(v) for v in values]
+    present = [c for c in classes if c is not ABSENT]
+    if not present:
         return ABSENT
-    return max((_classify_value(v) for v in values), key=_STRICT_RANK.__getitem__)
+    if len(present) < len(classes):
+        present.append("L3")        # a missing tag beside a present one is L3
+    return max(present, key=_RANK.__getitem__)
+
+
+def may_leave(level, destination):
+    """The outbound table. Returns "full", "redacted" or "no".
+
+    ``level`` is one of "L0".."L3" or ``ABSENT``/"UNREADABLE" (both "no").
+    An unknown ``destination`` raises: the table fails closed, never open.
+    """
+    if destination not in DESTINATIONS:
+        raise ValueError(f"unknown outbound destination: {destination!r}")
+    if level is ABSENT or level not in _OUTBOUND_TABLE:
+        return "no"
+    return _OUTBOUND_TABLE[level][destination]
+
+
+def _is_unmigrated_l0(item):
+    if item is None:
+        return False
+    if isinstance(item, dict):
+        if effective_level(item) != "L0":
+            return False
+        return item.get(CANONICAL_SCALE_KEY) != CANONICAL_SCALE_VALUE
+    return _classify_value(item) == "L0"
+
+
+def legacy_l0_guard(item, *sources):
+    """True when the item or any linked source is an UNMIGRATED L0.
+
+    LEGACY. The old PWG L0 meant "owner-private", so it is withheld outbound
+    until the store's per-writer relabel has run: old PWG L0 meant owner-private;
+    withheld until relabelled. A record is migrated when it carries
+    ``CANONICAL_SCALE_KEY == CANONICAL_SCALE_VALUE``; the relabel writes that
+    beside the new level. A raw value carries no contract, so it is always
+    unmigrated. After the relabel, canonical L0 is served.
+    """
+    return any(_is_unmigrated_l0(x) for x in (item, *sources))
 
 
 def _record_level(record):
-    """Strictest parseable L0..L3 across all spellings, or None."""
+    """The effective parseable level L0..L3, or None (ABSENT or UNREADABLE)."""
     level = effective_level(record)
     return level if level in VALID_PRIVACY_LEVELS else None
 
@@ -142,64 +206,30 @@ def _record_level(record):
 def is_l3(record, owner_level=None):
     """Owner-local fail-closed test. ``True`` => HIDE the record.
 
-    OWNER-LOCAL ONLY. It does not hide L0, so it must never gate an outbound
-    route: use :func:`outbound_ok` there.
-
-    Hidden when the strictest class across every spelling (and the owner,
-    if given) is L3, UNREADABLE, or ABSENT (no tag at all). L0, L1 and L2 are
-    served here; outbound readers apply their own, narrower, rule on top.
+    OWNER-LOCAL ONLY: it serves L0, L1 and L2, so it must never gate a Hub
+    route. Hidden when the effective level is L3, UNREADABLE, or ABSENT.
     """
     level = effective_level(record, owner_level)
     return level is ABSENT or level in ("L3", "UNREADABLE")
 
 
-def sparql_effective_level(subject_var="s", out_var="effLevel"):
-    """SPARQL subquery: one row per subject, carrying its strictest class.
+def outbound_ok(record, owner_level=None, destination=ROUTE_DESTINATION,
+                legacy_absent_serves=False):
+    """True when a record may leave by ``destination``: the table says "full".
 
-    Insert as a group pattern, e.g. ``OPTIONAL { {sparql} }`` or
-    ``{ {sparql} }``. Binds ``?<subject_var>`` and ``?<out_var>`` to one of
-    "L0".."L3" or "UNREADABLE". It NEVER emits an absent marker: a subject
-    whose tags are all blank, or that has no privacy triple, has NO row.
-    Map the missing binding with ``effective_level(None)``, which returns the
-    ``ABSENT`` sentinel. Reads the default graph AND every named graph
-    (UNION), so it works inside ``GRAPH ?g``. The rank mapping mirrors
-    _STRICT_RANK exactly; tests/test_privacy_effective_level.py runs both on
-    one store.
-    """
-    s = subject_var
-    preds = ", ".join(f"<{p}>" for p in PRIVACY_PREDICATES)
-    rank = (
-        'IF(?_pn = "", 0, IF(?_pn = "L1", 1, IF(?_pn = "L2", 2, '
-        'IF(?_pn = "L0", 3, IF(?_pn = "L3", 5, 4)))))'
-    )
-    name = (r'BIND(REPLACE(UCASE(STR(?_pv)), "\\s", "") AS ?_pn)')
-    level = (
-        'IF(?_mr = 5, "L3", IF(?_mr = 4, "UNREADABLE", IF(?_mr = 3, "L0", '
-        'IF(?_mr = 2, "L2", IF(?_mr = 1, "L1", "UNREADABLE")))))'
-    )
-    return (
-        "{ SELECT ?%(s)s (%(level)s AS ?%(out)s) WHERE { "
-        "SELECT ?%(s)s (MAX(?_rk) AS ?_mr) WHERE { "
-        "{ ?%(s)s ?_pp ?_pv . } UNION { GRAPH ?_pg { ?%(s)s ?_pp ?_pv . } } "
-        "FILTER(?_pp IN (%(preds)s)) "
-        "%(name)s BIND(%(rank)s AS ?_rk) "
-        "} GROUP BY ?%(s)s HAVING (MAX(?_rk) > 0) } }"
-    ) % {"s": s, "out": out_var, "level": level, "preds": preds,
-         "name": name, "rank": rank}
+    Defaults to the Hub-route case (``ROUTE_DESTINATION``). A "redacted" cell is
+    NOT servable here, because no Hub route redacts. An unmigrated L0 is
+    withheld through ``legacy_l0_guard``.
 
-
-def outbound_ok(record, owner_level=None, absent_serves=False):
-    """True when a record may leave the box: the OUTBOUND rule.
-
-    Serves L1 and L2 only. Withholds L0, L3 and UNREADABLE. An untagged
-    record (ABSENT) is decided by ``absent_serves``: facts pass False (an
-    untagged fact is refused), person and debt gates pass True (the legacy
-    untagged rule). Use this on every route not proven owner-local.
+    ``legacy_absent_serves`` is LEGACY (the 133 untagged rule). Only the person
+    gate passes it. A fact with no tag is refused by default.
     """
     level = effective_level(record, owner_level)
     if level is ABSENT:
-        return bool(absent_serves)
-    return level in ("L1", "L2")
+        return bool(legacy_absent_serves)
+    if legacy_l0_guard(record):
+        return False
+    return may_leave(level, destination) == "full"
 
 
 def filter_outbound_facts(facts, owner_level=None):
@@ -213,44 +243,67 @@ def filter_outbound_facts(facts, owner_level=None):
 
 
 def filter_l3_facts(facts, owner_level=None):
-    """Owner-local L3 filter for a facts *list*. NOT for outbound routes.
+    """Owner-local L3 filter for a facts *list*. NOT for Hub routes.
 
-    Hides L3, UNREADABLE and ABSENT; serves L0, L1 and L2. Outbound readers
-    must use :func:`filter_outbound_facts`, which also withholds L0.
-    ``facts`` MUST be a list; any other shape is dropped whole -> ``[]``.
+    Hides L3, UNREADABLE and ABSENT; serves L0, L1 and L2. Hub routes must use
+    :func:`filter_outbound_facts`. ``facts`` MUST be a list; else -> ``[]``.
     """
     if not isinstance(facts, list):
         return []
     return [f for f in facts if not is_l3(f, owner_level)]
 
 
+def sparql_effective_level(subject_var="s", out_var="effLevel"):
+    """SPARQL subquery: one row per subject, carrying its effective level.
 
-def _classify(raw):
-    """ABSENT (no value), a parsed level, or UNREADABLE (a value that is not
-    a level). ABSENT and UNREADABLE stay distinct: ABSENT keeps the item as
-    legacy, UNREADABLE withholds it."""
-    if raw is None or str(raw).strip() == "":
-        return "ABSENT"
-    return parse_privacy_level(raw) or "UNREADABLE"
+    Insert as a group pattern. Binds ``?<subject_var>`` and ``?<out_var>`` to one
+    of "L0".."L3" or "UNREADABLE". It NEVER emits an absent marker: a subject
+    with no non-blank tag has NO row; map the missing binding with
+    ``effective_level(None)``, which gives ``ABSENT``. Mirrors ``effective_level``
+    exactly: a blank tag beside a present one gives L3. Reads the default graph
+    AND every named graph (UNION). tests/test_privacy_effective_level.py runs
+    both on one store.
+    """
+    s = subject_var
+    preds = ", ".join(f"<{p}>" for p in PRIVACY_PREDICATES)
+    # Rank of a non-blank value, offset by one so that 0 means "no non-blank".
+    # L0=1 L1=2 L2=3 UNREADABLE=4 L3=5. A blank value is rank 0 and sets _bl.
+    rank = (
+        'IF(?_pn = "", 0, IF(?_pn = "L0", 1, IF(?_pn = "L1", 2, '
+        'IF(?_pn = "L2", 3, IF(?_pn = "L3", 5, 4)))))'
+    )
+    name = r'BIND(REPLACE(UCASE(STR(?_pv)), "\\s", "") AS ?_pn)'
+    blank = 'BIND(IF(?_pn = "", 1, 0) AS ?_bl)'
+    level = (
+        'IF(?_anyb = 1, "L3", IF(?_mr = 5, "L3", IF(?_mr = 4, "UNREADABLE", '
+        'IF(?_mr = 3, "L2", IF(?_mr = 2, "L1", "L0")))))'
+    )
+    return (
+        "{ SELECT ?%(s)s (%(level)s AS ?%(out)s) WHERE { "
+        "SELECT ?%(s)s (MAX(?_rk) AS ?_mr) (MAX(?_bl) AS ?_anyb) WHERE { "
+        "{ ?%(s)s ?_pp ?_pv . } UNION { GRAPH ?_pg { ?%(s)s ?_pp ?_pv . } } "
+        "FILTER(?_pp IN (%(preds)s)) "
+        "%(name)s %(blank)s BIND(%(rank)s AS ?_rk) "
+        "} GROUP BY ?%(s)s HAVING (MAX(?_rk) > 0) } }"
+    ) % {"s": s, "out": out_var, "level": level, "preds": preds,
+         "name": name, "blank": blank, "rank": rank}
 
 
 def provenance_verdict(own, sources=()):
     """Visibility of one item, from its OWN level and its linked sources.
 
     ``own``: the item's own privacyLevel (raw), or None if it has none.
-    ``sources``: the raw level of each linked source (source conversation,
-    source meeting, attendee), None where the link has no level.
+    ``sources``: the raw level of each linked source, None where the link has
+    no level.
 
-    Order (Archie, 133): the item's own level first, then the linked
-    sources; most-restrictive wins.
+    The own level is read first, then the linked sources; most-restrictive
+    wins. For outbound withholding of an unmigrated L0, see ``legacy_l0_guard``.
 
       * "l3"             -- own or any source is L3: withhold, counted.
       * "unknown"        -- own or any source is present but unreadable,
                             or a link does not resolve: withhold, counted.
-      * "l0"             -- own or any source is L0 (owner-private): withhold,
-                            counted like "l3". Outbound never serves L0.
-      * "ok"             -- no L0/L3, nothing unreadable, and at least one
-                            readable L1/L2: serve.
+      * "ok"             -- no L3, nothing unreadable, and at least one
+                            readable L0/L1/L2: serve.
       * "legacy_untagged"-- no readable level anywhere: serve, and count it
                             so it is visible. Not a withhold.
     """
@@ -264,8 +317,15 @@ def provenance_verdict(own, sources=()):
         return "l3"
     if "UNREADABLE" in classes:
         return "unknown"
-    if own_c == "L0" or "L0" in classes:
-        return "l0"
-    if own_c in ("L1", "L2") or any(c in ("L1", "L2") for c in classes):
+    if own_c in ("L0", "L1", "L2") or any(c in ("L0", "L1", "L2") for c in classes):
         return "ok"
     return "legacy_untagged"
+
+
+def _classify(raw):
+    """ABSENT (no value), a parsed level, or UNREADABLE (a value that is not
+    a level). ABSENT and UNREADABLE stay distinct: ABSENT keeps the item as
+    legacy, UNREADABLE withholds it."""
+    if raw is None or str(raw).strip() == "":
+        return "ABSENT"
+    return parse_privacy_level(raw) or "UNREADABLE"

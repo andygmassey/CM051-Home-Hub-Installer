@@ -33,13 +33,14 @@ CONTRACT_VERSION = "derived-preferences.v1"
 PWG_NS = "https://schema.ostler.ai/ontology#"
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
 # The levels a derived node may carry and still be served OUTBOUND (this route
-# feeds the assistant's channel replies and briefs). Under the 133 outbound
-# rule only L1 and L2 pass. L0 is owner-private on the PWG scale and is
-# withheld, as is L3, and so is a level that is present but not one of these
-# (pwg_privacy doctrine: an unparseable level fails closed). A node with NO
-# level is served: it is behavioural evidence, or a graph written before
-# CM019 #423.
-SERVED_PRIVACY_LEVELS = ("L1", "L2")
+# feeds the assistant's channel replies and briefs). Canonical outbound table
+# (pwg_privacy.may_leave, Hub route = "others"): L1 is redacted-only, L2 and L3
+# are never served, and an unparseable level fails closed. Canonical L0 is
+# public, but this route has no relabel-contract check yet, so an L0 node could
+# be an unmigrated legacy L0: nothing carrying a level is served here. A node
+# with NO level is served as LEGACY: behavioural evidence, or a graph written
+# before CM019 #423. Widen this only with the legacy_l0_guard contract check.
+SERVED_PRIVACY_LEVELS = ()
 # A stated dislike is rare and decisive ("never serve me coriander"), but the
 # round-robin cap ranks it by confidence among hundreds of likes. Negatives are
 # therefore read in their own pass, bounded here and NOT counted against `limit`.
@@ -119,6 +120,8 @@ class DerivedGraphReader:
         **_kw,
     ) -> List[AffinityView]:
         served = ", ".join(f'"{lvl}"' for lvl in SERVED_PRIVACY_LEVELS)
+        level_filter = (f"FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
+                        if served else "FILTER(!BOUND(?privacy))\n")
         q = (
             f"PREFIX pwg: <{PWG_NS}>\n"
             "SELECT ?s ?dimension ?subject ?strength ?confidence ?intensity ?category ?tier ?privacy WHERE {\n"
@@ -132,7 +135,7 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
             "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
-            f"    FILTER(!BOUND(?privacy) || UCASE(STR(?privacy)) IN ({served}))\n"
+            f"    {level_filter}"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
             + ("    FILTER(?strength < 0)\n" if negative_only else "")
             + "  }\n"

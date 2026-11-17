@@ -1,9 +1,10 @@
 """133 outbound privacy rule, at every outbound reader that carries an
 explicit privacy level.
 
-Rule (Archie, 2026-11-16): anything served to the assistant for channel
-replies or briefs, or sent off the box, passes ONLY L1, L2 and untagged.
-L0 (owner-private on the PWG scale), L3 and unparseable values are withheld.
+Rule, superseded (canonical outbound ruling 2026-11-17): a Hub route serves
+canonical public L0 only, plus LEGACY untagged persons. L1 is redacted-only,
+L2 and L3 are never served, an unmigrated L0 is withheld by legacy_l0_guard,
+and an unparseable value is withheld.
 
 Sites covered:
   - ical-server.py people_search (person-level privacy_level)
@@ -116,22 +117,26 @@ class TestPeopleSearchOutbound(unittest.TestCase):
     def test_unparseable_person_is_withheld(self):
         self.assertNotIn(self.NAMES["unparseable"], self._names_served())
 
-    def test_l2_and_untagged_controls_are_still_served(self):
-        served = self._names_served()
-        self.assertIn(self.NAMES["L2"], served)
-        self.assertIn(self.NAMES["untagged"], served)
+    def test_l2_person_is_withheld_on_a_hub_route(self):
+        self.assertNotIn(self.NAMES["L2"], self._names_served())
+
+    def test_untagged_person_is_served_legacy(self):
+        # LEGACY (133 untagged rule): canonical missing = L3. Kept as named legacy.
+        self.assertIn(self.NAMES["untagged"], self._names_served())
 
 
 class TestPeopleSearchFactsOutbound(unittest.TestCase):
-    """An explicit L0 fact on an otherwise-served (L2) person is withheld."""
+    """Facts on a served (untagged, legacy) person: only canonical public L0 leaves."""
 
     def _facts(self):
         facts = [
-            {"text": "Synthetic L0 fact", "privacy_level": "L0"},
+            {"text": "Synthetic L0 fact", "privacy_level": "L0"},          # unmigrated
+            {"text": "Synthetic L0 migrated fact", "privacy_level": "L0",
+             "privacy_scale": "canonical-2026-11"},
             {"text": "Synthetic L2 fact", "privacy_level": "L2"},
             {"text": "Synthetic L3 fact", "privacy_level": "L3"},
         ]
-        hit = _person_hit(0, "Tom Patel", "L2")
+        hit = _person_hit(0, "Tom Patel")
         hit["payload"]["facts"] = facts
         with patch.object(server.urllib.request, "urlopen",
                           _fake_urlopen({"result": [hit]})):
@@ -139,14 +144,17 @@ class TestPeopleSearchFactsOutbound(unittest.TestCase):
         self.assertEqual(1, len(body["results"]))
         return [f["text"] for f in body["results"][0].get("facts", [])]
 
-    def test_l0_fact_is_withheld_on_a_served_person(self):
+    def test_unmigrated_l0_fact_is_withheld(self):
         self.assertNotIn("Synthetic L0 fact", self._facts())
 
     def test_l3_fact_is_withheld(self):
         self.assertNotIn("Synthetic L3 fact", self._facts())
 
-    def test_l2_fact_control_is_still_served(self):
-        self.assertIn("Synthetic L2 fact", self._facts())
+    def test_l2_fact_is_withheld_on_a_hub_route(self):
+        self.assertNotIn("Synthetic L2 fact", self._facts())
+
+    def test_migrated_canonical_l0_fact_is_served(self):
+        self.assertIn("Synthetic L0 migrated fact", self._facts())
 
 
 class TestCommitmentsOutbound(unittest.TestCase):
@@ -226,8 +234,50 @@ class TestReplyDebtOutbound(unittest.TestCase):
     def test_unparseable_thread_is_withheld(self):
         self.assertNotIn("Synthetic bogus thread", self._names())
 
-    def test_l2_control_is_still_served(self):
-        self.assertIn("Synthetic L2 thread", self._names())
+    def test_l2_thread_is_withheld_on_a_hub_route(self):
+        self.assertNotIn("Synthetic L2 thread", self._names())
+
+    def test_gate_keeps_list_subclass_attributes(self):
+        """Regression: the gate rebinding a list subclass dropped .excluded
+        and .names_degraded, so the payload read None. The gate must filter
+        in place and keep both, and still withhold the gated rows."""
+        class _Carrying(list):
+            # Mirrors cm048 DebtList: slicing (the endpoint's limit) keeps
+            # the attributes, so the test exercises the real slice path.
+            excluded = {"owner": 2, "not_a_person": 0}
+            names_degraded = ""
+
+            def __getitem__(self, item):
+                got = super().__getitem__(item)
+                if isinstance(item, slice):
+                    got = _Carrying(got)
+                    got.excluded = self.excluded
+                    got.names_degraded = self.names_degraded
+                return got
+
+        seen = {}
+
+        def compute_reply_debts(**kwargs):
+            return _Carrying([
+                SimpleNamespace(name="Synthetic L0 thread", privacy_level="L0"),
+                SimpleNamespace(name="Synthetic L2 thread", privacy_level="L2"),
+            ])
+
+        def reply_debt_payload(ds, **kwargs):
+            seen["excluded"] = getattr(ds, "excluded", None)
+            seen["names_degraded"] = getattr(ds, "names_degraded", None)
+            return {"count": len(ds), "brief_line": "",
+                    "debts": [{"name": d.name} for d in ds]}
+
+        service = SimpleNamespace(compute_reply_debts=compute_reply_debts,
+                                  reply_debt_payload=reply_debt_payload)
+        with patch.object(server, "_load_reply_debt_service", lambda: service):
+            body, status = server.api_reply_debt(limit=50)
+        self.assertEqual(status, 200)
+        self.assertEqual(seen["excluded"], {"owner": 2, "not_a_person": 0})
+        self.assertEqual(seen["names_degraded"], "")
+        # L0 (unmigrated) and L2 are both withheld on a Hub route.
+        self.assertEqual([d["name"] for d in body["debts"]], [])
 
 
 class TestDerivedPreferencesOutbound(unittest.TestCase):
@@ -252,8 +302,8 @@ class TestDerivedPreferencesOutbound(unittest.TestCase):
     def test_l3_preference_is_withheld(self):
         self.assertNotIn("Synthetic L3 pref", self._labels())
 
-    def test_l2_control_is_still_served(self):
-        self.assertIn("Synthetic L2 pref", self._labels())
+    def test_l2_preference_is_withheld_on_a_hub_route(self):
+        self.assertNotIn("Synthetic L2 pref", self._labels())
 
 
 class TestTimelineEmitsLevel(unittest.TestCase):

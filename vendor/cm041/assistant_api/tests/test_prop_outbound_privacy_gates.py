@@ -107,14 +107,15 @@ def _gate_serves_fact(fact, gate=None):
 
 
 def _truth_must_serve(fact):
-    # Serve only when every PRESENT spelling reads L1/L2. An unparseable
-    # present value is UNREADABLE and withholds (CM041 #295: junk beside a
-    # valid level may be a corrupted stricter label, so it fails closed).
-    # Absent/blank spellings are not present and do not count.
+    # Canonical outbound truth (owner-approved 2026-11-16, ruling 2026-11-17): a Hub route
+    # serves a fact only when it is canonical public L0 AND carries the relabel
+    # contract. L1 is redacted-only, L2 and L3 are never served, and an
+    # unmigrated L0 is withheld by legacy_l0_guard.
     present = [fact.get(k) for k in pwg_privacy.FACT_PRIVACY_KEYS
                if k in fact and fact.get(k) is not None and str(fact.get(k)).strip() != ""]
     levels = [pwg_privacy.parse_privacy_level(v) for v in present]
-    return bool(levels) and all(lvl in ("L1", "L2") for lvl in levels)
+    return (bool(levels) and all(lvl == "L0" for lvl in levels)
+            and fact.get(pwg_privacy.CANONICAL_SCALE_KEY) == pwg_privacy.CANONICAL_SCALE_VALUE)
 
 
 # ---------------------------------------------------------------------------
@@ -128,8 +129,10 @@ def _fact_property(gate, facts=None):
     def prop(fact):
         served = _gate_serves_fact(fact, gate)
         levels = _parsed_levels(fact)
-        if any(lvl in ("L0", "L3") for lvl in levels):
-            assert not served, f"L0/L3 under some spelling was served: {fact!r}"
+        if any(lvl in ("L1", "L2", "L3") for lvl in levels):
+            assert not served, f"L1/L2/L3 under some spelling was served: {fact!r}"
+        if any(lvl == "L0" for lvl in levels) and not _truth_must_serve(fact):
+            assert not served, f"unmigrated L0 was served: {fact!r}"
         if not levels:
             assert not served, f"untagged/unparseable fact was served: {fact!r}"
         if _truth_must_serve(fact):
@@ -150,9 +153,10 @@ def test_facts_property_holds_on_the_canonical_spelling_only():
     @given(st.sampled_from(["L0", "L1", "L2", "L3", "garbage", None]), st.booleans())
     def prop(level, use_snake):
         key = "privacy_level" if use_snake else "privacyLevel"
-        fact = {"text": "synthetic fact", key: level}
+        fact = {"text": "synthetic fact", key: level,
+                pwg_privacy.CANONICAL_SCALE_KEY: pwg_privacy.CANONICAL_SCALE_VALUE}
         served = _gate_serves_fact(fact)
-        expected = pwg_privacy.parse_privacy_level(level) in ("L1", "L2")
+        expected = pwg_privacy.parse_privacy_level(level) == "L0"
         assert served == expected, f"{fact!r}: served={served} expected={expected}"
 
     prop()
@@ -160,7 +164,7 @@ def test_facts_property_holds_on_the_canonical_spelling_only():
 
 def test_mutant_fact_gate_lets_l3_through_is_caught():
     """Mutant: the outbound gate alone serves every parseable level, with the
-    filter layer bypassed. Property 1 must fail (it serves L0 and L3)."""
+    filter layer bypassed. Property 1 must fail (it serves L1, L2, L3 and unmigrated L0)."""
     mutant = lambda fact: any(  # noqa: E731
         pwg_privacy.parse_privacy_level(fact.get(k)) is not None
         for k in pwg_privacy.FACT_PRIVACY_KEYS
@@ -168,7 +172,7 @@ def test_mutant_fact_gate_lets_l3_through_is_caught():
     with patch.object(server, "_filter_qdrant_facts",
                       lambda facts, owner_level=None: facts if isinstance(facts, list) else []):
         msgs = _expect_red(_fact_property(mutant))
-    assert any("L0/L3" in m for m in msgs)
+    assert any("L1/L2/L3" in m or "unmigrated L0" in m for m in msgs)
 
 
 def test_control_outbound_gate_masks_disabled_filter():
@@ -176,13 +180,13 @@ def test_control_outbound_gate_masks_disabled_filter():
     withholds every L3/untagged fact on single-spelling data, so the property
     holds there. That is defence in depth, and it is why the mutant below must
     disable BOTH layers."""
-    with patch.object(pwg_privacy, "outbound_ok", lambda record, owner_level=None, absent_serves=False: True):
+    with patch.object(pwg_privacy, "filter_outbound_facts", lambda facts, owner_level=None: facts):
         _fact_property(None, facts=SINGLE_SPELLING_FACT)()
 
 
 def test_mutant_both_fact_layers_disabled_is_caught():
     """Mutant: filter AND outbound gate both admit everything. Property 1 must fail."""
-    with patch.object(pwg_privacy, "outbound_ok", lambda record, owner_level=None, absent_serves=False: True):
+    with patch.object(pwg_privacy, "filter_outbound_facts", lambda facts, owner_level=None: facts):
         _expect_red(_fact_property(lambda fact: True, facts=SINGLE_SPELLING_FACT))
 
 
@@ -236,9 +240,10 @@ def test_persons_untagged_is_counted_not_hidden():
     """Doctrine exception, asserted so it cannot drift silently: untagged persons
     are served by people_search (133 rule). If this ever changes, the stated
     invariant and this test must be revisited together."""
+    # LEGACY (133 untagged rule): an untagged person is served; canonical missing = L3.
     out = _run_people_search([_person_payload(0, {}), _person_payload(1, {"privacy_level": "L2"})])
     uris = {r["person_uri"] for r in out["results"]}
-    assert uris == {"urn:synthetic:person:0", "urn:synthetic:person:1"}
+    assert uris == {"urn:synthetic:person:0"}
 
 
 def test_person_tagged_camel_case_l3_is_not_served():
