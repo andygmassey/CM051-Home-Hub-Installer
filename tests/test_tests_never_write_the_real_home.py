@@ -4,7 +4,10 @@ MEASURED on a developer Mac, 2026-11-17: three tests in this tree wrote the
 operator's real ~/.ostler: the forget test left a forgotten_people.json
 tombstone for a synthetic person plus a forget_audit.log line on every run, and
 the two plain-script tests below left non_identifying_identifiers.json and
-overwrote settling_progress.d shards. Every writer resolves its path from HOME
+overwrote settling_progress.d shards. A per-file sweep of all 376 test files
+with HOME at a stand-in found 19 files writing under it; the pytest-run ones
+are covered by the conftest sandbox, and the six plain scripts are listed
+below (each run by a workflow as `python tests/<name>.py`). Every writer resolves its path from HOME
 at call time; nothing pointed HOME away from the real one.
 
 WHAT THIS RUNS. Each culprit, in a child process whose HOME is a throwaway
@@ -14,7 +17,7 @@ nothing under .ostler. Then the guard itself: a generated test writes under a
 stand-in "real home" and must be refused and failed.
 
 RED on the unfixed tree (conftest without the sandbox, scripts without their
-own HOME): all three culprit cases find files under the stand-in home.
+own HOME): every culprit case finds files under the stand-in home.
 """
 from __future__ import annotations
 
@@ -64,6 +67,10 @@ def test_forget_pytest_case_leaves_the_home_untouched(standin_home):
 @pytest.mark.parametrize("script", [
     "tests/test_fda_refusal_surfaces.py",
     "tests/test_read_messages_are_not_no_data.py",
+    "tests/test_every_conversation_produces_all_four_artefacts.py",
+    "tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py",
+    "tests/test_pwg_convo_bin_owner_side_first.py",
+    "tests/test_reply_debt_probe_names_the_missed_debt.py",
 ])
 def test_plain_script_leaves_the_home_untouched(standin_home, script):
     r = subprocess.run([sys.executable, script], cwd=REPO, env=_child_env(standin_home),

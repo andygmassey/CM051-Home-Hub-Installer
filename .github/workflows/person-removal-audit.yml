@@ -24,6 +24,10 @@ on:
       - 'tests/test_tests_never_write_the_real_home.py'
       - 'tests/test_fda_refusal_surfaces.py'
       - 'tests/test_read_messages_are_not_no_data.py'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'tests/test_pwg_convo_bin_owner_side_first.py'
+      - 'tests/test_reply_debt_probe_names_the_missed_debt.py'
       - '.github/workflows/person-removal-audit.yml'
   pull_request:
     paths:
@@ -39,6 +43,10 @@ on:
       - 'tests/test_tests_never_write_the_real_home.py'
       - 'tests/test_fda_refusal_surfaces.py'
       - 'tests/test_read_messages_are_not_no_data.py'
+      - 'tests/test_every_conversation_produces_all_four_artefacts.py'
+      - 'tests/test_people_carded_names_show_and_tiers_hold_in_every_path.py'
+      - 'tests/test_pwg_convo_bin_owner_side_first.py'
+      - 'tests/test_reply_debt_probe_names_the_missed_debt.py'
       - '.github/workflows/person-removal-audit.yml'
 
 concurrency:
@@ -91,8 +99,8 @@ jobs:
             echo "::error::a test wrote outside its sandbox (rc $rc)"
             exit 1
           fi
-          if [ "${got:-0}" -ne 4 ]; then
-            echo "::error::expected 4 arms, saw ${got:-0}"
+          if [ "${got:-0}" -ne 8 ]; then
+            echo "::error::expected 8 arms, saw ${got:-0}"
             exit 1
           fi
           echo "home-guard arms passed: ${got}"
