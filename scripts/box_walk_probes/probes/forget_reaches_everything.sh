@@ -118,8 +118,8 @@ run_probe() {
     work="$(mktemp -d "${TMPDIR:-/tmp}/forget-reach.XXXXXX")" || probe_cannot_run "could not create a local scratch directory"
     trap "rm -rf '${work}'" EXIT
 
-    fslug="walkforget-alpha-${stamp_c}"; fname="Walkforget Alpha ${stamp_c}"
-    cslug="walkforget-bravo-${stamp_c}"; cname="Walkforget Bravo ${stamp_c}"
+    fslug="walkforget-alpha-${stamp_c}"; fname="Jane Patel ${stamp_c}"
+    cslug="walkforget-bravo-${stamp_c}"; cname="Tom Andersen ${stamp_c}"
     remote="/tmp/ostler-probe-forget-$$"
 
     # Config, resolved ON THE BOX by the reader. These are the defaults the

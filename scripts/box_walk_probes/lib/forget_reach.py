@@ -59,10 +59,10 @@ CONV_KEYS_134 = ("wiki_recompile_kicked", "bundles_deleted", "bundles_redacted")
 # Stores graded by the judge. Order is the order they are printed.
 STORES = ("graph", "qdrant_facts", "qdrant_summaries", "bundles", "wiki", "anchors", "ledger")
 
-FORGOTTEN_NAME = "Veronica Quillfeather"
-FORGOTTEN_SLUG = "veronica-quillfeather"
-CONTROL_NAME = "Cornelius Brightwater"
-CONTROL_SLUG = "cornelius-brightwater"
+FORGOTTEN_NAME = "Jane Patel"
+FORGOTTEN_SLUG = "jane-patel"
+CONTROL_NAME = "Tom Andersen"
+CONTROL_SLUG = "tom-andersen"
 PERSON_NS = "https://probe.example/forget-walk/person/"
 PWG_NS = "https://schema.ostler.ai/ontology#"
 COLLECTION = "conversations"
