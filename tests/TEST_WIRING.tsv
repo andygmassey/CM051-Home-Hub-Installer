@@ -595,6 +595,7 @@ test_legal_prevails_note_on_every_legal_prompt.py	WIRED	.github/workflows/l10n-c
 test_legal_style_lines_are_legal_keys.py	WIRED	.github/workflows/l10n-check.yml
 test_legal_text_says_english_prevails.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_licence_gate.sh	WIRED	.github/workflows/licence-gate.yml
+test_licence_plan_reaches_the_gate.sh	WIRED	.github/workflows/licence-gate.yml
 test_licence_tier_reaches_the_hub.sh	WIRED	.github/workflows/licence-gate.yml
 test_limactl_egress_is_attributed.py	WIRED	.github/workflows/install-abort-and-egress.yml
 test_linkedin_export_detect.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
@@ -913,6 +914,7 @@ test_tailscale_signin_opens_one_tab.sh	WIRED	.github/workflows/wiki-tailnet-gate
 test_tailscale_signin_reaps_up.sh	WIRED	.github/workflows/wiki-tailnet-gate.yml
 test_takeout_split_zip_no_abort.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_telemetry_egress_off.sh	WIRED	.github/workflows/install-abort-and-egress.yml
+test_tests_never_write_the_real_home.py	WIRED	.github/workflows/person-removal-audit.yml
 test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh	WIRED	.github/workflows/status-honesty-meetings-doctor.yml
 test_the_config_does_not_promise_encryption_that_never_happens.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_the_consent_button_is_not_below_the_fold.py	WIRED	.github/workflows/swift-tests.yml
@@ -1121,6 +1123,7 @@ test_vendored_gws_never_spawned_without_consent.py	WIRED	.github/workflows/forge
 test_vendored_is_possible_phone_14_digit_gap.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
 test_vendored_linkedin_career_reaches_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_logs_carry_no_personal_values.py	WIRED	.github/workflows/no-pii-in-logs.yml
+test_vendored_max_privacy_fails_closed.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_people_writers_never_overwrite_on_a_failed_read.py	WIRED	.github/workflows/people-writers-never-overwrite-on-failed-read.yml
 test_vendored_qid_pass_reaches_the_thematic_rollup.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_register_pii.sh	WIRED	.github/workflows/consent-data-handling.yml

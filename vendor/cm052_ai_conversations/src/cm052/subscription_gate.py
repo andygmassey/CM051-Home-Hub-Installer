@@ -856,12 +856,17 @@ def activate_included_pro(
             _write(kept)
         return
 
-    # FAIL CLOSED. No included window unless the licence is SIGNED (the
-    # verifier reported known or unknown). An unverified or absent licence
-    # gets the tier record and nothing else; the plan is never read.
-    # A licence whose own expiry is in the past gets no NEW window.
+    # FAIL CLOSED. No included window unless the licence is SIGNED. The
+    # verifier reports "absent" ONLY on its PASS path (a verified signature
+    # with no tier field: the production shape of a founding or F&F licence,
+    # CM050 mintLicense never emits a tier), so absent is signed. Every
+    # other state is not: "unverified" (bad signature, garbage, no licence
+    # file, escape hatch) gets the tier record and nothing else, and the
+    # plan is never read. A licence whose own expiry is in the past gets no
+    # NEW window.
     licence_dt = _parse_iso(licence_expires_at)
-    signed = licence_tier_state in (TIER_STATE_KNOWN, TIER_STATE_UNKNOWN)
+    signed = licence_tier_state in (
+        TIER_STATE_ABSENT, TIER_STATE_KNOWN, TIER_STATE_UNKNOWN)
     lapsed = licence_dt is not None and licence_dt <= _now()
     if not signed or lapsed:
         kept = dict(old_state)
