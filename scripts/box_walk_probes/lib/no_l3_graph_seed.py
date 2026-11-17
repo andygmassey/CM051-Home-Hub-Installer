@@ -91,11 +91,17 @@ def build(payload):
         f'{person_uri} a <{PWG_NS}Person> ;\n  <{PWG_NS}displayName> "{payload["person_name"]}" .',
     ]
     classification = type("C", (), {"setting": "work", "shape": "one-on-one", "stakes": "low"})()
+    topic_conv_ids = {"ostler-walk-" + v for v in payload["conv_markers"].values()}
     for c in payload["convs"]:
         cid, level, marker = c["id"], c["level"], c["marker"]
         blocks += ingest._conversation_to_triples(cid, classification, settings)
         conv_uri = ingest._urn("conversation/" + cid)
         blocks.append(f'{conv_uri} <urn:ostler:date> "{c["date"]}" .')
+        if cid in topic_conv_ids:
+            # topics_list / topic_mentions gate on the conversation's own level (ical-server
+            # :8012 / :8105). Set where the reader looks: this named-graph node, read through
+            # graph_scoped_select, which unions the user's named graph into the query.
+            blocks.append(f'{conv_uri} <{PWG_NS}privacyLevel> "{level}" .')
         fact = {"text": f"{marker} the quarry lease renewal was approved", "type": "fact",
                 "domain": "general", "privacy_level": level, "subject": person_id,
                 "signal_strength": "medium"}
@@ -210,14 +216,15 @@ def run_units(update, count, post_ttl, write_one, ttl, graph, writes, teardown, 
     excluded += n_seed - n_del
     to_delete += n_del
     post_ttl()
-    for idx, (label, sparql) in enumerate(writes):
-        prefixes, body = _insert_parts(sparql)
-        stmts, n_seed, n_del = stage_unit(update, count, None, uuid.uuid4().hex, prefixes, body,
-                                          exclude_existing)
-        teardown.extend(stmts)
-        excluded += n_seed - n_del
-        to_delete += n_del
-        write_one(idx, label, sparql)
+    for idx, (label, sparql, extras) in enumerate(writes):
+        for name, text in [(label, sparql)] + [(label + "_level", e) for e in extras]:
+            prefixes, body = _insert_parts(text)
+            stmts, n_seed, n_del = stage_unit(update, count, None, uuid.uuid4().hex, prefixes, body,
+                                              exclude_existing)
+            teardown.extend(stmts)
+            excluded += n_seed - n_del
+            to_delete += n_del
+            write_one(idx if name == label else None, name, text)
     return excluded, to_delete
 
 
@@ -229,18 +236,25 @@ DELETE_WHERE_SCOPE = (
 
 
 def plan_writes(settings, writes):
-    """The SPARQL each write executes, computed without I/O, aligned with `writes`. The
-    probe posts through the shipped writers (write_topics for L2, write_decision for
-    decisions); those build the SAME text from the same arguments (NOW_ISO fixed)."""
+    """The writes the seed makes, as (label, sparql, extras), aligned with `writes`.
+    `sparql` is the write itself (the shipped writers build the same text from the same
+    arguments, NOW_ISO fixed). `extras` are SPARQL updates that must follow it: for a
+    topic, the mention's privacyLevel, which the shipped topic writer does not write and
+    which topics_list / topic_mentions gate on (ical-server.py :8046, :8126)."""
     from src import topic_writer
     de = _decision_extractor()
     plan = []
     for w in writes:
         if w["kind"] == "topic":
             sparql = topic_writer.build_topic_update(w["conv"], w["topics"], settings, metadata=w["meta"])
-            plan.append(("topic_" + w["level"], sparql))
+            slug = topic_writer.slugify_topic(w["topics"][0]["name"])
+            mention = topic_writer.mention_uri(w["conv"], slug)
+            level_sparql = ('PREFIX pwg: <%s>\nINSERT DATA { <%s> pwg:privacyLevel "%s" . }'
+                            % (PWG_NS, mention, w["level"]))
+            plan.append(("topic_" + w["level"], sparql, [level_sparql]))
         else:
-            plan.append(("decision_" + w["level"], de.build_decision_sparql(w["decision"], now_iso=NOW_ISO)))
+            plan.append(("decision_" + w["level"],
+                         de.build_decision_sparql(w["decision"], now_iso=NOW_ISO), []))
     return plan
 
 
@@ -302,6 +316,9 @@ def main():
         written = {}
 
         def write_one(idx, label, sparql):
+            if idx is None:  # a level update that follows a write
+                update(sparql)
+                return
             w = writes[idx]
             if w["kind"] == "topic" and w["level"] == "L2":
                 n = topic_writer.write_topics(conversation_id=w["conv"], topics=w["topics"],

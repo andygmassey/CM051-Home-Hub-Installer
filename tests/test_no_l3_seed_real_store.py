@@ -229,7 +229,7 @@ class NoL3SeedRealStore(unittest.TestCase):
         conversation id. Show the WHERE patterns, then prove a live row survives."""
         seed = _load(_stage(SEED_SRC.read_text(encoding="utf-8")))
         _ingest, settings, _ttl, _subj, writes, _slugs = seed.build(PAYLOAD)
-        plan = dict(seed.plan_writes(settings, writes))
+        plan = {label: sparql for label, sparql, _extras in seed.plan_writes(settings, writes)}
         l2 = plan["topic_L2"]
         dw = re.findall(r"DELETE WHERE \{ (<[^>]+>) ([^}]*)\}", l2)
         print("\n[delete-where] L2 topic UPDATE has %d DELETE WHERE clauses:" % len(dw))
@@ -507,6 +507,75 @@ class ProbeOutputCarriesExclusionCounts(unittest.TestCase):
                                                   if "exact teardown" in l])
         self.assertIn("info exact teardown: excluded_pre_existing=3 to_delete=105",
                       buf.getvalue())
+
+
+def _load_reader(tree):
+    """The real ical-server reader from a checkout (NO_L3_READER_TREE), loaded by path."""
+    tree = Path(tree)
+    api = tree / "vendor" / "cm041" / "assistant_api"
+    os.environ["USER_ID"] = PAYLOAD["owner"]
+    sys.path[:0] = [str(tree / "vendor"), str(tree / "vendor" / "cm041"), str(api)]
+    spec = importlib.util.spec_from_file_location("ical_under_test_" + uuid.uuid4().hex,
+                                                  api / "ical-server.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _reader_select(store, reader):
+    """The reader's own _sparql_select, with its real graph scoping, answered by the store."""
+    def select(sparql):
+        res = store.query(reader._graph_scoped(sparql))
+        names = [v.value for v in res.variables]
+        return [{n: sol[n].value for n in names if sol[n] is not None} for sol in res]
+    return select
+
+
+class ReaderGatesTheSeededTopics(unittest.TestCase):
+    """The seeded L3 topic is withheld by topics_list and topic_mentions, and its L2 twin is
+    served, when the REAL reader runs its own SPARQL (graph-scoped) against the seeded store.
+    Needs a checkout of the reader that carries the topic gates: set NO_L3_READER_TREE. Without
+    it the test is skipped, which is CANNOT-RUN, not a pass."""
+
+    L2_SLUG = "walk-probe-tl2-quarry"
+    L3_SLUG = "walk-probe-tl3-quarry"
+
+    def _seeded(self, seed_src):
+        import pyoxigraph as ox
+        tree = os.environ.get("NO_L3_READER_TREE")
+        if not tree:
+            self.skipTest("CANNOT-RUN: NO_L3_READER_TREE is unset (a checkout of the reader that "
+                          "carries the topic gates, ical-server.py at #3565)")
+        reader = _load_reader(tree)
+        store = _live_store(ox)
+        r = run_seed(_stage(seed_src), store)
+        self.assertEqual(r["errors"], [], r["errors"])
+        reader._sparql_select = _reader_select(store, reader)
+        return reader
+
+    def test_reader_withholds_the_l3_topic_and_serves_the_l2_twin(self):
+        reader = self._seeded(SEED_SRC.read_text(encoding="utf-8"))
+        topics, _ = reader.topics_list()
+        slugs = {t["slug"] for t in topics["topics"]}
+        l2, _ = reader.topic_mentions(self.L2_SLUG)
+        l3, _ = reader.topic_mentions(self.L3_SLUG)
+        print("\n[reader] topics served=%s; L2 mentions=%d; L3 mentions=%d"
+              % (sorted(slugs), len(l2["mentions"]), len(l3["mentions"])))
+        self.assertIn(self.L2_SLUG, slugs, "the L2 twin must be served by topics_list")
+        self.assertNotIn(self.L3_SLUG, slugs, "the L3 topic must be withheld by topics_list")
+        self.assertEqual(len(l2["mentions"]), 1, "the L2 twin must be served by topic_mentions")
+        self.assertEqual(len(l3["mentions"]), 0, "the L3 topic must be withheld by topic_mentions")
+
+    def test_mutant_without_the_mention_level_serves_the_l3_topic(self):
+        """Mutant: the mention level is not written. The reader then serves the L3 topic as
+        legacy_untagged, so the check above would go red. This asserts that happens."""
+        src = SEED_SRC.read_text(encoding="utf-8")
+        self.assertEqual(src.count("[level_sparql]"), 1, "mutant anchor must occur once")
+        reader = self._seeded(src.replace("[level_sparql]", "[]", 1))
+        topics, _ = reader.topics_list()
+        slugs = {t["slug"] for t in topics["topics"]}
+        print("\n[mutant no mention level] topics served=%s" % sorted(slugs))
+        self.assertIn(self.L3_SLUG, slugs, "without the level the L3 topic is served (gate defect)")
 
 
 def _nt_literal(lit):
