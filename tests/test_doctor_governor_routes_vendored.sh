@@ -342,10 +342,18 @@ else
     failure "doctor.patch has NO new-file hunk for agent/pause_control.py -- the next sync_vendor.sh doctor deletes it and this defect returns"
 fi
 
-if grep -q '/api/v1/governor-status' "$PATCH"; then
+# Since the CB134-DOCTOR-PANEL re-pin (HR015 #1562) the pinned source carries
+# #282 itself, so the routes may now come from SOURCE rather than the patch.
+# The vendored tree is source@pin + patch, so a route line present in the
+# vendored web_ui.py that the patch neither adds nor removes came from source
+# and survives a re-vendor. Either home is durable; neither is a failure.
+if grep -q '^+.*/api/v1/governor-status' "$PATCH"; then
     pass "doctor.patch carries the governor route graft for web_ui.py"
+elif grep -q '/api/v1/governor-status' "$WEB_UI" \
+     && ! grep -q '^[-+].*/api/v1/governor-status' "$PATCH"; then
+    pass "the governor routes come from source@pinned_sha (vendored, untouched by doctor.patch), so a re-vendor keeps them"
 else
-    failure "doctor.patch does not carry the governor routes -- the next re-vendor drops them from web_ui.py"
+    failure "the governor routes are neither carried by doctor.patch nor inherited from source@pinned_sha -- the next re-vendor drops them from web_ui.py"
 fi
 
 echo
