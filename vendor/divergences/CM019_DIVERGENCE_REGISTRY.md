@@ -328,3 +328,12 @@ Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream me
 
 Tree `cm019_preferences`. Pin HELD at 5622a763; grafted ahead of the upstream merge. Five `or`-default sites in ingest pipeline.py, parsers/email.py and parsers/apple.py now use an explicit None check; changed lines equal upstream's. Detail and proof in `cm019_preferences_usage_journal.UNRECORDED.md`, same date.
 - Retire: re-pin past the upstream merge commit.
+
+## 2026-11-17: Whoop writes the health floor (personal-world-graph #539, b34a048; CB134-CM019-HEALTH)
+
+Tree `cm019_preferences`. Pin HELD; grafted ahead of the upstream merge, on a LOCAL branch only (CM051 is held until the 133 tag; Archie ruling 2026-11-17).
+- `services/ingest/src/parsers/whoop.py`: BYTE-IDENTICAL to personal-world-graph b34a048. Whoop health data (GDPR Art 9) is clamped to `HEALTH_LEVEL` (numeric 0, L0Personal) whatever the caller passes, and stamped canonical `privacy_level` "L3" with the scale stamp. It defaulted to 2 (L2Trusted), which `privacy_gate.py` lets out on online look-ups.
+- `services/ingest/src/parsers/base.py`: the upstream hunks whoop.py needs, applied verbatim (every added line occurs verbatim in upstream b34a048 base.py): the services/common import shim for the canonical helper, the privacy-tagging block (`SENSITIVE_LEVEL`, `FINANCIAL_LEVEL`, `MOST_PRIVATE_LEVEL`, `HEALTH_LEVEL`, `NOTES_LEVEL`, `CANONICAL_FLOOR_LEVEL`, `stricter_level`), the `privacy_level` field, and the payload / turtle stamp.
+- `services/common/pwg_privacy.py` + `pwg_privacy.PIN`: BYTE-IDENTICAL to CM041 cf443dc (sha256 9dae80b0...). NOTE: CM051 `vendor/cm041/pwg_privacy.py` on origin/main is a DIFFERENT, older copy; one doctrine needs one byte-identical helper.
+- NOT carried here: the #539 apple.py health / notes changes (vendored apple.py already writes 0 at the four sites, without the L3 stamp or the notes ruling).
+- Retire: re-pin past the #539 merge commit.

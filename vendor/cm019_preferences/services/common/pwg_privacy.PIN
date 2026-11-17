@@ -1,0 +1,7 @@
+# Vendored canonical privacy helper. DO NOT EDIT pwg_privacy.py here: it is a
+# byte-identical copy, pinned by sha256. Re-vendor from the source commit and
+# update this pin in one change (tests: services/common/tests/test_pwg_privacy_pin.py).
+source_repo	andygmassey/CM041-People-Graph
+source_path	pwg_privacy.py
+source_commit	cf443dc3d29154de9ffbea6b18dd167267c66488
+sha256	9dae80b093fbe1af9ebafc551ac7b38f6a4a246cbc6d71aed5205e8862cda5ec
