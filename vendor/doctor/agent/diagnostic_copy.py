@@ -351,7 +351,7 @@ ENGINE_SUPERVISOR_MISSING_FIX_COMMAND = (
 
 # ── the companion listener watchdog's own report ─────────────────────
 #
-# Measured 2026-10-17 on Andy's box: the daemon process was alive at 0% CPU
+# Measured 2026-10-17 on the owner's box: the daemon process was alive at 0% CPU
 # for 4 h while its :8443 listener (the one the iPhone app uses) was dead, and
 # nothing noticed. bin: ostler-listener-watchdog (install.sh LISTENERWDEOF)
 # writes ~/.ostler/state/listener_watchdog.json; check_listener_watchdog reads
@@ -1015,7 +1015,7 @@ SCHEDULED_AGENT_UNKNOWN_FIX_COMMAND_FMT = (
 
 # ── check_licence_expiry (HR015 #929) ────────────────────────────────
 #
-# THE WORDS ARE THE FEATURE HERE, not the plumbing. Andy's two rules for
+# THE WORDS ARE THE FEATURE HERE, not the plumbing. The owner's two rules for
 # a time-limited beta licence are: expiry degrades to READ-ONLY and never
 # destructive, and the customer is warned BEFORE it happens, in the
 # product, not after.

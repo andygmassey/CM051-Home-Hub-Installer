@@ -151,7 +151,7 @@ class FieldSpec:
 
 EDITABLE_FIELDS: tuple[FieldSpec, ...] = (
     # -- Background work ---------------------------------------------
-    # The two controls Andy asked for: a Pause and a throttle. Both are
+    # The two controls the owner asked for: a Pause and a throttle. Both are
     # written straight through to the shell governor via governor.env, so
     # they take effect on the next background tick -- no daemon restart.
     FieldSpec(
