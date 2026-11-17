@@ -397,6 +397,91 @@ else
     bad "control: vendored activate_first_month_free has no included_plan parameter (inspect said '${sig_has:-nothing}')"
 fi
 
+# ── PRODUCTION SHAPE: a signed licence with NO tier field (133 Box finding) ──
+# CM050 mintLicense emits no `tier`. The verifier's PASS path reports tier_state
+# "absent" and the plan. The gate must grant the window from the signed plan,
+# through the real install.sh verifier, its three env fields, and the real call
+# site. Everything below runs the shipped code; nothing is re-typed.
+echo "==> Production shape: signed, no tier field"
+MINT_NOTIER_PY="${WORK}/mint-notier.py"
+sed '/"tier": "beta",/d' "$MINT_PY" > "$MINT_NOTIER_PY"
+mint_notier() { python3 "$MINT_NOTIER_PY" "$VERIFIER" "$@"; }
+
+# install_activation <licence> <state-file> [script-dir]
+#   Takes the verifier exactly as install.sh does: rc 0 gives the three fields
+#   and the plan, anything else gives tier_state "unverified" and no plan. Then
+#   runs the real call site with the installed env and a sandboxed state file.
+install_activation() {
+    local lic="$1" state="$2" sdir="${3:-$REPO_ROOT}"
+    local detail vrc st exp tier plan_out rest
+    detail="$(tier_call "$lic")"; vrc=$?
+    if (( vrc == 0 )); then
+        st="${detail%% *}"; rest="${detail#* }"
+        exp="${rest%% *}"; tier="${rest#* }"
+        plan_out="$(plan_call "$lic")" || plan_out=""
+    else
+        st="unverified"; exp=""; tier=""; plan_out=""
+    fi
+    env -i PATH="$PATH" HOME="$WORK" OSTLER_SUBSCRIPTION_STATE="$state" \
+        OSTLER_LICENCE_PLAN="$plan_out" OSTLER_LICENCE_TIER="$tier" \
+        OSTLER_LICENCE_TIER_STATE="$st" OSTLER_LICENCE_EXPIRES_AT="$exp" \
+        python3 -c "$(callsite_body "$sdir")" >/dev/null 2>&1
+}
+
+# window_days <state-file> -> "<source> <plan> <days>", or "none"
+window_days() {
+    python3 - "$1" <<'WIN_PY'
+import json, sys
+from datetime import datetime
+try:
+    st = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    print("none"); raise SystemExit(0)
+if st.get("source") != "first_month_free":
+    print("none"); raise SystemExit(0)
+exp = datetime.fromisoformat(st["expires_at"].replace("Z", "+00:00"))
+start = datetime.fromisoformat(st["included_from"].replace("Z", "+00:00"))
+print("%s %s %d" % (st["source"], st.get("included_plan"), round((exp - start).total_seconds() / 86400)))
+WIN_PY
+}
+
+lic="${WORK}/notier-probe.json"; mint_notier "$lic" "$FUTURE" "founding" >/dev/null
+tline="$(tier_call "$lic")"
+if [[ "$tline" == "absent ${FUTURE} hub" ]]; then
+    ok "verifier PASS on a no-tier licence: tier line '${tline}'"
+else
+    bad "no-tier licence: tier line is '${tline}', want 'absent ${FUTURE} hub'"
+fi
+
+for plan in founding ff standard; do
+    lic="${WORK}/notier-${plan}.json"; mint_notier "$lic" "$FUTURE" "$plan" >/dev/null
+    want_days=180; [[ "$plan" == standard ]] && want_days=90
+    state="${WORK}/state-notier-${plan}.json"; rm -f "$state"
+    install_activation "$lic" "$state"
+    got="$(window_days "$state")"
+    if [[ "$got" == "first_month_free ${plan} ${want_days}" ]]; then
+        ok "production ${plan} licence, no tier: ${want_days}-day included window (${got})"
+    else
+        bad "production ${plan} licence, no tier: window '${got}', want 'first_month_free ${plan} ${want_days}'"
+    fi
+done
+
+# Fail closed: nothing that is not a verifier PASS may grant a window, plan or no plan.
+lic="${WORK}/notier-tampered.json"; mint_notier "$lic" "$FUTURE" "founding" tamper >/dev/null
+state="${WORK}/state-tampered.json"; rm -f "$state"; install_activation "$lic" "$state"
+[[ "$(window_days "$state")" == "none" ]] && ok "tampered no-tier founding licence: no window" \
+    || bad "tampered no-tier founding licence granted a window: $(window_days "$state")"
+
+lic="${WORK}/notier-expired.json"; mint_notier "$lic" "$PAST" "founding" >/dev/null
+state="${WORK}/state-expired.json"; rm -f "$state"; install_activation "$lic" "$state"
+[[ "$(window_days "$state")" == "none" ]] && ok "expired no-tier founding licence: no new window" \
+    || bad "expired no-tier founding licence granted a window: $(window_days "$state")"
+
+state="${WORK}/state-nolicence.json"; rm -f "$state"
+install_activation "${WORK}/no-such-licence.json" "$state"
+[[ "$(window_days "$state")" == "none" ]] && ok "no licence file: no window (0 days)" \
+    || bad "no licence file granted a window: $(window_days "$state")"
+
 echo
 echo "licence plan reaches the gate: ${PASS} passed, ${FAIL} failed"
 if (( FAIL > 0 )); then
