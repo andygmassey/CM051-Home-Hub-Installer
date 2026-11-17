@@ -458,3 +458,26 @@ group entries by that hash: exactly one takes that chat id's `group:<id>` labels
 `OSTLER_WHATSAPP_CONTACTS`; none gives no label (the verdict alone decides); more than
 one pins L3 (ambiguous, fail closed). `vendor/whatsapp_source/pipeline.py` passes
 `is_group` into the index. Proof: `tests/test_whatsapp_privacy_parity.py` (arms 8-12).
+
+## Photo event URI key (CM051 #3520, 2026-11-15)
+
+Tree: `vendor/ostler_fda`. Pinned sha `90fb07b2`, unchanged.
+
+Location and shape of the edit: `vendor/ostler_fda/pwg_ingest.py`, function
+`ingest_photo_events`, the URI-key block near line 2000. The key now prefers the
+event's `uri_key` field and falls back to the legacy `"lat,lon"` / `"nogps"` formula
+when the field is absent. The `event_id` uuid5 is unchanged in form.
+
+Why the patch cannot carry it: `regenerate_divergence_patch.sh ostler_fda --write`
+refuses with CANNOT RUN. Its source, `$HR015/ostler_fda`, is not available on this
+box, so the tool cannot measure source at pin plus patch. The same
+`pwg_ingest.py` section also already carries edits the patch does not reconstruct.
+
+Owed upstream: HR015 `ostler_fda/photos_metadata.py` (`uri_key_for`, HR015 #1489,
+re-landed as its own PR). Retire this section when the upstream pin moves to a
+commit that emits `uri_key` and this vendored copy equals it.
+
+Invariant it protects: a sentinel photo keeps its key `-180.0,-180.0`. Without this
+edit, a re-vendor of HR015 #1489 makes its key `nogps`, and every sentinel photo
+gets a second PhotoEvent beside the one already in the graph. Test:
+`tests/test_photo_uri_stability.py`.

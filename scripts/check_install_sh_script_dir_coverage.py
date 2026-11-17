@@ -166,6 +166,13 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     "scripts/repair_netflix_rating_polarity.py": [
         '${SRCROOT}/../scripts/repair_netflix_rating_polarity.py'
     ],
+    # Photo sentinel repair (Archie, 2026-11-15): install.sh probes
+    # ${SCRIPT_DIR}/scripts/repair_photo_sentinel_coordinates.py for the one-shot
+    # deletion of -180 coordinates. The cp-unique needle in CP_ONLY_NEEDLES below
+    # is what makes a removed cp line go red.
+    "scripts/repair_photo_sentinel_coordinates.py": [
+        '${SRCROOT}/../scripts/repair_photo_sentinel_coordinates.py'
+    ],
     "scripts/remotecapture_transcription.sh": [
         '${SRCROOT}/../scripts/remotecapture_transcription.sh'
     ],
@@ -353,6 +360,9 @@ CP_ONLY_NEEDLES: dict[str, list[str]] = {
     # line itself is unique to the copy actually happening.
     "scripts/repair_netflix_rating_polarity.py": [
         'cp "${SRC_NETFLIX}" "${DEST}/scripts/repair_netflix_rating_polarity.py"'
+    ],
+    "scripts/repair_photo_sentinel_coordinates.py": [
+        'cp "${SRC_PHOTO}" "${DEST}/scripts/repair_photo_sentinel_coordinates.py"'
     ],
     "scripts/remotecapture_transcription.sh": [
         'cp "${SRC_RCT}" "${DEST}/scripts/remotecapture_transcription.sh"'
