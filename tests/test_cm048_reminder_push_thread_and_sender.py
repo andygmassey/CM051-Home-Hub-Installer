@@ -200,7 +200,11 @@ def test_a_completed_reminder_frees_the_thread(tmp_path):
     db = tmp_path / "m.db"
     _apply(db, ("user", PHONE), "s-1", [_todo()])
     c = sqlite3.connect(db)
-    c.execute("ALTER TABLE reminders_map ADD COLUMN completed_at TEXT")
+    # The writer creates completed_at itself since CM048 #61 (ba321dba,
+    # vendored at the 134 re-sync); older writers did not, and the assistant
+    # added it. Add it only when absent, as the assistant does.
+    if "completed_at" not in {r[1] for r in c.execute("PRAGMA table_info(reminders_map)")}:
+        c.execute("ALTER TABLE reminders_map ADD COLUMN completed_at TEXT")
     c.execute("UPDATE reminders_map SET status='pushed', completed_at='2026-10-02'")
     c.commit(); c.close()
     _apply(db, ("user", PHONE), "s-2", [_todo()])
