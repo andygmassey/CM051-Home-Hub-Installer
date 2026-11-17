@@ -100,7 +100,7 @@ self_test() {
     local fake_rc=$?
     probe_examined 1 "failing fake box run"
     [ "${fake_rc}" -eq 78 ] || {
-        probe_fail "SELF-TEST BROKEN: a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        _st_broken "a failing box run came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     # A box that DISCONNECTS mid-run (stage ok, launch ok, first poll ALIVE, then
     # every ssh fails) must come out CANNOT-RUN with the residue line, and the
@@ -124,23 +124,23 @@ self_test() {
     probe_examined 1 "mid-run disconnect"
     [ "${fake_rc}" -eq 78 ] || {
         rm -f "${log}"
-        probe_fail "SELF-TEST BROKEN: a mid-run disconnect came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        _st_broken "a mid-run disconnect came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     printf '%s' "${out2}" | grep -q 'TEARDOWN NOT OBSERVED, residue unknown' || {
         rm -f "${log}"
-        probe_fail "SELF-TEST BROKEN: a mid-run disconnect did not print the residue-unknown line"
+        _st_broken "a mid-run disconnect did not print the residue-unknown line"
     }
     printf '%s' "${out2}" | grep -q '4242' || {
         rm -f "${log}"
-        probe_fail "SELF-TEST BROKEN: the residue line did not carry the pid"
+        _st_broken "the residue line did not carry the pid"
     }
     if grep -q 'rm -rf' "${log}"; then
         rm -f "${log}"
-        probe_fail "SELF-TEST BROKEN: the staging dir was removed while the pid could still be alive"
+        _st_broken "the staging dir was removed while the pid could still be alive"
     fi
     grep -q 'caffeinate -dimsu' "${log}" || {
         rm -f "${log}"
-        probe_fail "SELF-TEST BROKEN: the box run was not launched under caffeinate"
+        _st_broken "the box run was not launched under caffeinate"
     }
     rm -f "${log}"
     # An empty capture (box run ok, no output) must also be CANNOT-RUN.
@@ -149,19 +149,19 @@ self_test() {
       EXPECTED_ICAL_SHA256=$(printf 'a%.0s' $(seq 64)) OSTLER_NO_L3_OWNER_ID=selftest OSTLER_NO_L3_ALLOW_WRITE=1 run_probe ) >/dev/null 2>&1
     fake_rc=$?
     [ "${fake_rc}" -eq 78 ] || {
-        probe_fail "SELF-TEST BROKEN: an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        _st_broken "an empty capture came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
     python3 "${_PATHS_REPORT}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "path-report cases"
-        probe_fail "SELF-TEST BROKEN: the per-path report put a known case on the wrong line"
+        _st_broken "the per-path report put a known case on the wrong line"
     }
     python3 "${_BOXSCRIPT}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "box-script cases"
-        probe_fail "SELF-TEST BROKEN: the box script's path classifier or snapshot shape is wrong"
+        _st_broken "the box script's path classifier or snapshot shape is wrong"
     }
     python3 "${_JUDGE}" --self-test >/dev/null 2>&1 || {
         probe_examined 5 "judge cases"
-        probe_fail "SELF-TEST BROKEN: the judge put a known case on the wrong verdict"
+        _st_broken "the judge put a known case on the wrong verdict"
     }
     # A leak-free capture whose fixture teardown was NOT proven (no graph rows
     # counted, directory not restored) must be CANNOT-RUN, never PASS.
@@ -183,9 +183,21 @@ JSON
     rm -f "${capc}"
     probe_examined 1 "clean read, unproven teardown"
     [ "${fake_rc}" -eq 78 ] || {
-        probe_fail "SELF-TEST BROKEN: a leak-free read with residue came back rc=${fake_rc}, not CANNOT-RUN (78)"
+        _st_broken "a leak-free read with residue came back rc=${fake_rc}, not CANNOT-RUN (78)"
     }
-    probe_pass "self-test: every fixture check held. The negative control is a SEPARATE invocation: --negative-control (rc 1 required)."
+    # SUITE CONTRACT (lib/probe.sh, run_box_walk.sh phase 1): the default --self-test
+    # must END on the known-bad capture and exit 1. Every fixture check above held,
+    # so finish with the negative control: decide() must FAIL it (rc 1). If decide()
+    # passes it (rc 0) the runner reads "returned 0, expected 1" and marks BROKEN.
+    printf 'self-test: every fixture check held; now the negative control (rc 1 required)\n'
+    negative_control
+}
+
+# A broken fixture check. The runner greps "VERDICT: BROKEN" whatever the rc, and
+# rc 2 is never the 1 that phase 1 counts as "goes red on known-bad input".
+_st_broken() {
+    printf 'VERDICT: BROKEN -- %s self-test: %s\n' "${PROBE_NAME}" "$1"
+    exit 2
 }
 
 # THE NEGATIVE CONTROL, its own invocation. A known-bad capture (an L3 marker in a
