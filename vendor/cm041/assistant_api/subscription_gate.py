@@ -41,7 +41,7 @@ Sync paths:
    the state forward itself, in-process, on every call. The ticker only
    persists that walk so the Doctor banner and support can see it.
 
-Paid-once rule (Andy, 2026-07-31, re-made 2026-09-16): "keep it as long
+Paid-once rule (the owner, 2026-07-31, re-made 2026-09-16): "keep it as long
 as they've paid (fully) for Pro at least once. ie. not the included window
 plus a failed card try." Implemented here as the ``has_ever_paid`` sticky
 bit -- see ``_has_ever_paid``. It mirrors the daemon's
@@ -203,7 +203,7 @@ def _resolve_plan(plan: Optional[str]) -> Optional[str]:
 
 # How long before a window closes the customer is told it is closing.
 #
-# ANDY'S RULE, AND IT IS NOT A NICETY: "They are warned BEFORE it
+# THE OWNER'S RULE, AND IT IS NOT A NICETY: "They are warned BEFORE it
 # happens, in the product, not after." A tester who discovers their beta
 # ended by noticing that nothing has updated for three days has been
 # told by the absence of the product, which is the worst possible
@@ -375,7 +375,7 @@ def _has_ever_paid(state: dict) -> bool:
     """Has this customer fully paid for Ostler Pro at least once?
 
     This is the trust anchor for the 14-day post-lapse grace window and
-    for the 30-day offline fail-open. Andy's ruling: grace is a cushion
+    for the 30-day offline fail-open. The owner's ruling: grace is a cushion
     for people who actually paid, not a second free window for a trialist
     whose included window ran out, and not a reward for a failed card.
 
@@ -386,7 +386,7 @@ def _has_ever_paid(state: dict) -> bool:
       writes, and the iOS app only pushes one after a transaction succeeds
       or is restored. A card that FAILS produces no transaction, so it
       produces no receipt, so it never reaches here -- which is exactly
-      the case Andy called out;
+      the case the owner called out;
     - ``source == "companion"``, same signal on a state written before the
       receipt field existed.
 
@@ -482,7 +482,7 @@ def _walk(state: dict, now: datetime) -> tuple:
     - lapse, customer HAS ever paid -> ``grace`` until ``grace_period_end``,
       then ``inactive``.
     - lapse, customer has NEVER paid -> ``inactive`` immediately. No grace.
-      This is Andy's rule and it is the whole revenue fix: the included window
+      This is the owner's rule and it is the whole revenue fix: the included window
       ends on the day it ends.
 
     Never raises. Never writes.
@@ -641,7 +641,7 @@ def expiry_warning(
     ``kind``, ``days_left`` (negative once past), ``expires_at``, ``tier``
     and ``message``. Never raises. Never writes.
 
-    ANDY'S TWO RULES FOR HR015 #929 LIVE HERE.
+    THE OWNER'S TWO RULES FOR HR015 #929 LIVE HERE.
 
     1. EXPIRY DEGRADES TO READ-ONLY, NEVER DESTRUCTIVE. Nothing in this
        module deletes, truncates or moves a single byte of customer data,

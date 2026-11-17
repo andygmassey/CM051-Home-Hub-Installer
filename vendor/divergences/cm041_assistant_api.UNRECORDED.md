@@ -1815,3 +1815,11 @@ The verifier PASS path reports tier_state `absent` for every production licence 
 - digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
 
 Tree `cm041/assistant_api`: `vendor/cm041/assistant_api/subscription_gate.py` re-grafted byte-identical (vendor-only row in VENDOR_ONLY.tsv).
+
+## 2026-11-17 (134 PII unblock, CM052 #28): gate copies re-synced to the comment-only upstream text, digest re-pinned
+
+CM052 #28 (draft, pin 32122a69) names the owner by role in six comment/docstring lines of `src/cm052/subscription_gate.py`; no code change. Both vendored copies (`vendor/cm052_ai_conversations/src/cm052/subscription_gate.py` and `vendor/cm041/assistant_api/subscription_gate.py`) now equal that file byte for byte.
+
+- sha256 now: `e80d2d908ce20411ea1fecb3c2c01448ed1dcc3d4bcdfa2529ee4356692935e2`
+- previous: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
+- digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.

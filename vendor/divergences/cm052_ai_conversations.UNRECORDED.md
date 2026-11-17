@@ -58,3 +58,11 @@ Tree `cm052_ai_conversations`: `vendor/cm052_ai_conversations/src/cm052/subscrip
 ## 2026-11-17 (ORM, 134 CB134-FRESH): every edit above is now IN the patch
 
 The tree was re-pinned to CM052 main f0b7b277 with vendored bytes unchanged and `vendor/divergences/cm052_ai_conversations.patch` regenerated against that pin (4 modified files, 1 vendor-only new file: `catchup.py`). The ~/Ostler path edits, the watermark graft and the not-taken G7 / Slack / owner-chat-pages features are recorded there as diff, not here as prose. `VENDOR_FRESH_STRICT=1 verify_vendor_fresh.sh` reports OK cm052_ai_conversations at f0b7b277.
+
+## 2026-11-17 (134 PII unblock, CM052 #28): gate copies re-synced to the comment-only upstream text, digest re-pinned
+
+CM052 #28 (draft, pin 32122a69) names the owner by role in six comment/docstring lines of `src/cm052/subscription_gate.py`; no code change. Both vendored copies (`vendor/cm052_ai_conversations/src/cm052/subscription_gate.py` and `vendor/cm041/assistant_api/subscription_gate.py`) now equal that file byte for byte.
+
+- sha256 now: `e80d2d908ce20411ea1fecb3c2c01448ed1dcc3d4bcdfa2529ee4356692935e2`
+- previous: `563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d`
+- digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
