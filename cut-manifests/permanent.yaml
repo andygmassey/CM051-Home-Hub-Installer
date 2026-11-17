@@ -1728,3 +1728,29 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "calendar_mute_holds_everywhere"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, included_pro_window_matches_plan row):
+  # cut 134. Declared because every probe on disk must be invoked by the cut; the
+  # promote scope keeps it from refusing a promote for its first cut.
+  - id: box-walk-included-pro-window-matches-plan
+    title: "advisory: the installer writes the included Pro window the licence's plan buys (founding 180 days, no licence 0)"
+    incident: "v1.0.133 box proof 2026-11-17: a signed plan=founding licence with no tier field got 0 included days (tier_state absent was not counted as signed). #3579 is the fix; this probe reads the state the installer actually wrote."
+    proof:
+      kind: box_walk_probe
+      probe: "included_pro_window_matches_plan"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, tool_call_log_line_per_call row): cut 134.
+  - id: box-walk-tool-call-log-line-per-call
+    title: "advisory: the daemon logs one tool_call line per tool call, with only tool, outcome and duration_ms"
+    incident: "ostler-assistant #749 (134): a tool call's outcome and time were visible only inside the turn summary. The probe counts tool_call lines against the daemon's own turn_latency tool_calls and fails any line carrying another field."
+    proof:
+      kind: box_walk_probe
+      probe: "tool_call_log_line_per_call"
+
+  # ADVISORY (scripts/walk_promote_scope.tsv, forget_reaches_everything row): cut 134.
+  - id: box-walk-forget-reaches-everything
+    title: "advisory: forgetting a person removes them from the graph, the conversation gists, the bundles and the compiled wiki, and a control person stays"
+    incident: "CM041 #288 and CM044 #451 (134, Art.17): forget reached the graph and the people collection but not the conversation store, and the compiled wiki kept the person after the next compile."
+    proof:
+      kind: box_walk_probe
+      probe: "forget_reaches_everything"
