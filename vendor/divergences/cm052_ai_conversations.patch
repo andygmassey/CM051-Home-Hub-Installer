@@ -158,7 +158,7 @@
  _SOURCE_CHOICES = ("claude_code", "chatgpt", "gateway", "all")
 -
 -
--# PRO RULE FOR AI CAPTURE (Andy, 2026-10-19). Same rule as every source:
+-# PRO RULE FOR AI CAPTURE (the owner, 2026-10-19). Same rule as every source:
 -# the FIRST import of an export file per source is free, with or without Pro;
 -# re-imports, later exports and every ongoing capture (a watcher over a live
 -# store) are Pro. ``first_import.entry_gate`` is the one shared helper.
@@ -176,14 +176,14 @@
 -    "gateway": "Ostler",
 -}
 -
--# Ongoing capture: the pause text Andy approved (with Archie, 2026-10-19).
+-# Ongoing capture: the pause text the owner approved (with Archie, 2026-10-19).
 -# Exact, line break included; only {source} is substituted.
 -PAUSED_SYNC_TEMPLATE = (
 -    "Keeping {source} up to date automatically is part of Ostler Pro.\n"
 -    "Everything you've already imported stays here, and you can still search it."
 -)
 -# Buttons shown with ANY Pro pause, same as the second-import message
--# (coordinator, delegated by Andy 19 Oct). "Not now" dismisses until the next
+-# (coordinator, delegated by the owner 19 Oct). "Not now" dismisses until the next
 -# pause event and never repeats within a day: that is the UI's job (Doctor,
 -# iOS); this module only names them in the status record.
 -PAUSED_SYNC_ACTIONS = ("Upgrade to Pro", "Not now")
