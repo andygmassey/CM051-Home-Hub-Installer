@@ -333,13 +333,13 @@ class TestPreferencesL3(unittest.TestCase):
             "schema_version": "0.1",
             "generated_at": "2026-06-20T00:00:00+00:00",
             "interests": [
-                {"id": "int_l2", "subject": "Synthetic Hobby", "domain": "Music",
+                {"id": "int_l2", "subject": "subject-l2", "domain": "Music",
                  "polarity": "like", "score": 0.9, "confidence": 0.8,
                  "privacy_level": "L2", "sources": ["you"], "evidence": ["x"]},
-                {"id": "int_l3", "subject": "Synthetic Private", "domain": "Health",
+                {"id": "int_l3", "subject": "subject-l3", "domain": "Health",
                  "polarity": "like", "score": 0.95, "confidence": 0.8,
                  "privacy_level": "L3", "sources": ["you"], "evidence": ["x"]},
-                {"id": "int_unk", "subject": "Synthetic Untagged", "domain": "Film",
+                {"id": "int_unk", "subject": "subject-untagged", "domain": "Film",
                  "polarity": "like", "score": 0.85, "confidence": 0.8,
                  "sources": ["you"], "evidence": ["x"]},
             ],
@@ -356,8 +356,8 @@ class TestPreferencesL3(unittest.TestCase):
                     status, body = h.get("/api/v1/preferences")
         self.assertEqual(status, 200)
         subjects = [i["subject"] for i in body["interests"]]
-        self.assertEqual(subjects, ["Synthetic Hobby", "Synthetic Untagged"])
-        self.assertNotIn("Synthetic Private", json.dumps(body))
+        self.assertEqual(subjects, ["subject-l2", "subject-untagged"])
+        self.assertNotIn("subject-l3", json.dumps(body))
         self.assertEqual(body["withheld"], {"l3": 1, "unknown": 0})
         self.assertEqual(body["legacy_untagged"], 1)
 
