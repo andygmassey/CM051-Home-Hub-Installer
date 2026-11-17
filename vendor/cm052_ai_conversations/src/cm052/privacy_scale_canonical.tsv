@@ -1,0 +1,29 @@
+# Canonical privacy scale. L0 least private, L3 most private. Fail-closed default L3.
+# outbound: may the level's content leave the owner's local chat (cloud model, channel, other people, export, owner's WhatsApp/iMessage)?
+level	rank	owner_local	outbound
+L0	0	yes	yes
+L1	1	yes	yes_redacted_only
+L2	2	yes	no
+L3	3	yes_labelled_private	no
+
+[source_default]
+# Per-writer default level, stamped on write when the record carries no level of its own.
+# Builders READ this table (src/source_defaults.py); no code constant may repeat it.
+# Rules, binding on every row:
+#   - a default never overrides a STRICTER level the writer already computed (rank only moves up);
+#   - the Art.9/10 + finance + credentials + government-ID floor always applies on top (raise only);
+#   - L0 and L1 are NEVER a default;
+#   - an unknown or unlisted writer is L3.
+# First row: Andy's 2026-11-16 relabel decision ("never less private"; unknown writer = L3).
+# ai_conversations is L3: the locked CLAUDE.md rule "AI conversations default to privacy_level: L3" (Archie ruling 2026-11-17). A default may never be below a locked default.
+writer	default_level	rule
+calendar_ingest	L2	fixed
+cm048_todos	L2	inherit_source
+conversations	L2	fixed_plus_floor
+ai_conversations	L3	fixed_plus_floor_plus_classifier
+people_identity	L2	fixed_suppression_independent
+derived_affinities	L3	strictest_of_sources
+browser_history	L2	fixed_plus_floor
+photos	L2	fixed_plus_floor
+health_import	L3	fixed
+finance_import	L3	fixed
