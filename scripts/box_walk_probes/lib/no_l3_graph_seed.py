@@ -118,7 +118,7 @@ def build(payload):
         # ingest._urn() returns the angle-bracketed IRI; decision_extractor wraps its
         # about_persons in <...> itself, so pass the BARE IRI (else <<urn:...>>, a parse error).
         dec = de.ExtractedDecision(summary=f"{mkr} approve the quarry lease renewal",
-                                   source_uri=meeting, date=FIXTURE_DATE,
+                                   source_uri=meeting, date=FIXTURE_DATE + "T00:00:00Z",
                                    about_persons=[person_uri[1:-1]], status="active")
         extra_subjects += [dec.uri, meeting]
         writes.append({"kind": "decision", "level": lvl, "decision": dec})
