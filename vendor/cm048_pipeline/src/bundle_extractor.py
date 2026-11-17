@@ -123,6 +123,53 @@ def scrub_placeholder_people(text: str) -> str:
     return text
 
 
+def apply_enrichment_status(
+    extraction: "BundleExtraction", enrichment_md: str
+) -> "BundleExtraction":
+    """Mark a bundle todo ``closed`` when the enrichment's Action items row
+    for the same action is closed.
+
+    The bundle extractor emits no status, so without this every bundle todo
+    reaches the Reminders gate as ``extracted`` and a todo the conversation
+    already closed is pushed. The done state comes from the same table
+    outstanding_todos reads, via its own ``detect_status`` (explicit Status
+    cell, else completion language in Action/Notes).
+
+    Matching is on the normalised action text only (case, whitespace, a
+    trailing full stop). A fuzzy match is not attempted: an unmatched todo
+    keeps its status, so the failure mode is a pushed done item, never a
+    dropped live one. Returns a new extraction; the input is not mutated.
+    """
+    from . import outstanding_todos as _outstanding_todos
+
+    closed = {
+        _norm_action(row.get("action") or row.get("task") or "")
+        for row in _outstanding_todos.parse_action_items_table(enrichment_md)
+        if _outstanding_todos.detect_status(
+            row.get("action") or row.get("task") or "",
+            row.get("notes") or "",
+            row.get("status") or "",
+        ) == "closed"
+    }
+    closed.discard("")
+    todos = []
+    for todo in extraction.todos:
+        if isinstance(todo, dict) and _norm_action(todo.get("text")) in closed:
+            todo = dict(todo, status="closed")
+        todos.append(todo)
+    return BundleExtraction(
+        overall_summary=extraction.overall_summary,
+        topics=list(extraction.topics),
+        todos=todos,
+    )
+
+
+def _norm_action(text: object) -> str:
+    if not isinstance(text, str):
+        return ""
+    return " ".join(text.casefold().split()).rstrip(".!?")
+
+
 def extract(
     client: OllamaClient,
     *,

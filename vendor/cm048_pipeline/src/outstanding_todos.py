@@ -583,9 +583,9 @@ def normalise_deadline(
 _DONE_PHRASES = (
     "already done", "already sent", "already sorted", "already handled",
     "now done", "now complete", "now completed", "marked done",
-    "marked complete", "completed", "[done]", "[x]", "(done)",
+    "marked complete", "[done]", "[x]", "(done)",
     "✓", "✅", "☑",
-    "done -", "done:", "done.", "done ", "resolved", "closed off",
+    "done -", "done:", "done.", "closed off",
     "wrapped up", "taken care of", "sorted out",
     "has been done", "has been sent", "was sent", "was completed",
     "no longer needed", "no longer required",
@@ -596,6 +596,12 @@ _DONE_PHRASES = (
     "gi\u00e0 fatto", "gi\u00e0 inviato", "completato", "risolto",
     "\u5b8c\u4e86", "\u5bfe\u5fdc\u6e08\u307f", "\u9001\u4fe1\u6e08\u307f", "\u5b8c\u6210\u6e08\u307f",
     "\u5df2\u5b8c\u6210", "\u5df2\u53d1\u9001", "\u5df2\u767c\u9001", "\u5df2\u89e3\u51b3",
+    # The owner reporting the thing went out, in the words a chat uses
+    # (Mini16, 2026-10-19: "Sent and cc'd you" in a later turn, todo still
+    # open). "sent" alone is NOT here: "to be sent by Friday" is a plan.
+    "sent and cc", "sent, cc", "cc'd you", "cc'ed you", "cced you",
+    "sent it", "sent it over", "sent you", "sent over", "sent this",
+    "sent them", "sent that", "emailed it", "emailed you", "shared it",
 )
 
 # Tokens that, when the cell is JUST this word, mean done. Guards
@@ -605,11 +611,122 @@ _DONE_EXACT = frozenset({
     "erledigt", "fait", "hecho", "fatto", "\u5b8c\u4e86", "\u6e08\u307f", "\u5b8c\u6210",
 })
 
+# Words that only count when they stand alone as a whole word: "completed"
+# inside "Get the form completed" or "resolved" inside "Reconsider the
+# resolved items" is a plan or a noun, not a report. Matched at word
+# boundaries, never as a substring (the old "done " substring closed
+# "Get it done by Friday").
+_DONE_WORDS = ("completed", "resolved")
+
+
+def _word_bounded(phrase: str) -> "re.Pattern[str]":
+    """A phrase matched only at word boundaries, so "sent you" does not
+    fire inside "present your findings" and "done." does not fire inside
+    "undone." (Archie, #92). Punctuation inside the phrase is kept literal;
+    the boundary is "no letter on either side"."""
+    return re.compile(r"(?<![a-z])" + re.escape(phrase) + r"(?![a-z])")
+
+
+_DONE_PHRASE_RE = tuple(_word_bounded(p) for p in _DONE_PHRASES)
+_WORD_RE = {w: _word_bounded(w) for w in _DONE_WORDS}
+
+# A completion phrase preceded by one of these, within a few words, is a
+# denial of completion, not a report: "not done", "isn't sent yet", "hasn't
+# been sent", "never sent", "still not done", "not yet completed".
+_NEGATION_RE = re.compile(
+    r"(?:\b(?:not|never|nor|isn't|wasn't|hasn't|haven't|hadn't|aren't|weren't|didn't|don't|doesn't|won't|can't|couldn't|un)"
+    r"|n't|\bstill\b|\byet\b)\s*(?:\w+\s+){0,3}$"
+)
+
+
+def _negated(text: str, at: int) -> bool:
+    """True when the phrase starting at ``at`` is denied by what precedes it,
+    or is the tail of "undone" / "unsent"."""
+    before = text[:at]
+    if before.endswith("un"):
+        return True
+    return bool(_NEGATION_RE.search(before[-60:]))
+
+
+def _has_done_language(text: str) -> bool:
+    """Whole-phrase / whole-word completion language in lower-cased text,
+    not denied by a negation in front of it."""
+    for rx in _DONE_PHRASE_RE:
+        for m in rx.finditer(text):
+            if not _negated(text, m.start()):
+                return True
+    # A standalone "completed" / "resolved" counts only as a report: the
+    # whole cell ("Completed"), or after a reporting word ("now completed",
+    # "all resolved", "it's completed"). Inside a plan ("get the form
+    # completed before the meeting", "to be resolved next week") or as an
+    # adjective ("the resolved items") it stays open.
+    for rx in _WORD_RE.values():
+        for m in rx.finditer(text):
+            if _negated(text, m.start()):
+                continue
+            before = text[:m.start()].rstrip()
+            if not before or re.search(
+                r"(?:^|\s)(?:now|already|all|is|are|was|were|been|its|it's|marked|status)$", before
+            ):
+                return True
+    return False
+
+
+_QUOTE_LINE_RE = re.compile(r"^\s*(?:>|\|)\s?.*$", re.M)
+_FORWARD_RE = re.compile(
+    r"(?is)(?:^|\n)\s*(?:-{2,}\s*)?(?:forwarded message|fwd:|fw:|begin forwarded message|"
+    r"\(forwarded from [^)]*\)|forwarded from [^:\n]*:).*$"
+)
+
+
+def strip_quoted_and_forwarded(text: str) -> str:
+    """Drop quoted lines (">" / "|" prefixed, as Telegram inlines a reply's
+    parent) and everything from a forward marker on. Neither is the owner's
+    words: a quoted "I've sent it" is the OTHER party's sentence inside the
+    owner's reply, and a forwarded mail's "done" is its original author's
+    (edge-case matrix 2026-10-19, section 1)."""
+    if not text:
+        return text
+    out = _FORWARD_RE.sub("", text)
+    out = _QUOTE_LINE_RE.sub("", out)
+    return out
+
+
+def _attributed_to_someone_else(cell: str, owner_display: str, participants: list[dict]) -> bool:
+    """A Notes cell that credits a NON-owner with the report ("Sam: sent you
+    the contract", "Sam said she sent it", "Sam has sent it over") cannot
+    close the owner's todo: the other party sending their thing is not the
+    owner doing theirs (Archie, #92). Attribution is read from a leading
+    participant name (display or first token) followed by a colon, "said",
+    "says", "has", "had", "confirmed" or "sent". The owner's own name
+    attributes to the owner and is fine."""
+    low = (cell or "").strip().lower()
+    if not low:
+        return False
+    owner_low = (owner_display or "").strip().lower()
+    owner_first = owner_low.split()[0] if owner_low else ""
+    for p in participants or []:
+        disp = (p.get("display") or "").strip().lower()
+        if not disp:
+            continue
+        if disp == owner_low or (owner_first and disp.split()[0] == owner_first):
+            continue
+        for name in {disp, disp.split()[0]}:
+            if re.match(
+                r"^" + re.escape(name)
+                + r"\b\s*(?::|(?:said|says|has|had|have|confirmed|sent|emailed|shared|wrote|told|mentioned)\b)",
+                low,
+            ):
+                return True
+    return False
+
 
 def detect_status(
     action_cell: str,
     notes_cell: str = "",
     status_cell: str = "",
+    owner_display: str = "",
+    participants: list[dict] | None = None,
 ) -> str:
     """Return ``"open"`` (default) or ``"closed"``.
 
@@ -620,22 +737,37 @@ def detect_status(
 
     A dedicated ``Status`` column (if the enrichment emits one) takes
     precedence: an explicit ``done`` / ``closed`` cell closes the todo.
+
+    Completion language is matched at word boundaries ("present your
+    findings" is not "sent you"), a negation in front of it denies it
+    ("not sent yet", "undone"), and a Notes cell that credits a non-owner
+    participant with the report does not close the owner's todo.
     """
     # 1. Explicit Status column wins.
     s = (status_cell or "").strip().lower()
     if s and not _is_blank_cell(status_cell):
-        if s in _DONE_EXACT or any(p in s for p in _DONE_PHRASES):
+        if s in _DONE_EXACT or _has_done_language(s):
             return "closed"
         # An explicit "open" / "in progress" / "pending" stays open.
         return "open"
 
-    # 2. Otherwise scan action + notes for completion phrases.
-    haystack = f"{action_cell or ''}  {notes_cell or ''}".strip().lower()
+    # 2. Otherwise scan action + notes for completion phrases. A Notes
+    # cell that is just the word ("Completed") is a report on its own; a
+    # Notes cell credited to someone else is not a report by the owner.
+    # Quoted and forwarded text is someone else's words whoever pasted it.
+    notes = strip_quoted_and_forwarded(notes_cell or "")
+    action_cell = strip_quoted_and_forwarded(action_cell or "")
+    if _attributed_to_someone_else(notes, owner_display, participants or []):
+        notes = ""
+    notes_alone = notes.strip().lower()
+    if notes_alone in _DONE_EXACT:
+        return "closed"
+    haystack = f"{action_cell or ''}  {notes}".strip().lower()
     if not haystack:
         return "open"
     if haystack in _DONE_EXACT:
         return "closed"
-    if any(phrase in haystack for phrase in _DONE_PHRASES):
+    if _has_done_language(haystack):
         return "closed"
     return "open"
 
@@ -655,9 +787,27 @@ def _deterministic_todo_id(
     return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
 
 
+# A conversation older than this yields no open todos. A first import posts
+# every thread it finds, and a decade of mail would otherwise mint thousands
+# of "open" promises nobody remembers (edge-case matrix 2026-10-19; the Mini16
+# brief listed a year-old inbound introduction). The brief ages rows out too
+# (ostler-assistant catchup.rs), but a row that is never written is cheaper
+# than one that is written and then hidden.
+TODO_MAX_AGE_DAYS = 180
+
+
+def _conversation_is_too_old(conversation_date: str, today: "date | None") -> bool:
+    try:
+        d = date.fromisoformat((conversation_date or "")[:10])
+    except ValueError:
+        return False  # unknown age is not old
+    return ((today or datetime.now(timezone.utc).date()) - d).days > TODO_MAX_AGE_DAYS
+
+
 def extract_outstanding_todos(
     enrichment_md: str,
     metadata: dict,
+    today: "date | None" = None,
     *,
     transcript: str = "",
 ) -> list[OutstandingTodo]:
@@ -685,6 +835,8 @@ def extract_outstanding_todos(
     participants = list(normalise_participants(metadata.get("participants")))
 
     if not conversation_id:
+        return []
+    if _conversation_is_too_old(conversation_date, today):
         return []
 
     # A commitment is the user's own words. Inbound bulk, marketing,
@@ -747,6 +899,8 @@ def extract_outstanding_todos(
             action_text,
             notes_cell=row.get("notes") or "",
             status_cell=row.get("status") or "",
+            owner_display=owner_display,
+            participants=participants,
         )
 
         todo = OutstandingTodo(

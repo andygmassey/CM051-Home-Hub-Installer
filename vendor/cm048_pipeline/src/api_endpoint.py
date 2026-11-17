@@ -190,14 +190,36 @@ def _process_via_library(
     transcript = transcript_file.read_text()
     conv_id = metadata["conversation_id"]
 
-    state = process(
-        conv_id,
-        transcript,
-        metadata,
-        settings,
-        dry_run=dry_run,
-        ingest_sinks=not no_sinks,
-    )
+    from src.schemas import PipelineState, read_json
+
+    try:
+        state = process(
+            conv_id,
+            transcript,
+            metadata,
+            settings,
+            dry_run=dry_run,
+            ingest_sinks=not no_sinks,
+        )
+    except RuntimeError as exc:
+        # A failed step raises. Read the failed state back from disk and
+        # return it, so the failed step, the reason and a missing module
+        # (failure_module) reach the caller, not an opaque 500.
+        path = settings.processing_state_dir / conv_id / "state.json"
+        if not path.exists():
+            raise
+        failed = PipelineState.from_dict(read_json(path))
+        if not failed.failed_step:
+            raise
+        return {
+            "conversation_id": conv_id,
+            "status": "failed",
+            "completed_steps": failed.completed_steps,
+            "failed_step": failed.failed_step,
+            "failure_module": failed.failure_module,
+            "failure_reason": failed.failure_reason,
+            "error": str(exc),
+        }
 
     return {
         "conversation_id": conv_id,

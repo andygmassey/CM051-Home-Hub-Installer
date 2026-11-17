@@ -104,7 +104,20 @@ class Todo:
     ``status`` flips through:
         ``extracted``         -- writer's default; on disk only
         ``pushed-to-reminders`` -- EventKit save confirmed
+        ``completed``         -- the commitment was kept (see
+                                 ``completed_at``)
         ``dismissed``         -- user marked irrelevant
+
+    ``completed_at`` is the ISO-8601 UTC timestamp of when the
+    commitment was observed to be DONE -- distinct from the
+    conversation date (when the promise was made). ``None`` until a
+    completion signal lands. The CM059 Procedural-Memory
+    ``followup_latency`` miner reads this field off the rendered
+    ``todos.md`` item line (``completed_at: <ISO>``) to compute
+    promise->done latency; emitting it without a real signal would
+    fabricate latency samples, so it is only ever stamped from an
+    observed completion (today: the assistant's Reminders ledger,
+    via ``reminders_push.mark_completed``).
 
     The id is stable across re-runs of the same conversation
     (derived from owner + text hash) so an Apple Reminders push
@@ -117,6 +130,7 @@ class Todo:
     deadline: Optional[str] = None
     source_anchor: Optional[str] = None
     status: str = "extracted"
+    completed_at: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -222,6 +236,7 @@ def write_conversation(
     demo_mode: bool = False,
     user_id: str = "user",
     reminders_db_path: Optional[Path] = None,
+    minor_participant: Optional[bool] = False,
 ) -> ConversationOutput:
     """Produce the four-artefact bundle on disk and (for non-L3)
     invoke the gist callback.
@@ -289,6 +304,7 @@ def write_conversation(
         demo_mode=demo_mode,
         user_id=user_id,
         db_path=reminders_db_path,
+        minor_participant=minor_participant,
     )
     _atomic_write(
         todos_path,
@@ -568,6 +584,12 @@ def _render_todos_body(todos: tuple[Todo, ...]) -> str:
             bits.append(f"deadline: {todo.deadline}")
         if todo.source_anchor:
             bits.append(f"anchor: {todo.source_anchor}")
+        if todo.completed_at:
+            # Key + ISO value on the item line is the CM059
+            # followup_latency miner's parse contract
+            # (compiler/patterns/todos.py accepts completed /
+            # completed_at / done_at).
+            bits.append(f"completed_at: {todo.completed_at}")
         bits.append(f"status: {todo.status}")
         bits.append(f"id: {todo.id}")
         lines.append("- " + " | ".join(bits))

@@ -33,6 +33,7 @@ on:
     paths:
       - 'prompts/**'
       - 'tests/test_prompt_examples_do_not_teach_placeholders.py'
+      - 'tests/test_prompt_examples_carry_no_gps.py'
       - '.github/workflows/prompt-gates.yml'
   push:
     branches: [main]
@@ -59,6 +60,8 @@ jobs:
       # "{user_email}" verbatim into a rendered page.
       - name: Prompt examples must not teach placeholders
         run: python -m pytest tests/test_prompt_examples_do_not_teach_placeholders.py -q
+      - name: Prompt examples must not carry a concrete GPS coordinate (the model copies it)
+        run: python -m pytest tests/test_prompt_examples_carry_no_gps.py -q
 
       # The guard is worthless if it silently stops matching the tree. Assert the
       # population it examines is non-trivial, so a zero denominator can never be

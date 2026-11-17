@@ -503,10 +503,25 @@ def cmd_summary(args, settings) -> int:
                 except Exception:
                     pass
 
-    # Conversation MD files
+    # Conversation MD files.
+    #
+    # 🔴 rglob, NOT glob, AND THE DIFFERENCE IS NOT "a few deeper ones". Every
+    # conversation this pipeline writes lands TWO levels down:
+    # conversation_writer._resolve_folder returns
+    # `<root>/<YYYY-MM-DD>/<slug>-<short-id>/` and write_conversation puts
+    # summary.md, transcript.md and todos.md INSIDE that folder. So nothing a
+    # customer owns is ever at the top level, and a top-level glob returns
+    # ZERO however many conversations exist -- not an undercount, a constant.
+    #
+    # Measured on a tree built to that exact shape: 2 conversations, 6 files,
+    # glob 0 and rglob 6. CONTROL, one file placed AT the top level: glob
+    # returns 1, so the zero is about DEPTH and not a broken pattern.
+    #
+    # ostler_paths.py already walks this corpus with rglob; this was the one
+    # reader that did not.
     md_count = 0
     if settings.output_conversations_dir.exists():
-        md_count = len(list(settings.output_conversations_dir.glob("*.md")))
+        md_count = len(list(settings.output_conversations_dir.rglob("*.md")))
 
     # Coach observations
     coach_count = 0

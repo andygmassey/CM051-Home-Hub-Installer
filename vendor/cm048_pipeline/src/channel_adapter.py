@@ -942,6 +942,14 @@ def _build_todos(
             str(anchor).strip() if anchor not in (None, "", False) else None
         )
         todo_id = make_todo_id(conversation_id, owner, text)
+        # "closed" comes from the enrichment table (bundle_extractor.
+        # apply_enrichment_status); the push gate skips it. Anything else
+        # is a fresh todo.
+        status = (
+            "closed"
+            if str(todo.get("status") or "").strip().lower() == "closed"
+            else "extracted"
+        )
         out.append(
             Todo(
                 id=todo_id,
@@ -949,7 +957,7 @@ def _build_todos(
                 owner=owner,
                 deadline=deadline_str,
                 source_anchor=anchor_str,
-                status="extracted",
+                status=status,
             )
         )
     return tuple(out)

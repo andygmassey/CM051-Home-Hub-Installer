@@ -201,3 +201,7 @@ The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` P
 DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
 When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
 `vendor/cm048_pipeline/src/channel_adapter.py`.
+
+## 2026-11-17 (ORM, 134 CB134-FRESH): re-pinned to CM048 36984d59, patch regenerated
+
+Every CM051-side edit described above is now recorded as diff in `vendor/divergences/cm048_pipeline.patch` (25 modified, 6 vendor-only files), regenerated against the new pin after a 3-way re-apply. The manifest comment on the `cm048_pipeline` row says what was taken, kept and left out (CM048 #150 not taken). With verify flipped to full in a scratch manifest: OK cm048_pipeline at 36984d59; a one-line mutant in vendored src/minors.py turns it FAIL.

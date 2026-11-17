@@ -263,7 +263,7 @@
  - One action per todo. Do not merge separate requests into one,
    and do not drop one because another is in the same sentence.
    Name the person to deal with when the transcript names them
-@@ -71,7 +78,13 @@
+@@ -76,7 +83,13 @@
    id, include it. Otherwise omit.
  - If there are no todos, return ``"todos": []`` -- empty list,
    not omitted.
@@ -529,7 +529,7 @@
 +    return facts
 --- a/src/bundle_extractor.py
 +++ b/src/bundle_extractor.py
-@@ -131,6 +131,7 @@
+@@ -178,6 +178,7 @@
      channel: str,
      model: str,
      locale: str = "en-GB",
@@ -537,7 +537,7 @@
      timeout: float | None = None,
  ) -> BundleExtraction:
      """Run the LLM call and return parsed ``BundleExtraction``.
-@@ -164,6 +165,7 @@
+@@ -211,6 +212,7 @@
          enrichment_md=enrichment_md,
          channel=channel_for_prompt,
          locale=locale,
@@ -545,7 +545,7 @@
      )
      full_prompt = template + "\n\n---\n\n" + body
  
-@@ -249,23 +251,37 @@
+@@ -296,23 +298,37 @@
      enrichment_md: str,
      channel: str,
      locale: str,
@@ -1064,6 +1064,19 @@
  # ---------------------------------------------------------------------------
  # Email adapter (CM046)
  # ---------------------------------------------------------------------------
+@@ -616,6 +647,12 @@
+     if isinstance(explicit_meta, str) and explicit_meta:
+         return _privacy.normalise(explicit_meta)
+ 
++    # No verdict: fail toward the HIGHER level, never the lower. A missing
++    # classification, or one without a sensitivity level, is unavailable.
++    if classification is None or classification.sensitivity is None \
++            or classification.sensitivity.level is None:
++        return "L3"
++
+     sensitivity = (
+         classification.sensitivity.level
+         if classification.sensitivity is not None
 --- a/src/chunker.py
 +++ b/src/chunker.py
 @@ -17,7 +17,9 @@
@@ -1141,7 +1154,7 @@
  import textwrap
  from dataclasses import dataclass, field
  from pathlib import Path
-@@ -170,6 +171,11 @@
+@@ -184,6 +185,11 @@
      privacy_level: str = "L2"
      source_app: Optional[str] = None  # "messages" | "mail" | "whatsapp" | etc
      extra_metadata: dict = field(default_factory=dict)
@@ -1153,7 +1166,7 @@
      # Calendar date (YYYY-MM-DD) for the folder when ``started_at`` is
      # unknown. Never used to invent a clock time.
      date: str = ""
-@@ -364,7 +370,11 @@
+@@ -380,7 +386,11 @@
      return "L3"
  
  
@@ -1166,7 +1179,7 @@
  
  
  def _slug_segment(text: str, max_len: int = 32) -> str:
-@@ -375,7 +385,9 @@
+@@ -391,7 +401,9 @@
      ``"conversation"`` for empty / all-symbol inputs so the
      caller never has to handle ``""``.
      """
@@ -1497,6 +1510,73 @@
 +            out.append("")
 +        i = j
 +    return "\n".join(out)
+--- a/src/gist_retraction.py
++++ b/src/gist_retraction.py
+@@ -24,10 +24,7 @@
+ 
+ SCOPE OF THE DELETE (deliberately narrow)
+ -----------------------------------------
+-- Qdrant, owner-local L3 index (owner_l3_conversations): points with this
+-  ``conversation_id`` AND ``point_type`` == owner_l3_gist. Erased on every
+-  retraction, flag on or off.
+-- Qdrant, shared collection: points whose payload has this ``conversation_id`` AND
++- Qdrant: points whose payload has this ``conversation_id`` AND
+   ``source=human_conversation`` AND ``point_type`` in
+   {fact, conversation_summary}. Those are exactly the two point kinds
+   ``ingest._write_qdrant`` creates; nothing another writer puts in the
+@@ -52,7 +49,6 @@
+ 
+ import httpx
+ 
+-from . import owner_l3
+ from .settings import Settings
+ from .turtle_escape import escape_turtle_iri_path
+ from .topic_writer import PWG_NS, conversation_uri as _topic_conversation_uri
+@@ -76,18 +72,6 @@
+     }
+ 
+ 
+-def owner_delete_filter(conversation_id: str) -> dict:
+-    """The owner-local L3 point for this conversation (owner_l3.write_owner_l3)."""
+-    return {
+-        "filter": {
+-            "must": [
+-                {"key": "conversation_id", "match": {"value": conversation_id}},
+-                {"key": "point_type", "match": {"value": owner_l3.POINT_TYPE}},
+-            ]
+-        }
+-    }
+-
+-
+ def build_oxigraph_retraction(conversation_id: str, settings: Settings) -> str:
+     """SPARQL UPDATE that removes this conversation's CM048 triples."""
+     conv = f"<urn:ostler:conversation/{escape_turtle_iri_path(conversation_id)}>"
+@@ -125,17 +109,7 @@
+         if resp.status_code != 404:
+             resp.raise_for_status()
+ 
+-        # The owner-local L3 index is erased too, whatever the flag says now:
+-        # a point written while the flag was on must not outlive a forget.
+         resp = hc.post(
+-            f"{settings.qdrant_url}/collections/{owner_l3.collection_name()}/points/delete",
+-            json=owner_delete_filter(conversation_id),
+-            params={"wait": "true"},
+-        )
+-        if resp.status_code != 404:
+-            resp.raise_for_status()
+-
+-        resp = hc.post(
+             f"{settings.oxigraph_url}/update",
+             content=build_oxigraph_retraction(conversation_id, settings).encode(),
+             headers={"Content-Type": "application/sparql-update"},
+@@ -152,7 +126,6 @@
+ __all__ = [
+     "QDRANT_POINT_TYPES",
+     "build_oxigraph_retraction",
+-    "owner_delete_filter",
+     "qdrant_delete_filter",
+     "retract_conversation",
+ ]
 --- a/src/ingest.py
 +++ b/src/ingest.py
 @@ -34,6 +34,10 @@
@@ -1576,7 +1656,7 @@
          file=sys.stderr,
          flush=True,
      )
-@@ -178,8 +209,8 @@
+@@ -191,8 +222,8 @@
      real country code. SAME technique already used in ostler_fda's
      ``_whatsapp_jid_is_genuine_phone`` (CM051 #2543) and CM041's
      ``identity_resolver.normalise.is_valid_phone`` -- reused here, not
@@ -1587,7 +1667,7 @@
      """
      if not local.isdigit():
          return False
-@@ -1091,7 +1122,15 @@
+@@ -1233,7 +1264,15 @@
          return 1
  
      settings.coach_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1604,7 +1684,7 @@
      # ostler_security is guaranteed importable (hard-fails at module
      # load if not). The remaining branch is whether a key is set.
      if encryption_key:
-@@ -1146,7 +1185,7 @@
+@@ -1288,7 +1327,7 @@
                  json.dumps(obs.get("flags") or {}),
                  settings.user_id,
                  "private",
@@ -1613,7 +1693,7 @@
                  datetime.now(timezone.utc).isoformat(),
              ),
          )
-@@ -1188,7 +1227,56 @@
+@@ -1330,7 +1369,56 @@
      return str(uuid.uuid5(ns, seed))
  
  
@@ -2337,7 +2417,7 @@
          return (base + timedelta(days=1)).isoformat()
  
      n_days = _IN_N_DAYS_RE.search(text)
-@@ -518,11 +589,21 @@
+@@ -518,6 +589,13 @@
      "wrapped up", "taken care of", "sorted out",
      "has been done", "has been sent", "was sent", "was completed",
      "no longer needed", "no longer required",
@@ -2348,7 +2428,10 @@
 +    "gi\u00e0 fatto", "gi\u00e0 inviato", "completato", "risolto",
 +    "\u5b8c\u4e86", "\u5bfe\u5fdc\u6e08\u307f", "\u9001\u4fe1\u6e08\u307f", "\u5b8c\u6210\u6e08\u307f",
 +    "\u5df2\u5b8c\u6210", "\u5df2\u53d1\u9001", "\u5df2\u767c\u9001", "\u5df2\u89e3\u51b3",
- )
+     # The owner reporting the thing went out, in the words a chat uses
+     # (Mini16, 2026-10-19: "Sent and cc'd you" in a later turn, todo still
+     # open). "sent" alone is NOT here: "to be sent by Friday" is a plan.
+@@ -528,7 +606,10 @@
  
  # Tokens that, when the cell is JUST this word, mean done. Guards
  # against "done" appearing as a substring of unrelated words.
@@ -2358,8 +2441,8 @@
 +    "erledigt", "fait", "hecho", "fatto", "\u5b8c\u4e86", "\u6e08\u307f", "\u5b8c\u6210",
 +})
  
- 
- def detect_status(
+ # Words that only count when they stand alone as a whole word: "completed"
+ # inside "Get the form completed" or "resolved" inside "Reconsider the
 --- a/src/processor.py
 +++ b/src/processor.py
 @@ -19,12 +19,18 @@
@@ -2435,7 +2518,30 @@
  
      if classification.processing_depth == "none":
          logger.info("processing_depth=none  –  pipeline stops here.")
-@@ -482,6 +535,8 @@
+@@ -387,22 +440,6 @@
+                     "See state.json."
+                 ) from exc
+ 
+-        # Owner-local L3 index (134). Only this call is new in the L3 branch:
+-        # it writes one point to the owner collection, never the shared one,
+-        # and is off unless OSTLER_OWNER_L3_RECALL=1. Its result never changes
+-        # the pipeline state.
+-        if not dry_run:
+-            from . import owner_l3 as _owner_l3
+-            from .ollama_client import OllamaClient as _Ollama
+-            import httpx as _httpx
+-
+-            _res = _owner_l3.write_owner_l3(
+-                state_dir, conversation_id, settings,
+-                embed_fn=lambda t: _Ollama(base_url=settings.ollama_url).embed(t),
+-                http_put=lambda url, body: _httpx.put(url, json=body, timeout=30.0).status_code,
+-            )
+-            logger.info("owner-local L3 index for %s: %s", conversation_id, _res)
+-
+     # Step 08  –  cross-conversation linking (post-ingest, needs
+     # Qdrant populated). Skipped for L3 alongside step 07 -- there
+     # is nothing in Qdrant to link against if the gist arm didn't
+@@ -498,6 +535,8 @@
  def _should_run_relationship(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2444,7 +2550,7 @@
      if c.setting in ("public", "service"):
          return False
      if c.sensitivity.level == "highly-sensitive":
-@@ -492,6 +547,8 @@
+@@ -508,6 +547,8 @@
  def _should_run_coach(c: Classification) -> bool:
      if c.processing_depth != "full":
          return False
@@ -2453,7 +2559,7 @@
      if c.setting in ("family", "service"):
          return False
      if c.sensitivity.level in ("sensitive", "highly-sensitive"):
-@@ -504,9 +561,99 @@
+@@ -520,7 +561,97 @@
  
  
  MAX_RETRIES = 3
@@ -2528,8 +2634,8 @@
 +    return min(ceiling, remaining)
 +# ------------------------------------------------------------------------
  BASE_DELAY_SECONDS = 30
- 
- 
++
++
 +class SinkUnavailableError(RuntimeError):
 +    """A step failed because the model / gateway could not be REACHED (refused
 +    connection, DNS, 502/503/504), not because it rejected this document.
@@ -2548,16 +2654,13 @@
 +    if isinstance(exc, (httpx.ConnectError, ConnectionError)):
 +        return True
 +    return False
-+
-+
- def _is_retryable(exc: Exception) -> bool:
-     """Classify whether an exception is worth retrying.
  
-@@ -517,6 +664,14 @@
-     JSON parse failures, value errors  –  retrying won't help.
+ 
+ def _is_retryable(exc: Exception) -> bool:
+@@ -534,6 +665,14 @@
      """
      import httpx
-+
+ 
 +    # v1018-D031. Retrying a budget exhaustion just spends the budget
 +    # again, and MAX_RETRIES would multiply the step ceiling by three --
 +    # which is precisely the arithmetic that made a 4h30m worst case
@@ -2565,12 +2668,13 @@
 +    # ends in `return True`: every unrecognised exception is retried.
 +    if isinstance(exc, EnrichmentBudgetExceeded):
 +        return False
- 
-     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
-         return True
-@@ -578,6 +733,11 @@
++
+     # A missing module (or a bad import) is a deploy defect: no retry
+     # can make it appear. Classed permanent before the OSError/unknown
+     # fall-through, so a broken install fails fast instead of sleeping.
+@@ -623,6 +762,11 @@
                  )
-                 state.fail(step, reason)
+                 state.fail(step, reason, module=_missing_module(exc))
                  _save_state(state_dir, state)
 +                if _is_sink_unreachable(exc):
 +                    raise SinkUnavailableError(
@@ -2580,7 +2684,7 @@
                  raise RuntimeError(
                      f"Step {step} failed "
                      f"({'permanent error' if not retryable else f'after {MAX_RETRIES} retries'}). "
-@@ -1173,7 +1333,50 @@
+@@ -1218,7 +1362,50 @@
      sidecar_path = state_dir / "02_enrichment_sidecar.json"
      if out_path.exists():
          return
@@ -2631,7 +2735,7 @@
      prompt_name = prompts.enrichment_prompt_name_for(
          classification.suggested_type_slug
      )
-@@ -1216,7 +1419,7 @@
+@@ -1261,7 +1448,7 @@
              full_prompt,
              system=enrichment_system,
              priority="medium",
@@ -2640,7 +2744,7 @@
          )
          rendered, retry_attempted, validation = _validate_and_maybe_retry(
              client=client,
-@@ -1226,6 +1429,29 @@
+@@ -1271,6 +1458,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2670,7 +2774,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -1293,7 +1519,7 @@
+@@ -1338,7 +1548,7 @@
                  full_prompt,
                  system=enrichment_system,
                  priority="medium",
@@ -2679,7 +2783,7 @@
              )
              per_chunk_outputs.append(result.raw_response)
  
-@@ -1328,6 +1554,29 @@
+@@ -1373,6 +1583,29 @@
              expected_headings=expected_headings,
              settings=settings,
          )
@@ -2709,7 +2813,7 @@
          rendered, _sidecars = enrichment_validation.strip_reminders_sidecar(rendered)
          if _sidecars:
              logger.warning(
-@@ -1365,6 +1614,75 @@
+@@ -1410,8 +1643,77 @@
                  },
              },
          )
@@ -2763,7 +2867,7 @@
 +    text: str, prompt_name: str, expected_headings: list[str],
 +):
 +    """Validate a document against BOTH heading levels.
-+
+ 
 +    v1018-D014b. The `##` check alone passed a merged document whose
 +    `### Narrative` had been dropped -- the check was one level coarser
 +    than the defect, so the defect was invisible to it. A missing
@@ -2783,9 +2887,11 @@
 +        found=top.found + subs.found,
 +    )
  
- 
++
  def _validate_and_maybe_retry(
-@@ -1385,9 +1703,7 @@
+     *,
+     client: OllamaClient,
+@@ -1430,9 +1732,7 @@
      is still written - downstream consumers will see whatever the model
      produced and the sidecar records the gap.
      """
@@ -2796,7 +2902,7 @@
      if validation.ok:
          if validation.extras:
              logger.info(
-@@ -1409,10 +1725,10 @@
+@@ -1454,10 +1754,10 @@
          full_prompt,
          system=retry_system,
          priority="medium",
@@ -2810,7 +2916,7 @@
      )
      if not retry_validation.ok:
          logger.warning(
-@@ -1470,6 +1786,7 @@
+@@ -1515,6 +1815,7 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2818,7 +2924,7 @@
  --- CONVENTIONS ---
  {conventions}
  
-@@ -1528,10 +1845,13 @@
+@@ -1573,10 +1874,13 @@
  Other name: {other_name}
  Locale: {settings.locale}
  
@@ -2832,7 +2938,7 @@
  """
      merge_system = (
          "You are merging multiple enrichment outputs into one coherent "
-@@ -1544,7 +1864,7 @@
+@@ -1589,7 +1893,7 @@
          full_prompt,
          system=merge_system,
          priority="medium",
@@ -2841,7 +2947,7 @@
      )
      return result.raw_response
  
-@@ -1619,6 +1939,13 @@
+@@ -1664,6 +1968,13 @@
      return facts
  
  
@@ -2855,7 +2961,7 @@
  def _build_enrichment_input(
      transcript_chunk: str,
      metadata: dict,
-@@ -1639,8 +1966,18 @@
+@@ -1684,8 +1995,18 @@
          ),
          "other",
      )
@@ -2874,7 +2980,7 @@
  
      body = f"""
  --- CLASSIFICATION ---
-@@ -1659,6 +1996,7 @@
+@@ -1704,6 +2025,7 @@
  """
      if chunk_note:
          body += f"Note: {chunk_note}\n"
@@ -2882,7 +2988,7 @@
      body += f"""
  --- CONVENTIONS ---
  {conventions}
-@@ -1668,17 +2006,10 @@
+@@ -1713,17 +2035,10 @@
  invent your own headings. Do NOT skip sections. If a section has no
  content, write the heading followed by "_Nothing to report._"
  
@@ -2902,7 +3008,7 @@
  
  --- TRANSCRIPT ---
  {transcript_chunk}
-@@ -1842,6 +2173,107 @@
+@@ -1887,6 +2202,107 @@
      write_json(out_path, result.parsed_json)
  
  
@@ -3010,7 +3116,7 @@
  # ── Step 05: fact extraction ────────────────────────────────────────
  
  
-@@ -1861,6 +2293,8 @@
+@@ -1906,6 +2322,8 @@
      # lacks the specific dialogue turns and speaker attributions the
      # model needs to produce evidenced facts.
      raw_transcript = (state_dir / "00_raw_transcript.md").read_text()
@@ -3019,7 +3125,7 @@
      template = prompts.load_prompt("05_fact_extraction")
  
      if dry_run:
-@@ -1917,6 +2351,10 @@
+@@ -1962,6 +2380,10 @@
      # output "other:speaker" or "other:speaker_1" despite the mapping
      # hint. Map these back to actual participant IDs from metadata.
      facts = _fix_speaker_subjects(facts, metadata)
@@ -3030,7 +3136,7 @@
  
      # Stamp every freshly-extracted fact as a candidate. The 08_linked
      # step promotes facts to candidate=False when a second independent
-@@ -2485,13 +2923,20 @@
+@@ -2555,13 +2977,20 @@
          )
          write_json(bundle_json_path, extraction.to_dict())
      else:
@@ -3079,22 +3185,21 @@
                               text).
      L1 / L0               -- pushed with full title + notes.
      Unknown level         -- treated as L3 (no push). Defence in
-@@ -53,11 +54,13 @@
- from __future__ import annotations
+@@ -75,11 +76,12 @@
  
  import logging
-+import os
+ import os
 +import re
  import sqlite3
  from dataclasses import dataclass
- from datetime import datetime, timezone
+ from datetime import date, datetime, timedelta, timezone
  from pathlib import Path
 -from typing import TYPE_CHECKING, Optional
 +from typing import TYPE_CHECKING, Callable, Optional
  
  from . import ostler_paths
  from . import scam_guard
-@@ -95,6 +98,21 @@
+@@ -126,6 +128,21 @@
  SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
  SKIP_REASON_OWNER_OTHER = "owed_by_other"
  SKIP_REASON_EMPTY_TEXT = "empty_text"
@@ -3113,10 +3218,10 @@
 +FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 +# Another open reminder already exists for this person / thread.
 +SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
- # Junk / spam / fraud mail, a fraud-worded todo, or a payment todo for
- # someone the owner has never written to (scam_guard.py). Reminders has no
- # room for a caveat, so these never reach it.
-@@ -153,6 +171,11 @@
+ # Minor flag (the owner, 2026-10-19): a conversation with a person the owner
+ # marked as a minor never auto-pushes a todo; one whose minor check could
+ # not run does not push either (fail closed). Todos stay in todos.md.
+@@ -269,6 +286,11 @@
      push_title: str
      push_notes: str
      push_deadline: Optional[str]
@@ -3128,7 +3233,7 @@
  
  
  # ---------------------------------------------------------------------------
-@@ -194,86 +217,606 @@
+@@ -310,86 +332,629 @@
          p for p in participants
          if p and p.strip().lower() not in user_synonyms
      ]
@@ -3333,8 +3438,8 @@
 +            _PEOPLE_TRY_LOG.append("%s: %s" % (cand, exc))
 +            log.warning("reminders_push: cannot load People rules from %s (%s)", cand, exc)
 +    return None
- 
- 
++
++
 +def is_listed_as_a_person(payload: dict, name: str) -> Optional[bool]:
 +    """Would the Hub People list show this record as a person?
 +
@@ -3568,8 +3673,8 @@
 +    if not head:
 +        return None
 +    return head + TITLE_ELLIPSIS
-+
-+
+ 
+ 
 +def title_quality_reason(title: str, *, check_length: bool = True) -> Optional[str]:
 +    """Return why ``title`` is not fit to show a customer, or None if it is.
 +
@@ -3631,14 +3736,37 @@
 +    return None
 +
 +
++def _has_future_deadline(todo: Optional["Todo"], now: Optional[datetime]) -> bool:
++    """An open todo whose deadline is today or later is pushed whatever its
++    source date (CM048 #120, ``_in_push_window``)."""
++    raw = getattr(todo, "deadline", None) if todo is not None else None
++    if not raw:
++        return False
++    try:
++        due = date.fromisoformat(str(raw).strip()[:10])
++    except ValueError:
++        return False
++    ref = (now or datetime.now(timezone.utc)).astimezone().date()
++    return due >= ref
++
++
 +def _is_stale(
-+    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int]
++    bundle: "ConversationBundle", *, now: Optional[datetime], limit_days: Optional[int],
++    todo: Optional["Todo"] = None,
 +) -> bool:
-+    if limit_days is None:
++    """Writer-side age gate, aligned with CM048 #120 (merged 68897402).
++
++    An UNDATED bundle is NOT pushed (fails closed), unless the todo still has a
++    deadline today or later. The age cutoff applies only to dated bundles, and
++    ``OSTLER_TODO_MAX_AGE_DAYS`` <= 0 turns that cutoff off, not the undated rule.
++    """
++    if _has_future_deadline(todo, now):
 +        return False
 +    src = _source_datetime(bundle)
 +    if src is None:
-+        return False  # age unknowable: the other gates still apply
++        return True  # age unknowable: fail CLOSED, as #120 does
++    if limit_days is None:
++        return False
 +    ref = now or datetime.now(timezone.utc)
 +    return (ref - src).days > limit_days
 +
@@ -3783,30 +3911,43 @@
  
  
  def decide_push(
-@@ -283,6 +826,9 @@
+@@ -399,9 +964,10 @@
      demo_mode: bool,
      user_id: str,
      summary_path: Path,
 +    name_resolver: Optional[NameResolver] = None,
 +    now: Optional[datetime] = None,
 +    max_age_days_override: Optional[int] = None,
+     minor_participant: Optional[bool] = False,
+-    window_days: Optional[int] = None,
+-    today: Optional[date] = None,
  ) -> PushDecision:
      """Run the writer-side gate for one todo.
  
-@@ -350,16 +896,74 @@
+@@ -492,29 +1058,74 @@
              push_deadline=None,
          )
  
+-    if window_days is None:
+-        window_days = push_window_days()
+-    if today is None:
+-        today = _today()
+-    if not _in_push_window(todo, bundle, window_days=window_days, today=today):
 +    limit = (
 +        max_age_days_override if max_age_days_override is not None
 +        else max_age_days()
 +    )
-+    if _is_stale(bundle, now=now, limit_days=limit):
-+        return PushDecision(
++    if _is_stale(bundle, now=now, limit_days=limit, todo=todo):
+         return PushDecision(
+-            eligible=False,
+-            skip_reason=SKIP_REASON_OUTSIDE_WINDOW,
+-            push_title="",
+-            push_notes="",
+-            push_deadline=None,
 +            eligible=False, skip_reason=SKIP_REASON_STALE,
 +            push_title="", push_notes="", push_deadline=None,
-+        )
-+
+         )
+ 
 +    others = _other_participants(bundle.participants, user_id=user_id)
 +    classified = [(_classify_participant(o, name_resolver)) for o in others]
 +    kinds = [k for k, _ in classified]
@@ -3874,10 +4015,10 @@
      )
  
  
-@@ -404,10 +1008,12 @@
-     conn = sqlite3.connect(str(db_path), timeout=5.0)
+@@ -561,10 +1172,12 @@
      conn.execute("PRAGMA journal_mode=WAL;")
      conn.execute(_SCHEMA)
+     _migrate_completed_at(conn)
 -    # Writer-owned identity columns, added in place on an existing DB
 -    # (same additive pattern the assistant uses for its own columns).
 +    # Writer-owned additive columns, added in place on an existing DB. thread_key
@@ -3890,7 +4031,7 @@
          if column not in cols:
              try:
                  conn.execute(f"ALTER TABLE reminders_map ADD COLUMN {column} TEXT")
-@@ -418,6 +1024,29 @@
+@@ -575,6 +1188,29 @@
      return conn
  
  
@@ -3917,10 +4058,19 @@
 +    return row is not None
 +
 +
+ def _migrate_completed_at(conn: sqlite3.Connection) -> None:
+     """Add the ``completed_at`` column to a pre-existing mapping DB.
+ 
+@@ -590,6 +1226,8 @@
+         conn.execute(
+             "ALTER TABLE reminders_map ADD COLUMN completed_at TEXT"
+         )
++
++
  def _resolve_row_id(
      conn: sqlite3.Connection,
      *,
-@@ -542,6 +1171,13 @@
+@@ -716,6 +1354,13 @@
      conn.commit()
  
  
@@ -3934,7 +4084,7 @@
  def _upsert_pending(
      conn: sqlite3.Connection,
      *,
-@@ -573,12 +1209,13 @@
+@@ -750,12 +1395,13 @@
      if existing is None:
          conn.execute(
              "INSERT INTO reminders_map "
@@ -3951,7 +4101,7 @@
              ),
          )
          conn.commit()
-@@ -588,11 +1225,12 @@
+@@ -766,11 +1412,12 @@
      conn.execute(
          "UPDATE reminders_map SET "
          "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
@@ -3966,7 +4116,7 @@
              user_id, session_id, todo_id,
          ),
      )
-@@ -650,6 +1288,13 @@
+@@ -912,6 +1559,13 @@
      if db_path is None:
          db_path = default_db_path()
  
@@ -3980,7 +4130,7 @@
      try:
          conn = _open_db(db_path)
      except (sqlite3.Error, OSError) as exc:
-@@ -668,12 +1313,13 @@
+@@ -930,14 +1584,13 @@
      try:
          out: list = []
          session_id = bundle.source_session_id
@@ -3990,6 +4140,8 @@
 +        # never a second reminder, for the same todo.
 +        rebound: list = []
          seen_ids: set = set()
+-        window = push_window_days()
+-        today = _today()
          for todo in todos:
 -            # Re-bind to the row this todo already owns (found by its
 -            # exact id, else by its wording-tolerant key) so an updated
@@ -3998,7 +4150,7 @@
              todo_key = make_todo_key(bundle.conversation_id, todo.owner, todo.text)
              row_id = _resolve_row_id(
                  conn, user_id=user_id, session_id=session_id,
-@@ -682,6 +1328,25 @@
+@@ -946,6 +1599,25 @@
              if row_id != todo.id:
                  todo = _replace_status(todo, todo.status, new_id=row_id)
              seen_ids.add(todo.id)
@@ -4024,7 +4176,16 @@
              decision = decide_push(
                  todo,
                  bundle,
-@@ -709,6 +1374,27 @@
+@@ -953,8 +1625,6 @@
+                 user_id=user_id,
+                 summary_path=summary_path,
+                 minor_participant=minor_participant,
+-                window_days=window,
+-                today=today,
+             )
+             if not decision.eligible:
+                 _upsert_skipped(
+@@ -976,6 +1646,27 @@
                  out.append(todo)
                  continue
  
@@ -4049,10 +4210,10 @@
 +            if decision.flag:
 +                unverifiable_rows += 1
 +
-             current_status = _upsert_pending(
+             current_status, row_completed_at = _upsert_pending(
                  conn,
                  user_id=user_id,
-@@ -747,16 +1433,21 @@
+@@ -1023,16 +1714,21 @@
                  # 'pending' or anything else: writer leaves the
                  # status as supplied.
                  out.append(todo)
@@ -4083,10 +4244,10 @@
          return tuple(out)
      finally:
          conn.close()
-@@ -788,7 +1479,7 @@
-     "STATUS_PERMISSION_DENIED",
+@@ -1076,7 +1772,7 @@
      "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
      "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+     "SKIP_REASON_MINOR", "SKIP_REASON_MINOR_UNCHECKED",
 -    "SKIP_REASON_SUPERSEDED",
 +    "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
      "apply_push_status_to_todos",
