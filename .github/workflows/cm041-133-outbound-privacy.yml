@@ -16,6 +16,9 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
       - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'
       - 'vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py'
+      - 'vendor/cm041/assistant_api/tests/test_topic_conversation_level_134.py'
+      - 'vendor/cm041/assistant_api/tests/test_interest_l0_withheld_134.py'
+      - 'vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py'
       - 'vendor/cm041/assistant_api/tests/conftest.py'
       - '.github/workflows/cm041-133-outbound-privacy.yml'
   pull_request:
@@ -26,6 +29,9 @@ on:
       - 'vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py'
       - 'vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py'
       - 'vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py'
+      - 'vendor/cm041/assistant_api/tests/test_topic_conversation_level_134.py'
+      - 'vendor/cm041/assistant_api/tests/test_interest_l0_withheld_134.py'
+      - 'vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py'
       - 'vendor/cm041/assistant_api/tests/conftest.py'
       - '.github/workflows/cm041-133-outbound-privacy.yml'
 
@@ -43,14 +49,14 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install
-        run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client
+        run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client hypothesis
       - name: Outbound readers withhold L0, L3 and unparseable levels
         run: |
-          n="$(PYTHONPATH=vendor python -m pytest vendor/cm041/assistant_api/tests/test_133_outbound_levels.py vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py --collect-only -q | grep -cE '::test_')" || n=0
+          n="$(PYTHONPATH=vendor:vendor/cm041 python -m pytest vendor/cm041/assistant_api/tests/test_133_outbound_levels.py vendor/cm041/assistant_api/tests/test_provenance_verdict_states.py vendor/cm041/assistant_api/tests/test_l3_withheld_moat_readers.py vendor/cm041/assistant_api/tests/test_133_named_graph_and_privacy_key.py vendor/cm041/assistant_api/tests/test_topic_conversation_level_134.py vendor/cm041/assistant_api/tests/test_interest_l0_withheld_134.py vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py --collect-only -q | grep -cE '::test_')" || n=0
           echo "collected ${n} test(s)"
-          if [ "${n:-0}" -lt 48 ]; then
-            echo "REFUSING: expected at least 48 collected tests, got ${n:-0}." >&2
+          if [ "${n:-0}" -lt 70 ]; then
+            echo "REFUSING: expected at least 70 collected tests, got ${n:-0}." >&2
             exit 1
           fi
           cd vendor/cm041/assistant_api
-          PYTHONPATH=../.. python -m pytest tests/test_133_outbound_levels.py tests/test_provenance_verdict_states.py tests/test_l3_withheld_moat_readers.py tests/test_133_named_graph_and_privacy_key.py -v
+          PYTHONPATH=../..:.. python -m pytest tests/test_133_outbound_levels.py tests/test_provenance_verdict_states.py tests/test_l3_withheld_moat_readers.py tests/test_133_named_graph_and_privacy_key.py tests/test_topic_conversation_level_134.py tests/test_interest_l0_withheld_134.py tests/test_prop_outbound_privacy_gates.py -v

@@ -2353,3 +2353,22 @@ named-graph L3 -> L3. The CM051 133 tests: 48 passed.
 Not grafted in this commit: CM041's new tests (`test_topic_conversation_level_134.py`,
 `test_interest_l0_withheld_134.py`, `test_prop_outbound_privacy_gates.py`) and the
 CI hypothesis dependency. They stay CM041-side.
+
+## 133 follow-up: CM041 #278 @2dbac8c tests, vendored (separate PR)
+
+Tests copied byte-identical from CM041 `assistant_api/tests/` at `2dbac8c`:
+`test_topic_conversation_level_134.py`, `test_interest_l0_withheld_134.py`,
+`test_prop_outbound_privacy_gates.py`. Run against the vendored ical-server.
+
+CM051-local harness changes (test file only, not the server):
+- `test_topic_conversation_level_134.py`: `_select` runs each query through
+  `ICAL._graph_scoped`, as this tree's `_sparql_select` does, and the named-graph
+  test sets `_USER_GRAPH_URIS`. Without it the named-graph fact is never seen.
+- `test_prop_outbound_privacy_gates.py`: the person display name placeholder is
+  lowercase (`placeholder display N`), not a name-shaped pair; the name guard blocks
+  the CM041 form. No assertion reads that value.
+- `test_prop_outbound_privacy_gates.py` needs `vendor/cm041` on `PYTHONPATH`
+  (for `pwg_privacy`); the workflow sets it.
+
+Wired into `.github/workflows/cm041-133-outbound-privacy.yml`; collected floor 70.
+Two `strict` xfails in the property file are open CM041 bugs, not 133 checks.
