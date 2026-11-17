@@ -222,8 +222,8 @@ JSON
 _no_l3_resolve_seed_url() {
     NO_L3_SEED_FORWARD=""
     if [ -n "${NO_L3_SEED_OXIGRAPH_URL:-}" ]; then
-        [[ "${NO_L3_SEED_OXIGRAPH_URL}" =~ ^http://127\.0\.0\.1:[0-9]{1,5}$ ]] \
-            || probe_cannot_run "NO_L3_SEED_OXIGRAPH_URL is not a loopback http://127.0.0.1:<port> URL; refusing to pass it to the box"
+        [[ "${NO_L3_SEED_OXIGRAPH_URL}" =~ ^http://(127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}$ ]] \
+            || probe_cannot_run "NO_L3_SEED_OXIGRAPH_URL is not a loopback URL (http://127.0.0.1, http://localhost or http://[::1] with a port); refusing to pass it to the box"
         NO_L3_SEED_FORWARD="${NO_L3_SEED_OXIGRAPH_URL}"
         return 0
     fi
@@ -458,6 +458,11 @@ seed_url_test() {
     check "unset walker, box answer is junk" UNSET "WHAT" "CANNOT"
     check "walker set, loopback url forwarded" "http://127.0.0.1:7878" "AMBIENT=1" "NO_L3_SEED_OXIGRAPH_URL='http://127.0.0.1:7878'"
     check "walker set to a non-loopback url" "http://example.com:7878" "AMBIENT=0" "CANNOT"
+    check "walker set to localhost, forwarded" "http://localhost:7878" "AMBIENT=1" "NO_L3_SEED_OXIGRAPH_URL='http://localhost:7878'"
+    check "walker set to ::1, forwarded" "http://[::1]:7878" "AMBIENT=0" "NO_L3_SEED_OXIGRAPH_URL='http://[::1]:7878'"
+    check "localhost as a prefix of a remote host" "http://localhost.example.com:7878" "AMBIENT=0" "CANNOT"
+    check "::2 is not loopback" "http://[::2]:7878" "AMBIENT=0" "CANNOT"
+    check "https on loopback is refused" "https://127.0.0.1:7878" "AMBIENT=0" "CANNOT"
     check "walker set to a quote-injection url" "http://127.0.0.1:7878';rm" "AMBIENT=0" "CANNOT"
     if [ "${fails}" -eq 0 ]; then
         echo "seed-url resolver: every case held"

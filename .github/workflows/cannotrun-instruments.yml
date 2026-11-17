@@ -20,6 +20,9 @@ on:
       - 'scripts/box_walk_probes/probes/gateway_never_serves_a_stored_secret.sh'
       - 'tests/test_cannotrun_instruments_v1_0_122.py'
       - 'tests/test_no_l3_seed_real_store.py'
+      - 'tests/test_no_l3_probe_selftests.sh'
+      - 'scripts/box_walk_probes/probes/no_l3_in_tool_results.sh'
+      - 'scripts/box_walk_probes/lib/no_l3_preflight.sh'
       - 'scripts/box_walk_probes/lib/no_l3_graph_seed.py'
       - 'vendor/cm041/meeting_syncer/decision_extractor.py'
       - 'vendor/cm048_pipeline/src/topic_writer.py'
@@ -46,3 +49,13 @@ jobs:
         run: |
           python3 -m pip install --quiet pyoxigraph httpx cryptography phonenumbers
           python3 tests/test_no_l3_seed_real_store.py -v
+
+  no-l3-probe-selftests:
+    # macOS: the preflight collector reads BSD stat, shasum and date (stat -f, date -j,
+    # launchctl print), so this cannot run on the Linux job above.
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: the no_l3 probe's seed-URL, preflight and run_probe self-tests
+        run: bash tests/test_no_l3_probe_selftests.sh
