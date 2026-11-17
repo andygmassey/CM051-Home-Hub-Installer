@@ -14,7 +14,7 @@ L3	3	yes_labelled_private	no
 #   - the Art.9/10 + finance + credentials + government-ID floor always applies on top (raise only);
 #   - L0 and L1 are NEVER a default;
 #   - an unknown or unlisted writer is L3.
-# First row: Andy's 2026-11-16 relabel decision ("never less private"; unknown writer = L3).
+# First row: the owner's 2026-11-16 relabel decision ("never less private"; unknown writer = L3).
 writer	default_level	rule
 calendar_ingest	L2	fixed
 cm048_todos	L2	inherit_source

@@ -44,3 +44,12 @@ grafted into two vendored paths, byte-identical to the merged upstream file:
 The tree's other files are NOT resynced: `catchup.py` exists here and not upstream,
 and `cli.py`, `schemas.py`, `wire.py`, `pyproject.toml` differ from upstream at
 `fd7bf5c02f58`. The full resync is a 134 backlog item, with `catchup.py` upstreamed first.
+
+## 2026-11-17 (134, branch 134/ai-conversations-vendor): the `[source_default]` table and its reader
+
+Tree `cm052_ai_conversations`. NEW CM051-side files, not in CM052 at any pin:
+
+- `src/cm052/privacy_scale_canonical.tsv`: a vendored copy of CM048's canonical privacy table with the `[source_default]` per-writer section (the CM048 #147 revision of 2026-11-17, before #147 moved that section into its own `privacy_source_defaults.tsv`). `ai_conversations` row L2. Its relabel comment line names the owner by role, not by first name.
+- `src/cm052/source_defaults.py`: the reader beside it.
+
+Guarded by `tests/test_ai_conversations_source_default_pin.py` (sha256 digest pin; re-pin = bytes + digest in one PR). Retire by vendoring CM048 #147's `privacy_source_defaults.tsv` once it merges, or by landing the reader in CM052 and re-pinning.
