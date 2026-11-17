@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Included Pro is 3 months (standard) / 6 months (founding), never 30 days.
+# Guard: install-time copy about the bundled subscription period.
 # Fails if any install.sh.strings.*.sh value pairs "Pro" with a 30-day claim,
 # or if the first-month-free keys carry any 30 + day-unit wording.
 # Control: a synthetic 30-day line must be caught by the same predicate.
