@@ -29,6 +29,7 @@
 ostler-fda	no	install.sh	Full Disk Access helper. A customer who upgrades keeps the FDA helper they first installed, including any prompt-honesty fix made since.
 ostler-contact-resync	no	install.sh	Contact re-sync recovery tool. Reached for during support conversations, which is exactly when the newest version matters.
 ostler-scan-exports	no	install.sh	Export scanner for social/LinkedIn archives. Fresh-install only.
+ostler-reconnect-nudge-sender	no	install.sh	Weekly reconnect nudge sender. Its LaunchAgent is torn down and rewritten on upgrade; the script it invokes is not.
 ostler-meeting-brief-sender	no	install.sh	Meeting brief sender. Its LaunchAgent is torn down and rewritten on upgrade; the script it invokes is not.
 ostler-uninstall	no	install.sh	🔴 THE UNINSTALLER. CM051 #1512 stopped it announcing a removal it did not perform, leaving qdrant_data, oxigraph_data, redis_data, wiki-docs and vane_data on disk. That fix reaches fresh installs only; every upgraded customer keeps the version that says "Done. Ostler has been removed." while their contacts are still there.
 ostler-wiki-recompile-catchup	no	install.sh	Wiki recompile catch-up. Fresh-install only.

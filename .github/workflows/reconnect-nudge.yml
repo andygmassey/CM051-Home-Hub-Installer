@@ -1,0 +1,57 @@
+# The weekly reconnect nudge (wow gate item 3, v1.0.108).
+#
+# WIRED HERE, because a test no workflow invokes is not wired (launch directive
+# item 9). Runs the real sender extracted from install.sh with stubs, the walk
+# probe's judge self-test (known-bad captures must go red). The Doctor
+# scheduled-agent limb for the new job is in test_scheduled_agent_failure_is_loud.sh,
+# wired by its own workflow.
+name: reconnect-nudge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_reconnect_nudge_sender.sh'
+      - 'scripts/box_walk_probes/probes/reconnect_nudge_reaches_the_owner.sh'
+      - 'scripts/box_walk_probes/lib/reconnect_nudge_probe.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - '.github/workflows/reconnect-nudge.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.sh.strings.en-GB.sh'
+      - 'tests/test_reconnect_nudge_sender.sh'
+      - 'scripts/box_walk_probes/probes/reconnect_nudge_reaches_the_owner.sh'
+      - 'scripts/box_walk_probes/lib/reconnect_nudge_probe.py'
+      - 'vendor/doctor/agent/diagnostic_rules.py'
+      - '.github/workflows/reconnect-nudge.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  reconnect-nudge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: The sender delivers, records only after delivery, and fails loudly
+        run: |
+          out="$(bash tests/test_reconnect_nudge_sender.sh 2>&1)" || { echo "$out"; exit 1; }
+          echo "$out"
+          n="$(printf '%s' "$out" | sed -nE 's/^PASS=([0-9]+) FAIL=0.*/\1/p')"
+          if [ "${n:-0}" -lt 20 ]; then echo "::error::expected at least 20 arms, saw ${n:-0}"; exit 1; fi
+      - name: The probe judge goes red on known-bad captures
+        run: |
+          python3 scripts/box_walk_probes/lib/reconnect_nudge_probe.py --self-test
+          out="$(bash scripts/box_walk_probes/probes/reconnect_nudge_reaches_the_owner.sh --self-test 2>&1)" || true; echo "$out"
+          printf '%s' "$out" | grep -q "negative control behaved" || { echo "::error::the probe self-test did not report a behaved negative control"; exit 1; }
