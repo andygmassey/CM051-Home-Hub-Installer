@@ -2382,3 +2382,17 @@ The verifier PASS path reports tier_state `absent` for every production licence 
 - digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
 
 Tree `cm041/assistant_api`: `vendor/cm041/assistant_api/subscription_gate.py` re-grafted byte-identical (vendor-only row in VENDOR_ONLY.tsv).
+
+## Graft: effective_level (CM051 #3582, 2026-11-17)
+
+Tree: cm041/assistant_api. Source: CM041 eee9b72 (PR #295, stacked on #291).
+
+Three hand edits in vendor/cm041/assistant_api/ical-server.py, each byte-identical to the CM041 function text (checked with an AST compare):
+
+- `_outbound_level_ok(record)`: reads every spelling via `pwg_privacy.effective_level`. Was: one raw value.
+- `_fact_outbound_ok(fact)`: reads every spelling via `pwg_privacy.effective_level`. Was: first parseable key wins.
+- `people_search`: one line, `_outbound_level_ok(p)` in place of `_outbound_level_ok(p.get("privacy_level"))`.
+
+Test edit: vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py. Two `@pytest.mark.xfail(strict=True)` markers removed (the two multi-spelling leaks). `_truth_must_serve` now treats an unparseable present spelling as withholding (fail closed), per the UNREADABLE ordering in CM041 eee9b72.
+
+Reverted-graft check: with the pre-graft ical-server and pwg_privacy, both flipped tests go red (2 failed).
