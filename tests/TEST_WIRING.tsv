@@ -651,6 +651,7 @@ test_no_function_is_called_before_it_is_defined.sh	WIRED	.github/workflows/cold-
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_heavy_job_bypasses_the_chat_yield.sh	WIRED	.github/workflows/ingest-slot.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
+test_no_l3_seed_real_store.py	WIRED	.github/workflows/cannotrun-instruments.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install-heredoc-honesty.yml
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
