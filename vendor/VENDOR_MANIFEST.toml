@@ -637,8 +637,8 @@ owner = "archie"
 vendor_path      = "vendor/doctor"
 source_repo      = "$HR015/doctor"
 source_path      = "."
-  # REFRESHED 2026-11-17 (CB134-DOCTOR-PANEL, CB134-FRESH Archie ruling A): pin b0b38310 -> HR015 PR #1562 head, which lifts the Doctor source-status panel into HR015. NO hold_ack. regenerate_forbidden retired as its own reason prescribed (panel now has an upstream). Vendored bytes unchanged except 4 comment lines aligned to upstream wording; the regenerated patch records every upstream change this tree does not take. Re-point to the squash sha when #1562 merges.
-  pinned_sha = "ccb606b6dc34d2c05bcc961ed5a199cfae0fd19d"
+  # REFRESHED 2026-11-17 (CB134-DOCTOR-PANEL, CB134-FRESH Archie ruling A): pin b0b38310 -> HR015 PR #1562 head, which lifts the Doctor source-status panel into HR015. NO hold_ack. regenerate_forbidden retired as its own reason prescribed (panel now has an upstream). Vendored bytes unchanged except 4 comment lines aligned to upstream wording; the regenerated patch records every upstream change this tree does not take. Re-point to the squash sha when #1562 merges. ARCHIE RULING 2026-11-17: palette, licence state (180/90/0 days) and runtime floors TAKEN; config env sync TAKEN in a separate commit pending his read; wiki correction transitions and vault state HELD. One decision per area is recorded in the header of vendor/divergences/doctor.patch.
+  pinned_sha = "aa15daa9d4efa62eaf7cca64a73060bba471591c"
   divergence_patch = "vendor/divergences/doctor.patch"
   shipping_bugfixes_grafted = true
 exclude          = ["tests/", "__pycache__/", "*.egg-info/", "test_vendor_pairing.sh", "test_*.py", "README.md"]

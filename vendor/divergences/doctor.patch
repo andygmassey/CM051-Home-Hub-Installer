@@ -1,3 +1,35 @@
+# doctor.patch -- PATCH HEADER: one decision per area (Archie ruling, 2026-11-17, v1.0.134)
+#
+# This patch is GENERATED (scripts/regenerate_divergence_patch.sh doctor --write)
+# against HR015 doctor at the manifest pin; "-" lines are upstream content this
+# tree does not take, "+" lines are CM051 content upstream does not have.
+# regenerate_divergence_patch.sh rewrites this file WITHOUT this header: re-add
+# it (and re-count) after every regeneration. git apply ignores these lines.
+#
+# TAKE  colour palette          upstream tokens and colours in dashboard_components,
+#                                web_ui (all nine :root blocks), first_run. Left the
+#                                not-taken set.
+# TAKE  licence state           LicenceStateInfo / collect_licence_state /
+#                                check_licence_state + copy, with "Days of Ostler Pro
+#                                left: N" (180 founding / 90 standard / 0). Lands in
+#                                the same window as the included-Pro fix (#3579
+#                                family). Money: Archie reviews.
+# TAKE  runtime floors          requirements.txt == HR015 (fastapi>=0.162.6).
+# TAKE  config env sync         PENDING Archie's read of its diff: NOT in this commit;
+#                                it is the next commit on vendor134/doctor.
+# HOLD  wiki correction         wiki_correct.py transitions (plan_transition,
+#       transitions             transition_correction, POST /api/v1/wiki/correct/
+#                                transition) stay declared-removed: held for the
+#                                Doctor-paths owner-scope set.
+# HOLD  vault state             VaultStateInfo / collect_vault_state /
+#                                /doctor/api/vault-state / the vault tile stay
+#                                declared-removed: held for CM051 #3432's security
+#                                review.
+# OTHER everything else on a "-" line is CM051's own replacement of that upstream
+#       text (grafts recorded in WRITER_READER_MISMATCHES.UNRECORDED.md and the
+#       manifest note), not an upstream feature declined. This includes the
+#       Channels / Model / Schedule / Privacy config controls, removed here as
+#       dead (they wrote keys no daemon reads).
 --- a/agent/.env.example
 +++ b/agent/.env.example
 @@ -11,4 +11,4 @@
@@ -1119,7 +1151,7 @@
  
  # A7+A8: consent registry. Same soft-fall-through rule as posture –
  # Doctor must keep rendering even when ostler_security is missing.
-@@ -133,49 +142,73 @@
+@@ -133,47 +142,71 @@
      _CONSENT_IMPORT_ERROR = ""
      return True, "", resolved
  
@@ -1209,8 +1241,8 @@
          )
 -    }
 +    return bundled
- 
- 
++
++
 +# ONE PRODUCER, AND IT USED TO BE TWO. This module-level block held its own
 +# hand-written copy of the same five-constant map, and _resolve_bundled_consents
 +# returns that cache whenever it is truthy - so on every install where `legal`
@@ -1224,245 +1256,17 @@
 +    _BUNDLED_CONSENTS = _import_bundled_consents()
 +except ImportError:  # noqa: SECURITY-IMPORT-SOFT-ALLOWED
 +    _BUNDLED_CONSENTS = {}
-+
-+
+ 
+ 
  def _resolve_bundled_consents() -> dict:
-     """Return the bundled consent wordings, retrying the import.
- 
-@@ -229,11 +262,11 @@
-     elif healthy > 0:
-         overall = "degraded"
-         overall_text = f"{healthy}/{total_services} services healthy"
--        overall_color = "#8A6D1F"
-+        overall_color = "#5C4611"
-     else:
-         overall = "down"
-         overall_text = "Services not responding"
--        overall_color = "#A82A2A"
-+        overall_color = "#7A1F1F"
- 
-     # Disk summary
-     disk_text = ""
-@@ -331,12 +364,12 @@
-             icon = "&#10003;"
-             detail = f"{p.get('backend', 'sqlcipher')} via {p.get('key_source', 'OSTLER_DB_KEY')}"
-         elif encryption == "disabled":
--            colour = "#A82A2A"
-+            colour = "#7A1F1F"
-             icon = "&#9888;"
-             reason = p.get("reason") or "unknown"
-             detail = f"plaintext &ndash; reason: {reason}"
-         else:
--            colour = "rgba(20, 18, 14,0.40)"
-+            colour = "rgba(236,232,221,0.40)"
-             icon = "?"
-             detail = encryption
-         tiles += f"""
-@@ -438,12 +471,12 @@
- # loud failure.
- _STATUS_COLOURS = {
-     "success": "#2C4A2C",
--    "fda_denied": "#A82A2A",
--    "extract_failed": "#A82A2A",
--    "mailbox_unreadable": "#A82A2A",
--    "other": "#8A6D1F",
--    "stale": "rgba(20, 18, 14,0.40)",
--    "unknown": "rgba(20, 18, 14,0.40)",
-+    "fda_denied": "#7A1F1F",
-+    "extract_failed": "#7A1F1F",
-+    "mailbox_unreadable": "#7A1F1F",
-+    "other": "#5C4611",
-+    "stale": "rgba(236,232,221,0.40)",
-+    "unknown": "rgba(236,232,221,0.40)",
- }
- _STATUS_ICONS = {
-     "success": "&#10003;",
-@@ -545,8 +578,8 @@
-             # Stale badge: muted-cream background, contrasts against
-             # the warm panel without competing with the oxblood accent.
-             stale_badge = (
--                '<span style="background:rgba(20, 18, 14,0.16);'
--                'color:rgba(20, 18, 14,0.90);'
-+                '<span style="background:rgba(236,232,221,0.16);'
-+                'color:rgba(236,232,221,0.90);'
-                 'padding:2px 8px;border-radius:999px;font-size:10px;'
-                 'font-family:Outfit,system-ui,sans-serif;font-weight:500;'
-                 'letter-spacing:0.16em;text-transform:uppercase;'
-@@ -561,10 +594,10 @@
-                 <div class="status-detail">{detail}</div>
-                 {error_line}
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         Full marker JSON
-                     </summary>
--                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
-+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
-                 </details>
-             </div>
-         </div>"""
-@@ -637,7 +670,7 @@
-         <div class="section-title">Consent (A7+A8 records)</div>
-         <div class="status-grid">
-         <div class="status-card">
--            <div class="status-indicator" style="background:#A82A2A">&#9888;</div>
-+            <div class="status-indicator" style="background:#7A1F1F">&#9888;</div>
-             <div class="status-info">
-                 <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
-                 <div class="status-detail">{_html_escape(detail)}</div>
-@@ -663,18 +696,18 @@
- 
-         bundled = bundled_consents.get(tickbox_id)
-         if decision == "declined":
--            colour = "#A82A2A"
-+            colour = "#7A1F1F"
-             icon = "&#9888;"
-             state = "declined"
-         elif bundled is None:
-             # Record exists but the bundled wording doesn't (legal
-             # package missing or unknown tickbox). We can show the
-             # decision but not check drift.
--            colour = "rgba(20, 18, 14,0.40)"
-+            colour = "rgba(236,232,221,0.40)"
-             icon = "?"
-             state = "unknown wording"
-         elif rec.get("wording_hash") != bundled.sha256():
--            colour = "#8A6D1F"
-+            colour = "#5C4611"
-             icon = "&#9888;"
-             state = f"renewal needed ({wording_version} -> {bundled.version})"
-         else:
-@@ -718,9 +751,9 @@
- # unrecognised status field.
- _IMESSAGE_TCC_COLOURS = {
-     "granted-and-working": "#2C4A2C",
--    "tcc-denied": "#8A6D1F",
--    "check-failed": "#A82A2A",
--    "unknown": "rgba(20, 18, 14,0.40)",
-+    "tcc-denied": "#5C4611",
-+    "check-failed": "#7A1F1F",
-+    "unknown": "rgba(236,232,221,0.40)",
- }
- _IMESSAGE_TCC_ICONS = {
-     "granted-and-working": "&#10003;",
-@@ -843,9 +876,9 @@
-         if in_marker_remediation:
-             fix_bits.append(
-                 '<pre style="font-size:12px;background:#ECEBE5;'
--                'color:rgba(20, 18, 14,0.74);font-family:'
-+                'color:rgba(236,232,221,0.74);font-family:'
-                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
--                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
-+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
-                 'overflow:auto;margin-top:6px;'
-                 f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
-             )
-@@ -854,16 +887,16 @@
-                 f'<div class="status-detail" style="margin-top:8px">'
-                 f'<strong>{_html_escape(IMESSAGE_TCC_STDERR_LABEL)}:</strong></div>'
-                 '<pre style="font-size:11px;background:#ECEBE5;'
--                'color:rgba(20, 18, 14,0.74);font-family:'
-+                'color:rgba(236,232,221,0.74);font-family:'
-                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
--                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
-+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
-                 'overflow:auto;margin-top:6px;'
-                 f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
-             )
-         body = "".join(fix_bits)
-         how_to_fix = f"""
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         {_html_escape(IMESSAGE_TCC_HOW_TO_FIX_LABEL)}
-                     </summary>
-                     {body}
-@@ -876,10 +909,10 @@
-     if raw_text:
-         full_marker_block = f"""
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         {_html_escape(IMESSAGE_TCC_FULL_MARKER_LABEL)}
-                     </summary>
--                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
-+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
-                 </details>"""
- 
-     tile = f"""
-@@ -910,11 +943,11 @@
- # other tiles' grey fallback.
- _REMINDERS_COLOURS = {
-     "granted": "#2C4A2C",
--    "denied": "#8A6D1F",
--    "not-determined": "#8A6D1F",
--    "restricted": "#A82A2A",
--    "check-failed": "#A82A2A",
--    "unknown": "rgba(20, 18, 14,0.40)",
-+    "denied": "#5C4611",
-+    "not-determined": "#5C4611",
-+    "restricted": "#7A1F1F",
-+    "check-failed": "#7A1F1F",
-+    "unknown": "rgba(236,232,221,0.40)",
- }
- _REMINDERS_ICONS = {
-     "granted": "&#10003;",
-@@ -1042,9 +1075,9 @@
-         if in_marker_remediation:
-             fix_bits.append(
-                 '<pre style="font-size:12px;background:#ECEBE5;'
--                'color:rgba(20, 18, 14,0.74);font-family:'
-+                'color:rgba(236,232,221,0.74);font-family:'
-                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
--                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
-+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
-                 'overflow:auto;margin-top:6px;'
-                 f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
-             )
-@@ -1053,16 +1086,16 @@
-                 f'<div class="status-detail" style="margin-top:8px">'
-                 f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
-                 '<pre style="font-size:11px;background:#ECEBE5;'
--                'color:rgba(20, 18, 14,0.74);font-family:'
-+                'color:rgba(236,232,221,0.74);font-family:'
-                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
--                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
-+                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
-                 'overflow:auto;margin-top:6px;'
-                 f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
-             )
-         body = "".join(fix_bits)
-         how_to_fix = f"""
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         {_html_escape(REMINDERS_HOW_TO_FIX_LABEL)}
-                     </summary>
-                     {body}
-@@ -1073,10 +1106,10 @@
-     if raw_text:
-         full_marker_block = f"""
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
-                     </summary>
--                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
-+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
-                 </details>"""
- 
-     tile = f"""
-@@ -1104,12 +1137,18 @@
- # no-data=grey neutral.
+@@ -1105,11 +1138,17 @@
  _REMINDERS_RUNTIME_COLOURS = {
      STATE_OK: "#2C4A2C",
--    STATE_PERMISSION_DENIED: "#8A6D1F",
--    STATE_NO_DATA: "rgba(20, 18, 14,0.40)",
-+    STATE_PERMISSION_DENIED: "#5C4611",
-+    STATE_LIST_REMOVED: "#5C4611",
-+    STATE_PUSH_FAILING: "#5C4611",
-+    STATE_CANNOT_READ: "rgba(236,232,221,0.40)",
-+    STATE_NO_DATA: "rgba(236,232,221,0.40)",
+     STATE_PERMISSION_DENIED: "#8A6D1F",
++    STATE_LIST_REMOVED: "#8A6D1F",
++    STATE_PUSH_FAILING: "#8A6D1F",
++    STATE_CANNOT_READ: "rgba(20, 18, 14,0.40)",
+     STATE_NO_DATA: "rgba(20, 18, 14,0.40)",
  }
  _REMINDERS_RUNTIME_ICONS = {
      STATE_OK: "&#10003;",
@@ -1514,14 +1318,7 @@
      }
      status_label = status_label_map[state]
      detail = detail_map[state]
-@@ -1209,12 +1262,30 @@
- 
-         how_to_fix = f"""
-                 <details style="margin-top:8px">
--                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
-                         {_html_escape(REMINDERS_RUNTIME_HOW_TO_FIX_LABEL)}
-                     </summary>
+@@ -1215,6 +1268,24 @@
                      <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
                  </details>"""
  
@@ -1575,9 +1372,9 @@
 +_WHATSAPP_KEEPALIVE_COLOURS = {
 +    "healthy": "#2C4A2C",
 +    "recovered": "#2C4A2C",
-+    "needs_customer": "#5C4611",
-+    "still_unhealthy": "#7A1F1F",
-+    "cannot_run": "rgba(236,232,221,0.40)",
++    "needs_customer": "#8A6D1F",
++    "still_unhealthy": "#A82A2A",
++    "cannot_run": "rgba(20, 18, 14,0.40)",
  }
 -_VAULT_ICONS = {
 -    "live": "&#10003;",
@@ -1655,11 +1452,7 @@
 -        "none": (VAULT_TILE_STATUS_NONE, VAULT_TILE_DETAIL_NONE, "none"),
 -    }
 -    return mapping.get(status or "none", mapping["none"])
-+    THE TILE NEVER OFFERS TO RE-LINK ON THEIR BEHALF. Where the session is
-+    gone it says, in as many words, that only they can do it and that Ostler
-+    has stopped retrying. Quietly re-pairing a customer's WhatsApp account
-+    would be a much worse defect than the one being reported.
- 
+-
 -
 -def _format_write_datetime(iso_ts: str | None) -> str | None:
 -    """Format an ISO 8601 timestamp as "DD-MM HH:MM" for the tile.
@@ -1668,11 +1461,7 @@
 -    can fall back to the unknown placeholder. Mirrors the diagnostic
 -    row's ``_format_vault_last_write`` behaviour (no timezone
 -    conversion: the writer runs on the same Mac).
-+    Server-side static HTML; the expand-collapse is the native ``<details>``
-+    element, so no JS. Mirrors ``render_reminders_runtime`` -- same shape,
-+    same failure class: a daemon-side outcome the customer would otherwise
-+    only discover by noticing messages had stopped.
-     """
+-    """
 -    if not iso_ts:
 -        return None
 -    from datetime import datetime as _dt
@@ -1684,6 +1473,37 @@
 -    except (TypeError, ValueError):
 -        return None
 -    return parsed.strftime("%d-%m %H:%M")
+-
+-
+-def _should_show_vault_transition_banner(vault_state, now_dt=None) -> bool:
+-    """Decide whether to render the Q1a trial-to-paid transition banner.
++    THE TILE NEVER OFFERS TO RE-LINK ON THEIR BEHALF. Where the session is
++    gone it says, in as many words, that only they can do it and that Ostler
++    has stopped retrying. Quietly re-pairing a customer's WhatsApp account
++    would be a much worse defect than the one being reported.
+ 
+-    Fires when ALL of the following are true (recency-based; no
+-    persisted dismissal state):
+-
+-    - ``status == "live"`` -- writer is on the paid path;
+-    - ``preview_written_at`` is present -- the customer went through
+-      a trial (skipping the banner for customers who went straight
+-      from Hub-only to paid without ever seeing a preview);
+-    - ``first_live_write_at`` is present and within the last
+-      ``VAULT_TRANSITION_BANNER_WINDOW_DAYS`` days -- so we announce
+-      the transition, not perpetually re-announce it.
+-
+-    The Q1a copy explicitly says "Trial preview cleared", so we do
+-    not fire when there was no trial preview to clear. All three
+-    conditions must hold; any missing signal defaults to "do not
+-    show" (Doctor stays quiet rather than firing a misleading
+-    banner).
++    Server-side static HTML; the expand-collapse is the native ``<details>``
++    element, so no JS. Mirrors ``render_reminders_runtime`` -- same shape,
++    same failure class: a daemon-side outcome the customer would otherwise
++    only discover by noticing messages had stopped.
+     """
+-    from web_ui_copy import VAULT_TRANSITION_BANNER_WINDOW_DAYS
 +    from web_ui_copy import (
 +        WHATSAPP_KEEPALIVE_CHECKED_AT_PREFIX_FMT,
 +        WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
@@ -1704,60 +1524,6 @@
 +        WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
 +        WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
 +    )
- 
-+    status = read_whatsapp_keepalive()
-+    if status is None:
-+        return ""
- 
--def _should_show_vault_transition_banner(vault_state, now_dt=None) -> bool:
--    """Decide whether to render the Q1a trial-to-paid transition banner.
-+    verdict = status.verdict
-+    if verdict not in _WHATSAPP_KEEPALIVE_COLOURS:
-+        # The reader already rejects an unrecognised verdict, so this cannot
-+        # normally fire. Kept because a KeyError here blanks the whole
-+        # dashboard, and the reader and this map are two lists that a future
-+        # edit can move apart.
-+        return ""
-+    colour = _WHATSAPP_KEEPALIVE_COLOURS[verdict]
-+    icon = _WHATSAPP_KEEPALIVE_ICONS[verdict]
- 
--    Fires when ALL of the following are true (recency-based; no
--    persisted dismissal state):
-+    status_label = {
-+        "healthy": WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
-+        "recovered": WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
-+        "needs_customer": WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
-+    }[verdict]
- 
--    - ``status == "live"`` -- writer is on the paid path;
--    - ``preview_written_at`` is present -- the customer went through
--      a trial (skipping the banner for customers who went straight
--      from Hub-only to paid without ever seeing a preview);
--    - ``first_live_write_at`` is present and within the last
--      ``VAULT_TRANSITION_BANNER_WINDOW_DAYS`` days -- so we announce
--      the transition, not perpetually re-announce it.
-+    detail = {
-+        "healthy": WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
-+        "recovered": WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
-+        "needs_customer": WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
-+    }[verdict]
- 
--    The Q1a copy explicitly says "Trial preview cleared", so we do
--    not fire when there was no trial preview to clear. All three
--    conditions must hold; any missing signal defaults to "do not
--    show" (Doctor stays quiet rather than firing a misleading
--    banner).
--    """
--    from web_ui_copy import VAULT_TRANSITION_BANNER_WINDOW_DAYS
-+    remediation = {
-+        "needs_customer": WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
-+        "still_unhealthy": WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
-+        "cannot_run": WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
-+    }.get(verdict)
  
 -    if vault_state is None:
 -        return False
@@ -1785,8 +1551,78 @@
 -        # Fire anyway -- it is a fresh transition.
 -        return True
 -    return delta.days < VAULT_TRANSITION_BANNER_WINDOW_DAYS
++    status = read_whatsapp_keepalive()
++    if status is None:
++        return ""
+ 
++    verdict = status.verdict
++    if verdict not in _WHATSAPP_KEEPALIVE_COLOURS:
++        # The reader already rejects an unrecognised verdict, so this cannot
++        # normally fire. Kept because a KeyError here blanks the whole
++        # dashboard, and the reader and this map are two lists that a future
++        # edit can move apart.
++        return ""
++    colour = _WHATSAPP_KEEPALIVE_COLOURS[verdict]
++    icon = _WHATSAPP_KEEPALIVE_ICONS[verdict]
+ 
+-def render_vault_state(snapshot, now_dt=None) -> str:
+-    """Render the Markdown vault SPA section (v1.0.13, LOCK-3).
++    status_label = {
++        "healthy": WHATSAPP_KEEPALIVE_STATUS_HEALTHY,
++        "recovered": WHATSAPP_KEEPALIVE_STATUS_RECOVERED,
++        "needs_customer": WHATSAPP_KEEPALIVE_STATUS_NEEDS_CUSTOMER,
++        "still_unhealthy": WHATSAPP_KEEPALIVE_STATUS_STILL_UNHEALTHY,
++        "cannot_run": WHATSAPP_KEEPALIVE_STATUS_CANNOT_RUN,
++    }[verdict]
+ 
+-    Two visual elements:
++    detail = {
++        "healthy": WHATSAPP_KEEPALIVE_DETAIL_HEALTHY,
++        "recovered": WHATSAPP_KEEPALIVE_DETAIL_RECOVERED,
++        "needs_customer": WHATSAPP_KEEPALIVE_DETAIL_NEEDS_CUSTOMER,
++        "still_unhealthy": WHATSAPP_KEEPALIVE_DETAIL_STILL_UNHEALTHY,
++        "cannot_run": WHATSAPP_KEEPALIVE_DETAIL_CANNOT_RUN,
++    }[verdict]
+ 
+-    - Q1a **trial-to-paid transition banner** (green info banner):
+-      shown for the ``VAULT_TRANSITION_BANNER_WINDOW_DAYS``-day
+-      window after ``first_live_write_at`` when the customer went
+-      through a trial preview first (see
+-      ``_should_show_vault_transition_banner``). Announces that the
+-      Preview folder was cleared and the full vault is now active.
+-    - **Vault state tile**: status + path + last-write + pages +
+-      licence tier. Rendered whenever ``snapshot.vault_state`` has
+-      any recognisable data.
++    remediation = {
++        "needs_customer": WHATSAPP_KEEPALIVE_REMEDIATION_NEEDS_CUSTOMER,
++        "still_unhealthy": WHATSAPP_KEEPALIVE_REMEDIATION_STILL_UNHEALTHY,
++        "cannot_run": WHATSAPP_KEEPALIVE_REMEDIATION_CANNOT_RUN,
++    }.get(verdict)
+ 
+-    Returns the empty string when no ``vault_state`` is available on
+-    the snapshot (writer has never run, or the state file is
+-    missing/malformed). Doctor falls through to no section rather
+-    than rendering an empty header.
 +    extra_lines = ""
  
+-    Doctor is READ-ONLY here -- everything comes from
+-    ``snapshot.vault_state``, which was populated by
+-    ``status_collector.collect_vault_state`` from the LOCK-3 canonical
+-    ``~/.ostler/vault-state.json``. This function never enumerates
+-    ``~/Documents/Ostler/`` itself.
+-    """
+-    from web_ui_copy import (
+-        VAULT_SECTION_TITLE,
+-        VAULT_TILE_LABEL_HYDRATED,
+-        VAULT_TILE_LABEL_LAST_WRITE,
+-        VAULT_TILE_LABEL_LICENCE,
+-        VAULT_TILE_LABEL_PAGES,
+-        VAULT_TILE_LABEL_PATH,
+-        VAULT_TILE_VALUE_UNKNOWN,
+-        VAULT_TRANSITION_BANNER_DETAIL_FMT,
+-        VAULT_TRANSITION_BANNER_DETAIL_MINIMAL,
+-        VAULT_TRANSITION_BANNER_TITLE,
+-    )
 +    # A box that repairs itself every day is a fault report, not a success
 +    # story, so the count is shown on the two verdicts where a repair happened
 +    # or was attempted. Silence on a healthy box keeps the tile quiet.
@@ -1797,8 +1633,9 @@
 +            f'</div>'
 +        )
  
--def render_vault_state(snapshot, now_dt=None) -> str:
--    """Render the Markdown vault SPA section (v1.0.13, LOCK-3).
+-    vault_state = getattr(snapshot, "vault_state", None)
+-    if vault_state is None:
+-        return ""
 +    if status.checked_at:
 +        # The writer records unix seconds; _format_relative_time speaks
 +        # ISO-8601. Convert here rather than teaching the shared helper a
@@ -1818,7 +1655,10 @@
 +                f'</div>'
 +            )
  
--    Two visual elements:
+-    status = getattr(vault_state, "status", None) or "none"
+-    label, detail, colour_key = _vault_status_label_and_detail(status)
+-    colour = _VAULT_COLOURS[colour_key]
+-    icon = _VAULT_ICONS[colour_key]
 +    how_to_fix = ""
 +    if remediation:
 +        link = ""
@@ -1832,56 +1672,13 @@
 +            )
 +        how_to_fix = f"""
 +                <details style="margin-top:8px">
-+                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
++                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
 +                        {_html_escape(WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL)}
 +                    </summary>
 +                    <div class="status-detail">{_html_escape(remediation)}</div>
 +                    {link}
 +                </details>"""
  
--    - Q1a **trial-to-paid transition banner** (green info banner):
--      shown for the ``VAULT_TRANSITION_BANNER_WINDOW_DAYS``-day
--      window after ``first_live_write_at`` when the customer went
--      through a trial preview first (see
--      ``_should_show_vault_transition_banner``). Announces that the
--      Preview folder was cleared and the full vault is now active.
--    - **Vault state tile**: status + path + last-write + pages +
--      licence tier. Rendered whenever ``snapshot.vault_state`` has
--      any recognisable data.
--
--    Returns the empty string when no ``vault_state`` is available on
--    the snapshot (writer has never run, or the state file is
--    missing/malformed). Doctor falls through to no section rather
--    than rendering an empty header.
--
--    Doctor is READ-ONLY here -- everything comes from
--    ``snapshot.vault_state``, which was populated by
--    ``status_collector.collect_vault_state`` from the LOCK-3 canonical
--    ``~/.ostler/vault-state.json``. This function never enumerates
--    ``~/Documents/Ostler/`` itself.
--    """
--    from web_ui_copy import (
--        VAULT_SECTION_TITLE,
--        VAULT_TILE_LABEL_HYDRATED,
--        VAULT_TILE_LABEL_LAST_WRITE,
--        VAULT_TILE_LABEL_LICENCE,
--        VAULT_TILE_LABEL_PAGES,
--        VAULT_TILE_LABEL_PATH,
--        VAULT_TILE_VALUE_UNKNOWN,
--        VAULT_TRANSITION_BANNER_DETAIL_FMT,
--        VAULT_TRANSITION_BANNER_DETAIL_MINIMAL,
--        VAULT_TRANSITION_BANNER_TITLE,
--    )
--
--    vault_state = getattr(snapshot, "vault_state", None)
--    if vault_state is None:
--        return ""
--
--    status = getattr(vault_state, "status", None) or "none"
--    label, detail, colour_key = _vault_status_label_and_detail(status)
--    colour = _VAULT_COLOURS[colour_key]
--    icon = _VAULT_ICONS[colour_key]
--
 -    vault_path = getattr(vault_state, "vault_path", None) or ""
 -    total_pages = getattr(vault_state, "total_pages", None)
 -    last_write = _format_write_datetime(
@@ -2227,10 +2024,12 @@
 +    )
 --- a/agent/diagnostic_copy.py
 +++ b/agent/diagnostic_copy.py
-@@ -155,6 +155,259 @@
+@@ -153,8 +153,261 @@
+ )
+ OXIGRAPH_INTERNAL_ERROR_FIX = "Check Oxigraph logs"
  OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT = "docker logs --tail=30 {prefix}oxigraph"
- 
- 
++
++
 +# ── check_wiki_health ────────────────────────────────────────────────
 +#
 +# v1.0.42 upgrade walk, 2026-08-23. The wiki was dead for about a day and
@@ -2400,7 +2199,7 @@
 +ENGINE_RECOVERY_EXHAUSTED_FIX_COMMAND = (
 +    "/opt/homebrew/bin/colima start && /opt/homebrew/bin/docker ps"
 +)
-+
+ 
 +ENGINE_ABSENT_TITLE = "No container runtime is installed"
 +ENGINE_ABSENT_DETAIL_FMT = (
 +    "Ostler needs a container runtime for your wiki, knowledge graph and "
@@ -2409,7 +2208,7 @@
 +)
 +ENGINE_ABSENT_FIX = "Re-run the Ostler installer, which installs one for you"
 +ENGINE_ABSENT_FIX_COMMAND = "brew install colima docker docker-compose"
-+
+ 
 +ENGINE_SUPERVISOR_MISSING_TITLE = (
 +    "Nothing is watching the container runtime"
 +)
@@ -2487,14 +2286,12 @@
  # ── check_import_readiness ───────────────────────────────────────────
  
  
-@@ -374,20 +627,10 @@
+@@ -374,18 +627,8 @@
  
  
  # ── check_gdpr_export_age ────────────────────────────────────────────
-+# The copy and the per-platform findings live in export_status.py
-+# ("Your data exports"), which names each request link.
- 
- 
+-
+-
 -STALE_IMPORT_TITLE_FMT = "Last import was {days} days ago"
 -STALE_IMPORT_DETAIL = (
 -    "Your knowledge graph has not been updated with new GDPR exports "
@@ -2505,11 +2302,11 @@
 -STALE_IMPORT_FIX_COMMAND = (
 -    "ostler-import --exports-dir ~/gdpr-exports/ --verbose"
 -)
--
--
++# The copy and the per-platform findings live in export_status.py
++# ("Your data exports"), which names each request link.
+ 
+ 
  # ── check_docker_resources ───────────────────────────────────────────
- 
- 
 @@ -477,71 +720,75 @@
  IMESSAGE_CAPTURE_STALLED_FIX_COMMAND = IMESSAGE_FDA_FIX_COMMAND
  
@@ -2546,12 +2343,12 @@
 +    "The last installer run could not install Ostler's tested copy of "
 +    "Ollama ({version}) because {reason}, so the copy that was already "
 +    "running was kept. Your assistant keeps working."
- )
--INGEST_FEED_STARVED_FIX = "Check the source's permissions in Settings"
++)
 +OLLAMA_MODELS_UNVERIFIED_FMT = (
 +    " AI models downloaded in this state were not checked against Ostler's "
 +    "recorded fingerprints: {models}."
-+)
+ )
+-INGEST_FEED_STARVED_FIX = "Check the source's permissions in Settings"
 +OLLAMA_NOT_PINNED_FIX = (
 +    "Run the Ostler installer again while you are online. It tries the "
 +    "tested copy again and, once it is in place, this message goes away."
@@ -2638,32 +2435,16 @@
  )
  
  
-@@ -642,65 +889,233 @@
+@@ -642,7 +889,255 @@
  INGEST_NO_INPUT_FIX = "Nothing to do unless you expected data here"
  INGEST_NO_INPUT_FIX_COMMAND = "open ~/.ostler/logs/install.log"
  
 +
  # ---------------------------------------------------------------------------
--# Licence state (task #421)
 +# Scheduled-agent health (#595 layer 2, 2026-08-22)
- #
--# The Doctor had NO licence surface at all. Measured on the v1.0.36 box:
--# 41,088 bytes of Doctor HTML containing the strings "licence", "license",
--# "subscription" and "Pro" exactly ZERO times, while
--# ~/.ostler/state/subscription_state.json on the same machine recorded
--# status=active, source=first_month_free, expires 2026-09-17. The customer
--# could not find out what they were paying for, or when it ran out, from the
--# one page built to tell them how their Hub is doing.
++#
 +# THE DEFECT THIS COPY EXISTS FOR.
- #
--# The vault tile's pro_state field does not cover this: it is written by the
--# Markdown vault writer, which has not been built, so vault-state.json does not
--# exist and that whole tile renders nothing.
--LICENCE_ACTIVE_TITLE = "Ostler Pro is active"
--LICENCE_ACTIVE_DETAIL_FMT = (
--    "Your Ostler Pro features are switched on{until_clause}. Nothing needs "
--    "doing. This is here so the date is somewhere you can find it."
--)
++#
 +# On .228 (published v1.0.38) com.ostler.fda-rerun -- the ONLY recurring
 +# ingest for contacts, calendar, iMessage, WhatsApp, browsing and notes --
 +# exited 1 on every hourly tick for days. The graph froze completely. No log
@@ -2679,30 +2460,17 @@
 +# inherited it wrote `${ec:-0}`, turning an unloaded label's empty string into
 +# a clean exit 0 and going GREEN on a box where the bundle was not installed
 +# at all. So each state below gets its own title, and healthy emits nothing.
- 
--LICENCE_TRIAL_TITLE = "Ostler Pro is active, on the free month that came with your Hub"
--LICENCE_TRIAL_DETAIL_FMT = (
--    "Buying the Hub includes a free month of Ostler Pro, and that is what is "
--    "running now{until_clause}. When it ends, the Hub keeps working and keeps "
--    "everything it has already learned. The Pro extras are the part that pauses."
++
 +SCHEDULED_AGENT_FAILING_TITLE_FMT = (
 +    "Background updates for {feeds} have been failing"
- )
--
--LICENCE_GRACE_TITLE = "Ostler Pro has lapsed, and is in its grace period"
--LICENCE_GRACE_DETAIL_FMT = (
--    "Your subscription expired{expired_clause} and Ostler is in the short "
--    "grace period that follows{grace_clause}. Everything still runs for now. "
--    "When the grace period ends the Pro extras pause, and the Hub carries on "
--    "without them."
++)
 +SCHEDULED_AGENT_FAILING_DETAIL_FMT = (
 +    "{label} is the scheduled job that refreshes {feeds}. It has failed "
 +    "every time the Doctor has looked since {since} -- {ticks} runs, the "
 +    "most recent exiting with code {code}. While it keeps failing nothing "
 +    "new is being added from those sources, so anything that looks like it "
 +    "is 'still loading' has in fact stopped."
- )
--LICENCE_GRACE_FIX = "Renew from the Ostler app on your iPhone"
++)
 +SCHEDULED_AGENT_FAILING_FIX = (
 +    "The job's own error log says why it is exiting. Open it, then restart "
 +    "the job. If it fails again straight away the error log will name the "
@@ -2712,11 +2480,7 @@
 +    "tail -50 ~/.ostler/logs/{logname}.err; "
 +    "launchctl kickstart -k gui/$(id -u)/{label}"
 +)
- 
--LICENCE_INACTIVE_TITLE = "Ostler Pro is not active"
--LICENCE_INACTIVE_DETAIL = (
--    "The Pro extras are switched off. Your Hub keeps working and keeps "
--    "everything it has already learned; this only affects the Pro features."
++
 +# G1 (TCC sweep 2026-10-15). A tick that exits 75 was REFUSED by macOS, not
 +# broken: ostler-fda exits 75 when the only problem was a read macOS would not
 +# allow. "Restart the job" is the wrong advice for that, so it gets its own
@@ -2724,8 +2488,7 @@
 +SCHEDULED_AGENT_EXIT_NEEDS_PERMISSION = 75
 +SCHEDULED_AGENT_NEEDS_PERMISSION_TITLE_FMT = (
 +    "Ostler needs Full Disk Access to keep {feeds} up to date"
- )
--LICENCE_INACTIVE_FIX = "Subscribe from the Ostler app on your iPhone"
++)
 +SCHEDULED_AGENT_NEEDS_PERMISSION_DETAIL_FMT = (
 +    "Since {since}, macOS has stopped the Ostler assistant reading some of "
 +    "your Mac's own apps, so nothing new has been added from them. What "
@@ -2739,17 +2502,7 @@
 +    "open 'x-apple.systempreferences:com.apple.preference.security?"
 +    "Privacy_AllFiles'"
 +)
- 
--# The stale-writer arm. This is a statement about our own bookkeeping, not
--# about the customer, so the copy must not imply they have done anything wrong
--# or that they have lost access.
--LICENCE_STALE_TITLE = "Ostler cannot tell you your subscription state accurately"
--LICENCE_STALE_DETAIL_FMT = (
--    "The stored subscription record still reads \"{status}\" but its expiry "
--    "date ({expires_at}) has already passed, which means the check that moves "
--    "it forward has not run. Your access is not affected by this, and nothing "
--    "has been charged or cancelled. It means this panel cannot promise the "
--    "state below is current."
++
 +# NEVER-RAN. Deliberately a different title, different severity and a
 +# different fix from FAILING, because it is a different fault: the job is
 +# registered and launchd has simply never started it. Reporting this as
@@ -2757,8 +2510,7 @@
 +# the other direction, since nothing has failed yet.
 +SCHEDULED_AGENT_NEVER_RAN_TITLE_FMT = (
 +    "A background job for {feeds} has never run"
- )
--LICENCE_STALE_FIX = "Open the Ostler app on your iPhone to refresh the record"
++)
 +SCHEDULED_AGENT_NEVER_RAN_DETAIL_FMT = (
 +    "{label} refreshes {feeds}. launchd reports it has run zero times, and "
 +    "the Doctor has been watching it since {since} -- well past the {every} "
@@ -2771,7 +2523,7 @@
 +    "problem was the initial trigger; if it never appears again, its plist "
 +    "is not being honoured."
 +)
- 
++
 +# NOT LOADED. "An unloaded agent is not a healthy one" -- the header of the
 +# box-walk gate that learned this the hard way.
 +SCHEDULED_AGENT_NOT_LOADED_TITLE_FMT = (
@@ -2790,7 +2542,7 @@
 +SCHEDULED_AGENT_NOT_LOADED_FIX_COMMAND_FMT = (
 +    "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/{label}.plist"
 +)
- 
++
 +# CANNOT-RUN. We could not look. This must never be reported as "we looked
 +# and it was fine" -- the same discipline the runtime-ready check applies at
 +# install time, and the same reason run_all_rules turns a crashed rule into a
@@ -2912,15 +2664,81 @@
 +TM_CANNOT_CHECK_FIX_COMMAND = "tmutil isexcluded ~/.ostler"
 +
 +
- # ── check_minors_registry ────────────────────────────────────────────
--# Owner decision 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
++# ── check_minors_registry ────────────────────────────────────────────
 +# the owner 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
- # the ingest on every import. A list that is present but cannot be read makes
- # the ingest stop (it fails closed rather than read "unknown" as "nobody").
- # This row says so. It must never print a name from the file.
++# the ingest on every import. A list that is present but cannot be read makes
++# the ingest stop (it fails closed rather than read "unknown" as "nobody").
++# This row says so. It must never print a name from the file.
++
++MINORS_UNREADABLE_TITLE = (
++    "Your under-18 list can't be read, so imports are paused until it's fixed"
++)
++MINORS_UNREADABLE_DETAIL_FMT = (
++    "The file that records who you have marked as under 18 is damaged or "
++    "cannot be opened ({path}). While Ostler cannot tell who is under 18 it "
++    "will not import anything new, so nothing about a child can slip through. "
++    "Nothing already stored has been lost."
++)
++MINORS_UNREADABLE_FIX = (
++    "Repair the file if you can. Otherwise run the command below to move it "
++    "aside: imports then restart, with nobody marked as under 18 until you "
++    "mark them again from their page."
++)
++MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"
++
++
++# ---------------------------------------------------------------------------
+ # Licence state (task #421)
+ #
+ # The Doctor had NO licence surface at all. Measured on the v1.0.36 box:
+@@ -704,26 +1199,3 @@
+     "state below is current."
+ )
+ LICENCE_STALE_FIX = "Open the Ostler app on your iPhone to refresh the record"
+-
+-
+-# ── check_minors_registry ────────────────────────────────────────────
+-# Owner decision 2026-10-19 (project_minors_flag): the owner's under-18 list is read by
+-# the ingest on every import. A list that is present but cannot be read makes
+-# the ingest stop (it fails closed rather than read "unknown" as "nobody").
+-# This row says so. It must never print a name from the file.
+-
+-MINORS_UNREADABLE_TITLE = (
+-    "Your under-18 list can't be read, so imports are paused until it's fixed"
+-)
+-MINORS_UNREADABLE_DETAIL_FMT = (
+-    "The file that records who you have marked as under 18 is damaged or "
+-    "cannot be opened ({path}). While Ostler cannot tell who is under 18 it "
+-    "will not import anything new, so nothing about a child can slip through. "
+-    "Nothing already stored has been lost."
+-)
+-MINORS_UNREADABLE_FIX = (
+-    "Repair the file if you can. Otherwise run the command below to move it "
+-    "aside: imports then restart, with nobody marked as under 18 until you "
+-    "mark them again from their page."
+-)
+-MINORS_UNREADABLE_FIX_COMMAND_FMT = "mv -- {path} {path}.unreadable-$(date +%Y%m%d-%H%M%S)"
 --- a/agent/diagnostic_rules.py
 +++ b/agent/diagnostic_rules.py
-@@ -31,6 +31,15 @@
+@@ -27,10 +27,33 @@
+ from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
+ 
+ from diagnostic_copy import (
++    LICENCE_ACTIVE_DETAIL_FMT,
++    LICENCE_ACTIVE_TITLE,
++    LICENCE_GRACE_DETAIL_FMT,
++    LICENCE_GRACE_FIX,
++    LICENCE_GRACE_TITLE,
++    LICENCE_INACTIVE_DETAIL,
++    LICENCE_INACTIVE_FIX,
++    LICENCE_INACTIVE_TITLE,
++    LICENCE_STALE_DETAIL_FMT,
++    LICENCE_STALE_FIX,
++    LICENCE_STALE_TITLE,
++    LICENCE_TRIAL_DETAIL_FMT,
++    LICENCE_TRIAL_TITLE,
++    LICENCE_DAYS_LEFT_FMT,
+     MINORS_UNREADABLE_TITLE,
      MINORS_UNREADABLE_DETAIL_FMT,
      MINORS_UNREADABLE_FIX,
      MINORS_UNREADABLE_FIX_COMMAND_FMT,
@@ -2936,7 +2754,7 @@
      MEMORY_UNREADABLE_TITLE,
      MEMORY_UNREADABLE_DETAIL_NO_TOTAL,
      MEMORY_UNREADABLE_DETAIL_NO_AVAILABLE,
-@@ -38,6 +47,23 @@
+@@ -38,6 +61,23 @@
      MEMORY_UNREADABLE_FIX_COMMAND,
      INGEST_EMPTY_DETAIL_FMT,
      INGEST_EMPTY_FIX,
@@ -2960,7 +2778,7 @@
      INGEST_EMPTY_FIX_COMMAND,
      INGEST_NO_INPUT_TITLE_FMT,
      INGEST_NO_INPUT_DETAIL_FMT,
-@@ -46,19 +72,6 @@
+@@ -46,20 +86,6 @@
      INGEST_NO_INPUT_FIX,
      INGEST_NO_INPUT_FIX_COMMAND,
      INGEST_EMPTY_TITLE_FMT,
@@ -2977,10 +2795,11 @@
 -    LICENCE_STALE_TITLE,
 -    LICENCE_TRIAL_DETAIL_FMT,
 -    LICENCE_TRIAL_TITLE,
+-    LICENCE_DAYS_LEFT_FMT,
      INGEST_KILLED_DETAIL_FMT,
      INGEST_KILLED_FIX,
      INGEST_KILLED_FIX_COMMAND,
-@@ -67,6 +80,26 @@
+@@ -68,6 +94,26 @@
      RULE_CRASHED_DETAIL_FMT,
      RULE_CRASHED_FIX,
      RULE_CRASHED_FIX_COMMAND,
@@ -3007,7 +2826,7 @@
      ALL_UNREACHABLE_DETAIL,
      ALL_UNREACHABLE_FIX,
      ALL_UNREACHABLE_FIX_COMMAND,
-@@ -131,9 +164,6 @@
+@@ -132,9 +178,6 @@
      IMESSAGE_CAPTURE_STALLED_FIX,
      IMESSAGE_CAPTURE_STALLED_FIX_COMMAND,
      IMESSAGE_CAPTURE_STALLED_TITLE,
@@ -3017,7 +2836,7 @@
      CONVO_DISPATCH_FAILING_TITLE,
      CONVO_DISPATCH_FAILING_DETAIL,
      CONVO_DISPATCH_FAILING_FIX,
-@@ -154,6 +184,21 @@
+@@ -155,6 +198,21 @@
      IMPORT_READY_DETAIL,
      IMPORT_READY_FIX_COMMAND,
      IMPORT_READY_TITLE,
@@ -3039,7 +2858,7 @@
      LOW_RAM_DETAIL,
      LOW_RAM_TITLE_FMT,
      MANY_MODELS_DETAIL,
-@@ -200,20 +245,83 @@
+@@ -201,20 +259,83 @@
      REDIS_UNREACHABLE_FIX,
      REDIS_UNREACHABLE_FIX_COMMAND_FMT,
      REDIS_UNREACHABLE_TITLE,
@@ -3135,10 +2954,17 @@
      detect_ostler_prefix,
      is_native_deployment,
      is_ostler_container,
-@@ -420,6 +528,595 @@
-     return findings
- 
- 
+@@ -414,13 +535,602 @@
+             "detail": OXIGRAPH_INTERNAL_ERROR_DETAIL,
+             "fix": OXIGRAPH_INTERNAL_ERROR_FIX,
+             "fix_command": OXIGRAPH_INTERNAL_ERROR_FIX_COMMAND_FMT.format(prefix=prefix),
++            "risk": "low",
++            "category": "runtime",
++        })
++
++    return findings
++
++
 +def check_wiki_health(snapshot: Any) -> list[dict]:
 +    """The wiki must announce its own death.
 +
@@ -3235,11 +3061,11 @@
 +            "fix_command": WIKI_UNHEALTHY_FIX_COMMAND_FMT.format(
 +                name=_wiki_container_name(snapshot)
 +            ),
-+            "risk": "low",
-+            "category": "runtime",
-+        })
+             "risk": "low",
+             "category": "runtime",
+         })
 +        return findings
-+
+ 
 +    # status == "unreachable" from here down.
 +    if engine_down:
 +        findings.append({
@@ -3279,9 +3105,9 @@
 +        "risk": "low",
 +        "category": "runtime",
 +    })
-+    return findings
-+
-+
+     return findings
+ 
+ 
 +def check_engine_supervisor_present(snapshot: Any) -> list[dict]:
 +    """Is anything actually WATCHING the runtime?
 +
@@ -3731,7 +3557,7 @@
  def check_import_readiness(snapshot: Any) -> list[dict]:
      """Check whether the system is ready to run the import pipeline."""
      findings = []
-@@ -754,23 +1451,19 @@
+@@ -755,23 +1465,19 @@
  
  
  def check_gdpr_export_age(snapshot: Any) -> list[dict]:
@@ -3766,34 +3592,34 @@
  
  
  def check_docker_resources(snapshot: Any) -> list[dict]:
-@@ -980,47 +1673,96 @@
+@@ -981,47 +1687,96 @@
      )
  
  
 -def _imessage_chat_db_readable() -> bool:
 -    """True if SOMETHING in this Doctor process can open chat.db.
-+def _ostler_engine_root():
-+    from pathlib import Path
- 
+-
 -    Used purely as a "FDA is granted on this machine" liveness probe
 -    for the auto-dismiss path in :func:`check_imessage_fda`. The
 -    file exists on every macOS install; failing to open it is the
 -    signal the user has not yet granted Full Disk Access for the
 -    binary doing the probing.
-+    root = (os.environ.get("OSTLER_DIR") or "").strip()
-+    return Path(root).expanduser() if root else Path.home() / ".ostler"
++def _ostler_engine_root():
++    from pathlib import Path
  
 -    We use ``sqlite3.connect`` rather than ``os.access`` because
 -    macOS reports the path as readable from a stat() perspective
 -    even when TCC denies the actual open -- we have to attempt the
 -    real SQLite open to get the truthful answer.
++    root = (os.environ.get("OSTLER_DIR") or "").strip()
++    return Path(root).expanduser() if root else Path.home() / ".ostler"
  
 -    Any failure (missing file, permission denied, OSError on the
 -    sqlite extension import) is treated as "not readable" -- safer
 -    to keep the card visible than to wrongly auto-dismiss.
 -    """
 -    import sqlite3
--
+ 
 -    path = _imessage_chat_db_path()
 +def _parse_utc(value):
 +    from datetime import datetime, timezone
@@ -3898,7 +3724,7 @@
  
  
  def check_imessage_fda(snapshot: Any) -> list[dict]:
-@@ -1032,10 +1774,10 @@
+@@ -1033,10 +1788,10 @@
      1. The installer recorded ``imessage_chat_db_fda_needed=True`` in
         pipeline_signals.json (the install-time probe found the
         daemon could not open chat.db once the LaunchAgent loaded).
@@ -3913,7 +3739,7 @@
  
      A missing key on the snapshot (``None``) means the install ran
      before CX-60 shipped -- we stay quiet rather than firing a
-@@ -1059,11 +1801,9 @@
+@@ -1060,11 +1815,9 @@
          # the daemon was already healthy). Either way: no card.
          return findings
  
@@ -3928,7 +3754,7 @@
      if _imessage_chat_db_readable():
          return findings
  
-@@ -1083,437 +1823,289 @@
+@@ -1084,437 +1837,289 @@
      return findings
  
  
@@ -4427,14 +4253,19 @@
 +    ``sqlite3.OperationalError: unable to open database file`` to
 +    ``~/.ostler/logs/imessage-bundle.err``. The capture is silently stalled --
 +    no messages are being read -- so we surface an actionable card.
- 
++
 +    Fires when BOTH:
  
--def check_vault_state(snapshot: Any) -> list[dict]:
--    """v1.0.13 Markdown vault diagnostic row (BRIEF_pro_vault_writer, LOCK-3).
 +    1. The crash signature is present in the log tail, AND
 +    2. The signed assistant's most recent recorded chat.db read did not
 +       succeed. Doctor itself never opens chat.db.
+ 
+-def check_vault_state(snapshot: Any) -> list[dict]:
+-    """v1.0.13 Markdown vault diagnostic row (BRIEF_pro_vault_writer, LOCK-3).
++    That record is the auto-dismiss path (shared with
++    :func:`check_imessage_fda`): the crash lines linger in the appended log
++    after FDA is finally granted, so without the re-probe the card would never
++    clear. Once FDA is granted and Messages is readable, the card disappears.
  
 -    Reads vault state EXCLUSIVELY from ``snapshot.vault_state``,
 -    which ``status_collector.collect_vault_state`` populates from
@@ -4445,11 +4276,7 @@
 -
 -    Four states (see ``VaultStateInfo`` docstring in
 -    ``status_collector.py`` for the full LOCK-3 contract):
-+    That record is the auto-dismiss path (shared with
-+    :func:`check_imessage_fda`): the crash lines linger in the appended log
-+    after FDA is finally granted, so without the re-probe the card would never
-+    clear. Once FDA is granted and Messages is readable, the card disappears.
- 
+-
 -    - ``None`` snapshot / status "none" -- Hub-only, never Pro (or a
 -      writer that has never materialised anything). No row.
 -    - "preview" -- Pro trial active. Renders count + path from the
@@ -4484,9 +4311,8 @@
  
 -    vault_state = getattr(snapshot, "vault_state", None)
 -    if vault_state is None:
-+    if not _imessage_capture_crash_logged():
-         return findings
- 
+-        return findings
+-
 -    status = getattr(vault_state, "status", None)
 -    vault_path = _vault_path_with_trailing_slash(
 -        getattr(vault_state, "vault_path", None),
@@ -4531,8 +4357,9 @@
 -            "risk": "low",
 -            "category": "subscription",
 -        })
--        return findings
--
++    if not _imessage_capture_crash_logged():
+         return findings
+ 
 -    if status == "live":
 -        page_count = getattr(vault_state, "total_pages", None)
 -        last_write = _format_vault_last_write(
@@ -4582,7 +4409,7 @@
  # Dispatch failures are logged as a non-zero return code from the CM048
  # conversation processor. Counted over the log TAIL only: the log is appended
  # to forever, so counting the whole file would keep surfacing failures the
-@@ -1625,6 +2217,7 @@
+@@ -1626,6 +2231,7 @@
      return findings
  
  
@@ -4590,7 +4417,7 @@
  _NON_COUNT_KEYS = frozenset({"rc", "exit", "status", "code"})
  
  
-@@ -1642,7 +2235,6 @@
+@@ -1643,7 +2249,6 @@
      # meaning success, not a count of zero items. Scanning values blindly
      # flagged `status=run rc=0` as an empty import and would have
      # manufactured a finding on every healthy source that reports its rc.
@@ -4598,7 +4425,7 @@
      pairs = re.findall(r"(\w+)\s*=\s*(\d+)", payload)
      counts = [v for k, v in pairs if k.lower() not in _NON_COUNT_KEYS]
      return bool(counts) and all(v == "0" for v in counts)
-@@ -1673,10 +2265,10 @@
+@@ -1674,10 +2279,10 @@
      """Surface ingest sources that were killed, or that imported nothing.
  
      THE DEFECT THIS EXISTS FOR. install.sh writes one marker per source under
@@ -4613,26 +4440,12 @@
  
          browsing   status=error  rc=124  sent=0,skipped=0
          people     status=error  rc=124  sent=0
-@@ -1768,123 +2360,779 @@
+@@ -1767,8 +2372,830 @@
+                 "category": "ingest",
+             })
      return findings
- 
- 
--def _pretty_date(iso: str | None) -> str | None:
--    """Render an ISO timestamp as a plain date, or None if unparseable.
--
--    Customer copy gets a date, never a Zulu timestamp. Returning None on a
--    bad parse lets the caller drop the clause entirely rather than print
--    something like "until None".
--    """
--    if not isinstance(iso, str) or not iso:
--        return None
--    try:
--        from datetime import datetime
--        return datetime.fromisoformat(
--            iso.replace("Z", "+00:00"),
--        ).strftime("%-d %B %Y")
--    except (ValueError, TypeError):
--        return None
++
++
 +# ===========================================================================
 +# check_scheduled_agents -- MAKE A DYING AGENT LOUD. (#595 layer 2)
 +#
@@ -4710,94 +4523,37 @@
 +    ("com.ostler.meeting-brief-sender", "your pre-meeting briefs", "meeting-brief-sender", 600),
 +)
  
--def check_licence_state(snapshot: Any) -> list[dict]:
--    """Tell the customer what their subscription is doing.
 +# How many consecutive failed ticks before the card goes critical. One bad
 +# tick can be a transient (a locked DB, a sleeping Mac). Two consecutive is a
 +# pattern, and on the .228 box it was hundreds.
 +_SCHEDULED_AGENT_CRITICAL_AFTER = 2
- 
--    THE DEFECT THIS EXISTS FOR. The Doctor had no licence surface at all.
--    Measured on the v1.0.36 box 2026-08-18: /doctor served 41,088 bytes of
--    HTML, a must-be-present control matched 87 times, and the strings
--    "licence", "license", "subscription" and "Pro" matched ZERO times. On the
--    same machine ~/.ostler/state/subscription_state.json read
--    status=active, source=first_month_free, expires_at=2026-09-17.
++
 +# Multiplier on the expected interval before "runs = 0" is worth reporting.
 +# A job legitimately shows runs = 0 in the minutes after install; it does not
 +# legitimately show runs = 0 two full windows later. Matches the 2x posture
 +# used by dashboard_components.STALE_INTERVAL_MULTIPLIER.
 +_SCHEDULED_AGENT_NEVER_RAN_AFTER = 2
- 
--    So the customer could not learn from the Doctor what they were paying
--    for or when it ended. This is not the vault tile arriving late: that
--    tile reads vault-state.json, which does not exist on that box because
--    the Markdown vault writer was never built, so it renders nothing.
++
 +_LAUNCHD_RUNS_RE = re.compile(r"^\s*runs\s*=\s*(\d+)\s*$", re.MULTILINE)
 +_LAUNCHD_EXIT_RE = re.compile(r"^\s*last exit code\s*=\s*(.+?)\s*$", re.MULTILINE)
- 
--    RULE 0.7 IS RESPECTED. VaultStateInfo's docstring records that Doctor
--    must not re-derive licence gating, because that would put the decision
--    in two components. This rule DERIVES NOTHING. It reports the status
--    subscription_gate.expire_check() already wrote. The single computed
--    field, expires_at_is_past, is a claim about our own writer being stale,
--    not about entitlement.
- 
--    THE STALE ARM RETURNS EARLY AND ON PURPOSE. If the record says "active"
--    but its expiry has passed, we say only that we cannot vouch for it. We
--    do NOT also render "Ostler Pro is active", because printing a verdict we
--    have just said is untrustworthy is how a panel launders a stale value
--    into a confident one.
++
++
 +def _scheduled_agent_state_dir():
 +    """Where the per-label streak state lives.
 +
 +    Findings themselves are computed per HTTP request and never persisted,
 +    so the streak has to be. Honours OSTLER_STATE_DIR for tests.
-     """
--    licence = getattr(snapshot, "licence_state", None)
--    if licence is None:
--        # No file. On a machine that has never had a licence written that is
--        # the honest answer, and it is NOT the same as "you are inactive".
--        return []
++    """
 +    from pathlib import Path
 +    base = os.environ.get("OSTLER_STATE_DIR") or os.path.join(
 +        os.path.expanduser("~"), ".ostler", "state",
 +    )
 +    return Path(base) / "launchd_tick_posture"
- 
--    status = (getattr(licence, "status", None) or "").strip().lower()
- 
--    if getattr(licence, "expires_at_is_past", False) and status == "active":
--        return [{
--            "severity": "warning",
--            "title": LICENCE_STALE_TITLE,
--            "detail": LICENCE_STALE_DETAIL_FMT.format(
--                status=status,
--                expires_at=_pretty_date(licence.expires_at) or licence.expires_at,
--            ),
--            "fix": LICENCE_STALE_FIX,
--            "fix_command": "",
--            "risk": "low",
--            "category": "licence",
--        }]
++
++
 +def _launchctl_print(label: str) -> "tuple[int, str]":
 +    """Ask launchd about one job. Returns (rc, combined output).
- 
--    if status == "active":
--        until = _pretty_date(getattr(licence, "expires_at", None))
--        until_clause = f" until {until}" if until else ""
--        is_trial = getattr(licence, "source", None) == "first_month_free"
--        return [{
--            "severity": "info",
--            "title": LICENCE_TRIAL_TITLE if is_trial else LICENCE_ACTIVE_TITLE,
--            "detail": (
--                LICENCE_TRIAL_DETAIL_FMT if is_trial else LICENCE_ACTIVE_DETAIL_FMT
--            ).format(until_clause=until_clause),
--            "fix": "",
--            "fix_command": "",
--            "risk": "low",
--            "category": "licence",
--        }]
++
 +    rc 127 is reserved for "there is no launchctl here", which is a
 +    CANNOT-RUN and not a verdict about the job.
 +    """
@@ -4812,25 +4568,8 @@
 +    except (OSError, subprocess.SubprocessError) as exc:
 +        return 127, f"{type(exc).__name__}: {exc}"
 +    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
- 
--    if status == "grace":
--        expired = _pretty_date(getattr(licence, "expires_at", None))
--        grace_end = _pretty_date(getattr(licence, "grace_period_end", None))
--        return [{
--            "severity": "warning",
--            "title": LICENCE_GRACE_TITLE,
--            "detail": LICENCE_GRACE_DETAIL_FMT.format(
--                expired_clause=f" on {expired}" if expired else "",
--                grace_clause=f", which runs until {grace_end}" if grace_end else "",
--            ),
--            "fix": LICENCE_GRACE_FIX,
--            "fix_command": "",
--            "risk": "low",
--            "category": "licence",
--        }]
- 
--    if status == "inactive":
--        return [{
++
++
 +def _parse_launchd_job(rc: int, out: str) -> dict:
 +    """Turn `launchctl print` output into a state, with no lossy defaults.
 +
@@ -5151,18 +4890,12 @@
 +    parked = st.get("needs_disambiguation")
 +    if isinstance(parked, int) and parked > 0:
 +        findings.append({
-             "severity": "warning",
--            "title": LICENCE_INACTIVE_TITLE,
--            "detail": LICENCE_INACTIVE_DETAIL,
--            "fix": LICENCE_INACTIVE_FIX,
--            "fix_command": "",
++            "severity": "warning",
 +            "title": PARKED_FACTS_TITLE_FMT.format(
 +                n=parked, s="" if parked == 1 else "s"),
 +            "detail": PARKED_FACTS_DETAIL,
 +            "fix": PARKED_FACTS_FIX,
-             "risk": "low",
--            "category": "licence",
--        }]
++            "risk": "low",
 +            "category": "memory",
 +            "parked_facts": parked,
 +        })
@@ -5199,12 +4932,8 @@
 +                "pending_facts": pending,
 +            })
 +    return findings
- 
--    # A status this build does not recognise. Stay quiet rather than render a
--    # raw enum the customer cannot act on, and rather than guess which of
--    # active/inactive a future value means.
--    return []
- 
++
++
 +# Where the Time Machine answer comes from. Doctor never asks tmutil itself.
 +#
 +# v1.0.121 (NEW-121, measured on the v1.0.120 box): this rule used to run
@@ -5228,7 +4957,7 @@
 +# The writer runs hourly (OSTLER_FDA_RERUN_INTERVAL_S=3600, background QoS).
 +# Six missed ticks is no longer a current answer: "could not check", not a pass.
 +TM_STATUS_MAX_AGE_SECONDS = 6 * 3600
- 
++
 +
 +def _tm_status_path() -> str:
 +    """~/.ostler/state/time_machine_exclusion.tsv, from HOME like the writer.
@@ -5490,11 +5219,111 @@
 +    return findings
 +
 +
- def _minors_registry_path():
-     """Same resolution as the ingest loader (PWG services/ingest/src/minors.py):
-     env OSTLER_MINORS_FILE, else ~/.ostler/minors.json."""
-@@ -1936,12 +3184,16 @@
++def _minors_registry_path():
++    """Same resolution as the ingest loader (PWG services/ingest/src/minors.py):
++    env OSTLER_MINORS_FILE, else ~/.ostler/minors.json."""
++    from pathlib import Path
++    return Path(os.environ.get("OSTLER_MINORS_FILE") or (Path.home() / ".ostler" / "minors.json"))
++
++
++def check_minors_registry(snapshot: Any) -> list[dict]:
++    """Doctor row for an unreadable under-18 list.
++
++    Mirrors ``MinorsRegistry.load``: file absent = nobody marked, no row.
++    Present but not a JSON object holding a ``minors`` list = the ingest
++    raises and imports stop, so say so. The file holds children's names:
++    nothing from it is logged or put in the finding (the exception CLASS
++    only).
++    """
++    import json
++    import shlex
++
++    findings: list[dict] = []
++    path = _minors_registry_path()
++    if not path.exists():
++        return findings
++    try:
++        data = json.loads(path.read_text(encoding="utf-8"))
++        if not isinstance(data["minors"], list):
++            raise TypeError("minors must be a list")
++        # The ingest loader also builds the registry here, so an entry that is
++        # not an object, or whose names/identifiers cannot be iterated, stops
++        # imports too (it surfaces as a raw AttributeError/TypeError there).
++        for entry in data["minors"]:
++            entry.get("slug")
++            iter(entry.get("names", []))
++            iter(entry.get("identifiers", []))
++    except Exception as exc:
++        log.warning("under-18 list unreadable: %s", type(exc).__name__)
++        quoted = shlex.quote(str(path))
++        findings.append({
++            "severity": "critical",
++            "title": MINORS_UNREADABLE_TITLE,
++            "detail": MINORS_UNREADABLE_DETAIL_FMT.format(path=str(path)),
++            "fix": MINORS_UNREADABLE_FIX,
++            "fix_command": MINORS_UNREADABLE_FIX_COMMAND_FMT.format(path=quoted),
++            "risk": "low",
++            "category": "privacy",
++        })
++    return findings
++
++
+ def _pretty_date(iso: str | None) -> str | None:
+     """Render an ISO timestamp as a plain date, or None if unparseable.
  
+@@ -1891,63 +3318,18 @@
+     return []
+ 
+ 
+-def _minors_registry_path():
+-    """Same resolution as the ingest loader (PWG services/ingest/src/minors.py):
+-    env OSTLER_MINORS_FILE, else ~/.ostler/minors.json."""
+-    from pathlib import Path
+-    return Path(os.environ.get("OSTLER_MINORS_FILE") or (Path.home() / ".ostler" / "minors.json"))
+-
+-
+-def check_minors_registry(snapshot: Any) -> list[dict]:
+-    """Doctor row for an unreadable under-18 list.
+-
+-    Mirrors ``MinorsRegistry.load``: file absent = nobody marked, no row.
+-    Present but not a JSON object holding a ``minors`` list = the ingest
+-    raises and imports stop, so say so. The file holds children's names:
+-    nothing from it is logged or put in the finding (the exception CLASS
+-    only).
+-    """
+-    import json
+-    import shlex
+-
+-    findings: list[dict] = []
+-    path = _minors_registry_path()
+-    if not path.exists():
+-        return findings
+-    try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
+-        if not isinstance(data["minors"], list):
+-            raise TypeError("minors must be a list")
+-        # The ingest loader also builds the registry here, so an entry that is
+-        # not an object, or whose names/identifiers cannot be iterated, stops
+-        # imports too (it surfaces as a raw AttributeError/TypeError there).
+-        for entry in data["minors"]:
+-            entry.get("slug")
+-            iter(entry.get("names", []))
+-            iter(entry.get("identifiers", []))
+-    except Exception as exc:
+-        log.warning("under-18 list unreadable: %s", type(exc).__name__)
+-        quoted = shlex.quote(str(path))
+-        findings.append({
+-            "severity": "critical",
+-            "title": MINORS_UNREADABLE_TITLE,
+-            "detail": MINORS_UNREADABLE_DETAIL_FMT.format(path=str(path)),
+-            "fix": MINORS_UNREADABLE_FIX,
+-            "fix_command": MINORS_UNREADABLE_FIX_COMMAND_FMT.format(path=quoted),
+-            "risk": "low",
+-            "category": "privacy",
+-        })
+-    return findings
+-
+-
  ALL_RULES = [
      check_minors_registry,
 +    check_scheduled_agents,
@@ -5511,7 +5340,7 @@
      check_redis_health,
      check_gateway_health,
      check_import_readiness,
-@@ -1955,10 +3207,13 @@
+@@ -1961,10 +3343,14 @@
      check_mail_content,
      check_backfill_progress,
      check_imessage_fda,
@@ -5522,6 +5351,7 @@
      check_conversation_dispatch_failures,
 -    check_vault_state,
 +    check_licence_expiry,
++    check_licence_state,
 +    check_parked_facts,
 +    check_time_machine_exclusion,
  ]
@@ -5773,7 +5603,7 @@
 +        how_to_fix = (
 +            '\n                <details style="margin-top:8px">'
 +            '\n                    <summary style="cursor:pointer;font-size:12px;'
-+            "color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',"
++            "color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',"
 +            'Menlo,monospace;letter-spacing:0.04em">'
 +            f"\n                        {html.escape(_HOW_TO_FIX_LABEL)}"
 +            "\n                    </summary>"
@@ -6490,74 +6320,6 @@
 +            "category": "configuration",
 +        })
 +    return findings
---- a/agent/first_run.py
-+++ b/agent/first_run.py
-@@ -220,18 +220,13 @@
- 
- 
- # The wizard's four status colours, NAMED so a test can assert "the green this
--# module uses" rather than pinning a literal. Two tests asserted the hex codes
--# directly and went red the moment the palette moved, which is a snapshot
--# wearing the costume of a contract: the property is that a complete step reads
--# green and a needed one reads as the brand's red, not that green is any
--# particular six digits.
--#
--# Values are the marketing stylesheet's tokens (OS001 assets/ostler.css :root),
--# not invented here: --accent-3 #2C4A2C, --accent-warm #A82A2A, --ink #14120e.
-+# module uses" rather than pinning a literal (HR015 #979, fd10f28). Values are
-+# the brand tokens already used by this tree's light palette, except "blocked",
-+# which was a near-black grey (#4a4540) and is now the brand's muted grey.
- STATUS_COLOUR = {
-     "complete": "#2C4A2C",
--    "partial": "#8A6D1F",
--    "needed": "#A82A2A",
-+    "partial": "#5C4611",
-+    "needed": "#7A1F1F",
-     "blocked": "#6B655C",
- }
- STATUS_COLOUR_UNKNOWN = "rgba(20,18,14,0.40)"
-@@ -285,12 +280,8 @@
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-         * {{ margin:0; padding:0; box-sizing:border-box; }}
-         :root {{
--            /* Ostler LIGHT palette, the brand's own (OS001 assets/ostler.css).
--               This block said "dark palette" and rebound --amber to one of
--               the banned bright reds with a comment claiming it was oxblood.
--               The value is not spelled here: a comment naming a banned colour
--               makes every future audit grep report this file as carrying it,
--               which is how a clean file starts reading dirty. The wizard
-+            /* Ostler LIGHT palette (HR015 #979: --bg was still the Lifeline ground
-+               under light cards and dark text). The wizard
-                shares the dashboard's tokens so the welcome -> dashboard
-                transition feels seamless. */
-             --bg: #F8F8F4;
-@@ -306,7 +297,7 @@
-                Rebind to oxblood so the wording stays the same but the
-                surface reads brand-true. */
-             --amber: #7A1F1F;
--            --amber-light: #A82A2A;
-+            --amber-light: #7A1F1F;
-             --amber-glow: rgba(122, 31, 31, 0.18);
-             --font-display: 'Outfit', -apple-system, system-ui, sans-serif;
-             --font-body: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
-@@ -364,7 +355,7 @@
-             color: var(--text-primary);
-             background: var(--bg-elevated);
-             transform: translateY(-1px);
--            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-+            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-         }}
-         .done-box {{
-             background: var(--amber-glow);
-@@ -373,7 +364,7 @@
-             padding: 28px;
-             text-align: center;
-             margin-top: 36px;
--            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 8px 24px rgba(0,0,0,0.32);
-+            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 8px 24px rgba(20,18,14,0.08);
-         }}
-         .done-box h2 {{
-             font-family: var(--font-display);
 --- a/agent/import_evernote.py
 +++ b/agent/import_evernote.py
 @@ -98,7 +98,14 @@
@@ -7904,18 +7666,6 @@
 +    if out is not None and out.returncode != 0:
 +        result["error"] = "tailscale did not accept the change"
 +    return result
---- a/agent/requirements.txt
-+++ b/agent/requirements.txt
-@@ -1,5 +1,5 @@
--fastapi>=0.162.6,<1.0
--uvicorn>=0.52.4,<1.0
-+fastapi>=0.115.0,<1.0
-+uvicorn>=0.32.0,<1.0
- httpx>=0.28.1,<1.0
--pyyaml>=6.0.3,<7.0
--qrcode>=8.2,<9.0
-+pyyaml>=6.0,<7.0
-+qrcode>=7.4,<9.0
 --- /dev/null
 +++ b/agent/routine_status.py
 @@ -0,0 +1,150 @@
@@ -8211,26 +7961,38 @@
  
  HTTP_TIMEOUT = 5.0  # seconds
  
-@@ -207,137 +222,6 @@
+@@ -207,87 +222,42 @@
  
  
  @dataclass
 -class VaultStateInfo:
 -    """Markdown vault materialisation state (v1.0.13, BRIEF_pro_vault_writer).
--
++class HydrateMarkerInfo:
++    """One ``~/.ostler/state/hydrate/<source>.done`` marker.
+ 
 -    Persisted at ``~/.ostler/vault-state.json`` by the CM044 wiki
 -    compiler's materialise-to-disk writer. Doctor is READ-ONLY here --
 -    it never enumerates ``~/Documents/Ostler/`` itself (that is user
 -    territory); it only reflects whatever the writer last recorded.
--
++    install.sh writes one of these per ingest source at the end of the
++    hydration phase (``_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"``).
++    Format is flat ``key=value`` lines::
+ 
 -    This dataclass mirrors the load-bearing subset of the LOCK-3
 -    canonical schema pinned in ``launch/BRIEF_pro_vault_writer_v1.0.13.md``
 -    (owner-locked 2026-07-30). CM044 writes ALL fields; CM024 + oa read
 -    what they need. Nobody derives -- if the writer did not persist a
 -    field, Doctor treats it as absent, never re-computes it.
--
++        recorded_at=2026-08-18T12:08:14Z
++        source=people
++        status=error
++        rc=124
++        payload=sent=0
+ 
 -    LOCK-3 canonical field map (the file on disk):
--
++    Note ``payload`` legitimately contains further ``=`` signs, so it is split
++    on the FIRST ``=`` only.
+ 
 -    - ``schema_version`` (int, 1) -- current schema. Anything else is
 -      treated as unknown and the state is dropped (fail-closed).
 -    - ``vault_path`` (str) -- absolute path where the writer writes
@@ -8281,8 +8043,13 @@
 -    Any unrecognised ``status`` value (including one this Doctor
 -    build does not yet know about) collapses to "none" so we render
 -    nothing rather than a state we don't understand.
--    """
--
++    VENDOR PLACEMENT NOTE: upstream declares this immediately after
++    ``class VaultStateInfo``. That class is the Pro vault surface and is
++    DELIBERATELY NOT VENDORED here, so the upstream patch cannot apply and
++    this declaration sits before ``SystemSnapshot`` instead. The anchor was
++    incidental -- hydrate markers have no dependency on the vault.
+     """
+ 
 -    schema_version: int | None = None
 -    vault_path: str | None = None
 -    status: str | None = None
@@ -8296,73 +8063,63 @@
 -    total_pages: int | None = None
 -    preview_page_count: int | None = None
 -    changed_since_last_write: int | None = None
++    source: str = ""
++    status: str = ""
++    rc: int | None = None
++    payload: str = ""
++    recorded_at: str = ""
++    # WHY the source had no input, when status=no_data. install.sh writes
++    # `detail=no_app` / `detail=no_export_json` / `detail=zero_payload_
++    # undeclared`, and this field was PARSED and then discarded (HR015 #580):
++    # the loop above reads every key=value pair, and the constructor below
++    # forwarded five of them. So the Doctor had the reason in hand and threw
++    # it away, which is part of why the rule could not tell a customer who
++    # does not use WhatsApp from an import that died.
++    detail: str = ""
+ 
+ 
+ @dataclass
+@@ -343,39 +313,6 @@
+ 
+ 
+ @dataclass
+-class HydrateMarkerInfo:
+-    """One ``~/.ostler/state/hydrate/<source>.done`` marker.
 -
+-    install.sh writes one of these per ingest source at the end of the
+-    hydration phase (``_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"``).
+-    Format is flat ``key=value`` lines::
 -
--@dataclass
--class LicenceStateInfo:
--    """What ``subscription_state.json`` currently records.
+-        recorded_at=2026-08-18T12:08:14Z
+-        source=people
+-        status=error
+-        rc=124
+-        payload=sent=0
 -
--    WHY THIS EXISTS SEPARATELY FROM ``VaultStateInfo``.
--
--    ``VaultStateInfo.pro_state`` is written by the LOCK-3 Markdown vault
--    writer, and that writer has not been built. On a real v1.0.36 box
--    ``~/.ostler/vault-state.json`` does not exist at all, so
--    ``collect_vault_state()`` returns None, the tile renders nothing, and
--    the whole Doctor page contains the strings "licence", "license",
--    "subscription" and "Pro" exactly ZERO times. Measured on .224:
--    41,088 bytes of HTML, 87 hits for a must-be-present control, 0 hits
--    for any licence word. Meanwhile the customer had an ACTIVE
--    subscription recorded on the same machine.
--
--    So this is not the vault's licence field arriving late. It is a
--    separate fact, with a separate owner, that no Doctor surface read.
--
--    RULE 0.7 IS RESPECTED, AND DELIBERATELY SO. ``VaultStateInfo``'s
--    docstring records that Doctor must not re-derive vault status from
--    the licence cache, because that would duplicate licence-gating
--    across two components. This collector does not derive ANYTHING. It
--    reports the ``status`` that ``subscription_gate.expire_check()``
--    already wrote. The decision stays in the gate; only the display
--    lives here. The one thing it does compute is whether the gate's own
--    state looks STALE (see ``expires_at_is_past``), which is a statement
--    about the writer, not about entitlement.
--
--    Field names are taken verbatim from
--    ``vendor/cm041/assistant_api/subscription_gate.py`` so a rename on
--    the writer side breaks the cross-component test rather than silently
--    emptying this tile.
+-    Note ``payload`` legitimately contains further ``=`` signs, so it is split
+-    on the FIRST ``=`` only.
 -    """
 -
--    status: str | None = None
--    source: str | None = None
--    expires_at: str | None = None
--    grace_period_end: str | None = None
--    last_validated_at: str | None = None
--    # True when ``expires_at`` is in the past while ``status`` still
--    # reads "active". That combination means expire_check() has not run,
--    # not that the customer is entitled. Surfaced so a stale gate cannot
--    # masquerade as a healthy subscription.
--    expires_at_is_past: bool = False
+-    source: str = ""
+-    status: str = ""
+-    rc: int | None = None
+-    payload: str = ""
+-    recorded_at: str = ""
+-    # WHY the source had no input, when status=no_data. install.sh writes
+-    # `detail=no_app` / `detail=no_export_json` / `detail=zero_payload_
+-    # undeclared`, and this field was PARSED and then discarded (HR015 #580):
+-    # the loop above reads every key=value pair, and the constructor below
+-    # forwarded five of them. So the Doctor had the reason in hand and threw
+-    # it away, which is part of why the rule could not tell a customer who
+-    # does not use WhatsApp from an import that died.
+-    detail: str = ""
 -
 -
 -@dataclass
- class HydrateMarkerInfo:
-     """One ``~/.ostler/state/hydrate/<source>.done`` marker.
- 
-@@ -353,6 +237,12 @@
- 
-     Note ``payload`` legitimately contains further ``=`` signs, so it is split
-     on the FIRST ``=`` only.
-+
-+    VENDOR PLACEMENT NOTE: upstream declares this immediately after
-+    ``class VaultStateInfo``. That class is the Pro vault surface and is
-+    DELIBERATELY NOT VENDORED here, so the upstream patch cannot apply and
-+    this declaration sits before ``SystemSnapshot`` instead. The anchor was
-+    incidental -- hydrate markers have no dependency on the vault.
-     """
- 
-     source: str = ""
-@@ -393,33 +283,27 @@
+ class SystemSnapshot:
+     timestamp: str = ""
+     hostname: str | None = None
+@@ -398,33 +335,27 @@
      docker_version: str | None = None
      pipeline_signals: PipelineSignalsInfo | None = None
      backfill_checkpoint: BackfillCheckpointInfo | None = None
@@ -8410,20 +8167,25 @@
      ram_total_gb: float | None = None
      ram_available_gb: float | None = None
  
-@@ -432,7 +316,12 @@
+@@ -436,8 +367,17 @@
+     # is that the rule fails VISIBLY if it ever raises again.
      last_import_date: datetime | None = None
      current_date: datetime | None = None
- 
++
 +    # Per-platform GDPR export state: export_status.read_high_water() output
 +    # ({status, marks, error}). Read by check_gdpr_export_age and the "Your data
 +    # exports" section. None means not collected.
 +    export_imports: dict | None = None
  
++    # Read from subscription_state.json, which exists on every installed box
++    # (HR015 LicenceStateInfo, taken at the 134 doctor re-pin).
++    licence_state: LicenceStateInfo | None = None
+ 
 +
  # ---------------------------------------------------------------------------
  # Collector functions – each gathers one category of safe data
  # ---------------------------------------------------------------------------
-@@ -615,6 +504,13 @@
+@@ -620,6 +560,13 @@
          ("redis", None, None),  # special case: TCP check
          ("ollama", OLLAMA_URL, "/"),
          ("gateway", GATEWAY_URL, "/health"),
@@ -8437,13 +8199,10 @@
      ]
  
      results = []
-@@ -859,248 +755,9 @@
-         backfill_complete=bool(data.get("backfill_complete", False)),
-         last_run_at=_safe_iso_string(data.get("last_run_at")),
-         last_emit_count=_safe_int(data.get("last_emit_count")) or 0,
--    )
--
--
+@@ -867,159 +814,44 @@
+     )
+ 
+ 
 -def _vault_state_path() -> Path:
 -    """Where the CM044 vault writer persists its own state (v1.0.13).
 -
@@ -8451,7 +8210,9 @@
 -    canonical env var: writer + Doctor + oa all agree on this name),
 -    then ``OSTLER_HOME`` (matching ``imessage_tcc_posture`` /
 -    ``config_panel``), then the home-dir default.
--
++def _safe_iso_string(value) -> str | None:
++    """Return ``value`` if it is a non-empty string, else ``None``.
+ 
 -    NOTE: this file lives directly under ``~/.ostler/`` (not the
 -    ``~/.ostler/state/`` sub-directory used by ``pipeline_signals.json``
 -    and the backfill checkpoint) -- that is the exact path LOCK-3
@@ -8459,7 +8220,11 @@
 -    "tidying" it into the existing state sub-directory. Moving the
 -    canonical path is a cross-repo contract change, not a Doctor-side
 -    choice.
--    """
++    No format validation -- we just pass through whatever the writer
++    set so the rule layer can parse on demand. Empty string + None
++    both collapse to None for the cleaner ``getattr(..., "...")``
++    pattern in rules.
+     """
 -    raw = os.environ.get("OSTLER_VAULT_STATE_FILE")
 -    if raw:
 -        return Path(raw)
@@ -8467,8 +8232,11 @@
 -    if home:
 -        return Path(home) / "vault-state.json"
 -    return Path.home() / ".ostler" / "vault-state.json"
--
--
++    if isinstance(value, str) and value.strip():
++        return value
++    return None
+ 
+ 
 -# LOCK-3: recognised ``status`` values. Anything else collapses to
 -# "none" so Doctor renders nothing rather than a state it does not
 -# understand yet (forward-compatible with future writer versions
@@ -8516,16 +8284,20 @@
 -    """
 -    path = _vault_state_path()
 -    if not path.exists():
--        return None
--    try:
++def _safe_int(value) -> int | None:
++    if value is None:
+         return None
+     try:
 -        data = json.loads(path.read_text(encoding="utf-8"))
 -    except (OSError, json.JSONDecodeError) as exc:
 -        logger.warning("vault-state.json unreadable/malformed at %s: %s", path, exc)
--        return None
++        return int(value)
++    except (TypeError, ValueError):
+         return None
 -    if not isinstance(data, dict):
 -        logger.warning("vault-state.json at %s is not a JSON object", path)
 -        return None
--
+ 
 -    schema_version = _safe_int(data.get("schema_version"))
 -    if schema_version is not None and schema_version != _VAULT_SCHEMA_VERSION_CURRENT:
 -        logger.warning(
@@ -8534,7 +8306,7 @@
 -            path, schema_version, _VAULT_SCHEMA_VERSION_CURRENT,
 -        )
 -        return None
--
+ 
 -    status = data.get("status")
 -    if status not in _VAULT_STATUS_VALUES:
 -        status = "none"
@@ -8553,7 +8325,21 @@
 -    else:
 -        pro_state = None
 -        licence_last_transition_at = None
--
++def _safe_bool(value) -> bool | None:
++    if isinstance(value, bool):
++        return value
++    if value is None:
++        return None
++    # Accept JSON-style "true" / "false" strings the installer might
++    # emit via shell-side jq.
++    if isinstance(value, str):
++        v = value.strip().lower()
++        if v in ("true", "1", "yes"):
++            return True
++        if v in ("false", "0", "no"):
++            return False
++    return None
+ 
 -    counts_raw = data.get("counts")
 -    if isinstance(counts_raw, dict):
 -        total_pages = _safe_int(counts_raw.get("total_pages"))
@@ -8565,7 +8351,7 @@
 -        total_pages = None
 -        preview_page_count = None
 -        changed_since_last_write = None
--
+ 
 -    preview_raw = data.get("preview")
 -    if isinstance(preview_raw, dict):
 -        preview_written_at = _safe_iso_string(preview_raw.get("written_at"))
@@ -8597,108 +8383,67 @@
 -    )
 -
 -
--def _licence_state_path() -> Path:
--    """Resolve subscription_state.json, honouring the writer's own override.
--
--    ``OSTLER_SUBSCRIPTION_STATE`` is read because that is exactly what
--    ``subscription_gate._state_file()`` reads. If the two disagreed, a test
--    or a relocated install would point the writer at one file and Doctor at
--    another, and Doctor would report on a file nobody writes.
--    """
--    override = os.environ.get("OSTLER_SUBSCRIPTION_STATE")
--    if override:
--        return Path(override)
--    return Path.home() / ".ostler" / "state" / "subscription_state.json"
--
--
--def _parse_iso_utc(value: str | None) -> datetime | None:
--    """Parse the writer's Zulu ISO-8601. Returns None on anything unexpected."""
--    if not isinstance(value, str) or not value:
--        return None
--    try:
--        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
--    except (ValueError, TypeError):
--        return None
--    if parsed.tzinfo is None:
--        parsed = parsed.replace(tzinfo=timezone.utc)
--    return parsed
--
--
--def collect_licence_state(now: datetime | None = None) -> LicenceStateInfo | None:
--    """Read ``subscription_state.json``. Doctor is READ-ONLY here.
--
--    ``now`` names the clock ``expires_at_is_past`` is measured against, and
--    defaults to the real one, so production behaviour is unchanged. It exists
--    because the only honest fixture for this reader is a REAL box record, and
--    a real record carries real dates that stop being in the future. Measured
--    2026-09-17: the recorded box state expired at 12:12:28Z, the suite went
--    red twenty hours later without a line of code changing, and nothing on
--    main had run since, so the repository was red and nobody knew. A test that
--    reads the wall clock is a test with an expiry date on it.
--
--    Returns ``None`` when the file is absent, unreadable or not a JSON
--    object. Absent is the honest answer on a machine that has never had a
--    licence written, and it is NOT the same as "no subscription": the
--    render layer must distinguish "we have nothing to say" from
--    "we looked and you are inactive".
--
--    RULE 0.7. This does not decide entitlement. ``status`` is reported
--    exactly as ``subscription_gate.expire_check()`` last wrote it. The one
--    derived field, ``expires_at_is_past``, is a statement about the WRITER
--    being stale, not about the customer being entitled: status "active"
--    with an expiry in the past means expire_check has not run, and a
--    surface that showed "active" there would be repeating a stale claim
--    rather than reporting one.
--    """
--    path = _licence_state_path()
--    if not path.exists():
--        return None
--    try:
--        data = json.loads(path.read_text(encoding="utf-8"))
--    except (OSError, json.JSONDecodeError) as exc:
--        logger.warning("subscription_state.json unreadable at %s: %s", path, exc)
--        return None
--    if not isinstance(data, dict):
--        logger.warning("subscription_state.json at %s is not a JSON object", path)
--        return None
--
--    status = data.get("status")
--    if not isinstance(status, str):
--        status = None
--
--    expires_at = _safe_iso_string(data.get("expires_at"))
--    expires_dt = _parse_iso_utc(expires_at)
--    expires_at_is_past = bool(
--        expires_dt is not None
--        and expires_dt < (now or datetime.now(timezone.utc))
+ def _licence_state_path() -> Path:
+     """Resolve subscription_state.json, honouring the writer's own override.
+ 
+@@ -1108,44 +940,6 @@
      )
  
--    return LicenceStateInfo(
--        status=status,
--        source=data.get("source") if isinstance(data.get("source"), str) else None,
--        expires_at=expires_at,
--        grace_period_end=_safe_iso_string(data.get("grace_period_end")),
--        last_validated_at=_safe_iso_string(data.get("last_validated_at")),
--        expires_at_is_past=expires_at_is_past,
--    )
  
+-def _safe_iso_string(value) -> str | None:
+-    """Return ``value`` if it is a non-empty string, else ``None``.
 -
- def _safe_iso_string(value) -> str | None:
-     """Return ``value`` if it is a non-empty string, else ``None``.
- 
-@@ -1155,10 +812,9 @@
+-    No format validation -- we just pass through whatever the writer
+-    set so the rule layer can parse on demand. Empty string + None
+-    both collapse to None for the cleaner ``getattr(..., "...")``
+-    pattern in rules.
+-    """
+-    if isinstance(value, str) and value.strip():
+-        return value
+-    return None
+-
+-
+-def _safe_int(value) -> int | None:
+-    if value is None:
+-        return None
+-    try:
+-        return int(value)
+-    except (TypeError, ValueError):
+-        return None
+-
+-
+-def _safe_bool(value) -> bool | None:
+-    if isinstance(value, bool):
+-        return value
+-    if value is None:
+-        return None
+-    # Accept JSON-style "true" / "false" strings the installer might
+-    # emit via shell-side jq.
+-    if isinstance(value, str):
+-        v = value.strip().lower()
+-        if v in ("true", "1", "yes"):
+-            return True
+-        if v in ("false", "0", "no"):
+-            return False
+-    return None
+-
+-
+ def collect_full_snapshot() -> SystemSnapshot:
+     """
+     Collect a complete safe diagnostic snapshot.
+@@ -1162,10 +956,10 @@
      network = collect_network_checks()
      pipeline_signals = collect_pipeline_signals()
      backfill_checkpoint = collect_backfill_checkpoint()
 -    vault_state = collect_vault_state()
--    licence_state = collect_licence_state()
+     licence_state = collect_licence_state()
      ram_total_gb, ram_available_gb = collect_memory()
      hydrate_markers = collect_hydrate_markers()
 +    export_imports = export_status.collect_import_state()
  
      return SystemSnapshot(
          timestamp=datetime.now(timezone.utc).isoformat(),
-@@ -1174,11 +830,10 @@
+@@ -1181,11 +975,11 @@
          docker_version=docker_version,
          pipeline_signals=pipeline_signals,
          backfill_checkpoint=backfill_checkpoint,
@@ -8708,10 +8453,11 @@
          ram_total_gb=ram_total_gb,
          ram_available_gb=ram_available_gb,
 +        export_imports=export_imports,
++        licence_state=licence_state,
      )
  
  
-@@ -1233,8 +888,7 @@
+@@ -1240,8 +1034,7 @@
      """Where install.sh writes per-source ingest markers.
  
      Mirrors ``_HYDRATE_SENTINEL_DIR="${OSTLER_DIR}/state/hydrate"``.
@@ -8721,7 +8467,7 @@
      """
      base = os.environ.get("OSTLER_STATE_DIR")
      if base:
-@@ -1249,6 +903,11 @@
+@@ -1256,6 +1049,11 @@
      on a machine that has not run hydration yet. A parse failure on ONE file
      does not discard the others: a single corrupt marker must not hide seven
      good ones, which is the failure mode this whole change exists to remove.
@@ -8733,11 +8479,10 @@
      """
      d = _hydrate_dir()
      try:
-@@ -1286,4 +945,185 @@
-             recorded_at=fields.get("recorded_at", ""),
+@@ -1294,3 +1092,184 @@
              detail=fields.get("detail", ""),
          ))
-+    return out
+     return out
 +
 +
 +# ---------------------------------------------------------------------------
@@ -8806,7 +8551,7 @@
 +            at = None
 +        out.append(WikiCompileKill(phase, rc, cause, at))
 +    out.sort(key=lambda k: k.at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-     return out
++    return out
 +
 +
 +# ---------------------------------------------------------------------------
@@ -9462,8 +9207,8 @@
 +
 +CROSS_SITE_REFUSAL_DETAIL = (
 +    "refused: this Hub credential route is not available to another site"
-+)
-+
+ )
+ 
 +
 +# ── Hub-screen-only routes ───────────────────────────────────────────
 +#
@@ -9504,8 +9249,8 @@
 +_HUB_LOCAL_HOST_NAMES = (
 +    "127.0.0.1", "localhost", "[::1]", "::1",
 +    "[::ffff:127.0.0.1]", "::ffff:127.0.0.1",
- )
- 
++)
++
 +HUB_SCREEN_ONLY_DETAIL = (
 +    "refused: the pairing panel is served to the Hub's own screen only"
 +)
@@ -9834,33 +9579,6 @@
  _RECOVERY_KEY_RE = re.compile(r"\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{2,6}){3,9}\b")
  
  # Slugified email addresses. `_EMAIL_RE` requires a literal `@`, but the wiki
-@@ -1249,7 +1534,7 @@
-     # Build service status cards
-     service_cards = ""
-     for svc in snapshot.services:
--        color = {"healthy": "#2C4A2C", "unhealthy": "#8A6D1F", "unreachable": "#A82A2A"}.get(svc.status, "rgba(20, 18, 14,0.40)")
-+        color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(svc.status, "rgba(236,232,221,0.40)")
-         icon = {"healthy": "&#10003;", "unhealthy": "&#9888;", "unreachable": "&#10007;"}.get(svc.status, "?")
-         service_cards += f"""
-         <div class="status-card">
-@@ -1274,7 +1559,7 @@
-     )
-     container_cards = ""
-     for c in snapshot.docker_containers:
--        color = {"running": "#2C4A2C", "exited": "#A82A2A", "paused": "#8A6D1F"}.get(c.state, "rgba(20, 18, 14,0.40)")
-+        color = {"running": "#2C4A2C", "exited": "#7A1F1F", "paused": "#5C4611"}.get(c.state, "rgba(236,232,221,0.40)")
-         container_cards += f"""
-         <div class="status-card">
-             <div class="status-indicator" style="background:{color}">&#9632;</div>
-@@ -1295,7 +1580,7 @@
-     # Build disk usage
-     disk_items = ""
-     for d in snapshot.disk_usage:
--        bar_color = "#2C4A2C" if d.percent_used < 80 else "#8A6D1F" if d.percent_used < 95 else "#A82A2A"
-+        bar_color = "#2C4A2C" if d.percent_used < 80 else "#5C4611" if d.percent_used < 95 else "#7A1F1F"
-         disk_items += f"""
-         <div class="disk-item">
-             <div class="disk-label">{d.mount_point}</div>
 @@ -1339,6 +1624,21 @@
      # the same productisation-posture story as the iMessage tile.
      reminders_section = render_reminders_posture()
@@ -9883,7 +9601,7 @@
      # Reminders runtime push outcome (task #279, runtime half): reads
      # CM048's reminders_map SQLite table for what actually happened when
      # the assistant pushed extracted commitments to the Reminders app.
-@@ -1348,20 +1648,34 @@
+@@ -1348,15 +1648,29 @@
      # install-time tile cannot: access granted at install, later revoked.
      reminders_runtime_section = render_reminders_runtime()
  
@@ -9921,42 +9639,6 @@
  
      # Build findings
      findings_html = ""
-     for f in findings:
--        sev_color = {"critical": "#A82A2A", "warning": "#8A6D1F", "info": "#2C4A2C"}.get(f["severity"], "rgba(20, 18, 14,0.40)")
-+        sev_color = {"critical": "#7A1F1F", "warning": "#5C4611", "info": "#2C4A2C"}.get(f["severity"], "rgba(236,232,221,0.40)")
-         sev_icon = {"critical": "&#9888;", "warning": "&#9888;", "info": "&#10003;"}.get(f["severity"], "?")
-         fix_html = ""
-         if f.get("fix_command"):
-@@ -1408,14 +1722,14 @@
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
- 
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-             --ostler-panel: #FFFFFF;
-             --ostler-panel-elev: #FFFFFF;
--            --ostler-chassis: #14120e;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
--            --ostler-accent-warm: #A82A2A;
-+            --ostler-accent-warm: #7A1F1F;
-             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
-             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-@@ -1424,8 +1738,8 @@
-             --text-muted: rgba(20, 18, 14, 0.50);
-             --text-faint: rgba(20, 18, 14, 0.32);
-             --green: #2C4A2C;
--            --red: #A82A2A;
--            --yellow: #8A6D1F;
-+            --red: #7A1F1F;
-+            --yellow: #5C4611;
-             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
-             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 @@ -1487,6 +1801,7 @@
              display: inline-flex;
              align-items: center;
@@ -9965,15 +9647,6 @@
          }}
          .refresh-btn:hover, .auto-refresh-btn:hover {{
              border-color: var(--ostler-accent);
-@@ -1549,7 +1864,7 @@
-             font-size: 0.9rem;
-             color: white;
-             flex-shrink: 0;
--            box-shadow: 0 0 10px rgba(20,18,14,0.05);
-+            box-shadow: 0 0 10px rgba(0,0,0,0.20);
-         }}
-         .status-name {{
-             font-family: var(--font-display);
 @@ -1881,6 +2196,7 @@
              </div>
              <div>
@@ -9982,17 +9655,18 @@
                      <button class="refresh-btn" onclick="manualRefresh()">{DASHBOARD_BTN_REFRESH}</button>
                      <button class="auto-refresh-btn active" id="autoRefreshBtn" onclick="toggleAutoRefresh()">{DASHBOARD_BTN_AUTO_ON}</button>
                      <button class="refresh-btn" id="emailReportBtn" onclick="sendByEmail()" title="{DASHBOARD_BTN_EMAIL_TITLE}">{DASHBOARD_BTN_EMAIL}</button>
-@@ -1913,12 +2229,20 @@
-         {imessage_tcc_section}
+@@ -1914,10 +2230,18 @@
  
          {reminders_section}
-+
-+        {documents_access_section}
  
-         {reminders_runtime_section}
++        {documents_access_section}
 +
+         {reminders_runtime_section}
+-        {source_status_section}
+ 
+-        {vault_state_section}
 +        {whatsapp_keepalive_section}
-         {source_status_section}
++        {source_status_section}
 +        {export_section}
 +        {derived_preferences_section}
 +        {engine_watchdog_section}
@@ -10000,110 +9674,17 @@
 +        {shared_prefix_section}
 +        {people_index_section}
  
--        {vault_state_section}
--
          <div class="section">
              <div class="section-title">{DASHBOARD_SECTION_MODELS}</div>
-             <ul class="model-list" id="modelsContent">{model_items}</ul>
-@@ -1931,7 +2255,7 @@
- 
-         <div class="section" id="supportSection">
-             <div class="section-title">{SUPPORT_SECTION_TITLE}</div>
--            <p style="color:#6B655C; line-height:1.6; margin-bottom:1rem;">
-+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
-                 {SUPPORT_SECTION_INTRO}
-             </p>
-             <div class="header-controls" style="flex-wrap:wrap; gap:0.5rem;">
-@@ -1943,10 +2267,10 @@
- 
-         <div class="chat-section">
-             <div class="section-title">{DASHBOARD_SECTION_HELP}</div>
--            <p style="color:#6B655C; line-height:1.6; margin-bottom:1rem;">
-+            <p style="color:#4A463F; line-height:1.6; margin-bottom:1rem;">
-                 {DASHBOARD_HELP_PARAGRAPH_1}
-             </p>
--            <p style="color:#6B655C; line-height:1.6; font-size:0.85rem;">
-+            <p style="color:#4A463F; line-height:1.6; font-size:0.85rem;">
-                 {DASHBOARD_HELP_PARAGRAPH_2}
-             </p>
-         </div>
-@@ -1998,9 +2322,9 @@
-             // Update findings
-             let fhtml = '';
-             findings.forEach(f => {{
--                const sevColors = {{critical:'#A82A2A',warning:'#8A6D1F',info:'#2C4A2C'}};
-+                const sevColors = {{critical:'#7A1F1F',warning:'#5C4611',info:'#2C4A2C'}};
-                 const sevIcons = {{critical:'&#9888;',warning:'&#9888;',info:'&#10003;'}};
--                const sc = sevColors[f.severity]||'rgba(20, 18, 14,0.40)';
-+                const sc = sevColors[f.severity]||'rgba(236,232,221,0.40)';
-                 const si = sevIcons[f.severity]||'?';
-                 let fixHtml = '';
-                 if (f.fix_command) {{
-@@ -2031,10 +2355,10 @@
-             // Update services
-             let shtml = '';
-             snap.services.forEach(s => {{
--                const colors = {{healthy:'#2C4A2C',unhealthy:'#8A6D1F',unreachable:'#A82A2A'}};
-+                const colors = {{healthy:'#2C4A2C',unhealthy:'#5C4611',unreachable:'#7A1F1F'}};
-                 const icons = {{healthy:'&#10003;',unhealthy:'&#9888;',unreachable:'&#10007;'}};
-                 shtml += '<div class="status-card">'
--                    + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(20, 18, 14,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
-+                    + '<div class="status-indicator" style="background:' + (colors[s.status]||'rgba(236,232,221,0.40)') + '">' + (icons[s.status]||'?') + '</div>'
-                     + '<div class="status-info"><div class="status-name">' + s.name + '</div>'
-                     + '<div class="status-detail">' + s.status + (s.status_code ? ' (HTTP ' + s.status_code + ')' : '') + '</div></div></div>';
-             }});
-@@ -2043,9 +2367,9 @@
-             // Update containers
-             let chtml = '';
-             snap.containers.forEach(c => {{
--                const colors = {{running:'#2C4A2C',exited:'#A82A2A',paused:'#8A6D1F'}};
-+                const colors = {{running:'#2C4A2C',exited:'#7A1F1F',paused:'#5C4611'}};
-                 chtml += '<div class="status-card">'
--                    + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(20, 18, 14,0.40)') + '">&#9632;</div>'
-+                    + '<div class="status-indicator" style="background:' + (colors[c.state]||'rgba(236,232,221,0.40)') + '">&#9632;</div>'
-                     + '<div class="status-info"><div class="status-name">' + c.name + '</div>'
-                     + '<div class="status-detail">' + c.state + ' &ndash; ' + c.status + '</div></div></div>';
-             }});
-@@ -2064,7 +2388,7 @@
-             // Update disk
-             let dhtml = '';
-             snap.disk.forEach(d => {{
--                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#8A6D1F' : '#A82A2A';
-+                const bc = d.percent_used < 80 ? '#2C4A2C' : d.percent_used < 95 ? '#5C4611' : '#7A1F1F';
-                 dhtml += '<div class="disk-item"><div class="disk-label">' + d.mount + '</div>'
-                     + '<div class="disk-bar-bg"><div class="disk-bar" style="width:' + d.percent_used + '%;background:' + bc + '"></div></div>'
-                     + '<div class="disk-detail">' + Math.round(d.free_gb) + ' GB free of ' + Math.round(d.total_gb) + ' GB (' + d.percent_used + '%)</div></div>';
-@@ -2191,7 +2515,7 @@
- def render_history(history_entries: list[dict]) -> str:
-     """Render the snapshot history page."""
-     if not history_entries:
--        rows = f'<tr><td colspan="5" style="text-align:center;color:rgba(20, 18, 14,0.50);padding:2rem">{HISTORY_EMPTY}</td></tr>'
-+        rows = f'<tr><td colspan="5" style="text-align:center;color:rgba(236,232,221,0.50);padding:2rem">{HISTORY_EMPTY}</td></tr>'
-     else:
-         rows = ""
-         prev_services: dict[str, str] = {}
-@@ -2207,10 +2531,10 @@
-                 name = s["name"]
-                 status = s["status"]
-                 prev = prev_services.get(name)
--                color = {"healthy": "#2C4A2C", "unhealthy": "#8A6D1F", "unreachable": "#A82A2A"}.get(status, "rgba(20, 18, 14,0.50)")
-+                color = {"healthy": "#2C4A2C", "unhealthy": "#5C4611", "unreachable": "#7A1F1F"}.get(status, "rgba(236,232,221,0.50)")
-                 changed = ""
-                 if prev and prev != status:
--                    changed = f' <span style="color:#8A6D1F;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
-+                    changed = f' <span style="color:#5C4611;font-size:0.7rem">{HISTORY_WAS_FMT.format(prev=prev)}</span>'
-                 svc_parts.append(f'<span style="color:{color}">{name}: {status}</span>{changed}')
-                 prev_services[name] = status
- 
 @@ -2225,16 +2549,16 @@
              warn = sum(1 for f in findings if f.get("severity") == "warning")
              finding_parts = []
              if crit:
 -                finding_parts.append(f'<span style="color:#A82A2A">{HISTORY_CRITICAL_FMT.format(count=crit)}</span>')
-+                finding_parts.append(f'<span style="color:#7A1F1F">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
++                finding_parts.append(f'<span style="color:#A82A2A">{HISTORY_CRITICAL_FMT.format(count=f"{crit:,}")}</span>')
              if warn:
 -                finding_parts.append(f'<span style="color:#8A6D1F">{HISTORY_WARNING_FMT.format(count=warn)}</span>')
-+                finding_parts.append(f'<span style="color:#5C4611">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
++                finding_parts.append(f'<span style="color:#8A6D1F">{HISTORY_WARNING_FMT.format(count=f"{warn:,}")}</span>')
              if not finding_parts:
                  finding_parts.append(f'<span style="color:#2C4A2C">{HISTORY_ALL_CLEAR}</span>')
  
@@ -10115,31 +9696,6 @@
                  <td>{", ".join(finding_parts)}</td>
              </tr>"""
  
-@@ -2247,12 +2571,12 @@
-     <style>
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-         :root {{
--            --ostler-ink: #F8F8F4;
-+            --ostler-ink: #0d0b08;
-             --ostler-panel: #FFFFFF;
-             --ostler-panel-elev: #FFFFFF;
--            --ostler-chassis: #14120e;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
--            --ostler-accent-warm: #A82A2A;
-+            --ostler-accent-warm: #7A1F1F;
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
-             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-             --text: var(--ostler-chassis);
-@@ -2297,7 +2621,7 @@
-             border: 1px solid var(--ostler-hairline-faint);
-             border-radius: 12px;
-             overflow: hidden;
--            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-+            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
-         }}
-         th {{
-             text-align: left;
 @@ -2325,7 +2649,7 @@
  <body>
      <div class="container">
@@ -10291,9 +9847,9 @@
 +    except Exception:  # pragma: no cover - never 500 the panel poll
 +        rows = []
 +    return {"routines": rows, "count": len(rows)}
-+
-+
-+
+ 
+ 
+ 
 +@app.get("/api/v1/remote-access", response_class=JSONResponse)
 +async def api_remote_access_get():
 +    """The installer's Tailscale connection, read through its own socket."""
@@ -10302,8 +9858,8 @@
 +        return status()
 +    except Exception:  # pragma: no cover - never 500 the settings page
 +        return {"installed": False, "connected": False, "state": "unreadable"}
- 
- 
++
++
 +@app.post("/api/v1/remote-access", response_class=JSONResponse)
 +async def api_remote_access_post(request: Request):
 +    """Body ``{"enabled": true|false}``. Same cross-site guard as /api/v1/pause."""
@@ -10318,7 +9874,7 @@
 +        return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
 +    from remote_access import set_enabled
 +    return JSONResponse(set_enabled(body["enabled"]), status_code=200)
- 
++
 +
  @app.get("/api/v1/box-status", response_class=JSONResponse)
  async def api_box_status():
@@ -10353,13 +9909,31 @@
      except Exception:
          # Last-resort degrade: a well-formed, honest "unknown" payload the
          # chip can render as "Status unavailable" -- never a 500 that would
-@@ -3705,68 +4008,139 @@
+@@ -3705,66 +4008,137 @@
      return result
  
  
 -@app.post("/api/v1/wiki/correct/transition", response_class=JSONResponse)
 -async def api_wiki_correct_transition(request: Request):
 -    """Move a wiki correction's status: approve / reject / revert (#277).
+-
+-    The write side of the correction lifecycle AFTER creation. Until this
+-    route existed, ``pwg:correctionStatus`` was written exactly once, by the
+-    INSERT in ``POST /api/v1/wiki/correct``, and never again -- so an
+-    assistant-proposed correction landed ``pending`` with no exit, and an
+-    inline correction could not be undone.
+-
+-    Body::
+-
+-        {"correction_uri": "<uri>",       # the uri echoed by /wiki/correct
+-         "action": "approve|reject|revert",
+-         "actor": "user-inline|user-doctor|assistant",
+-         "reason": "optional free text"}
+-
+-    Idempotent: re-issuing an action that has already taken effect returns
+-    200 with ``changed: false`` and writes nothing. An impossible move (most
+-    importantly, reverting a correction that was never applied) returns 409
+-    rather than quietly reporting success.
 +# -- People: owner-settable do-not-suggest (CM041 #216 loopback half) ----
 +#
 +# The ical-server (:8090) carries api_people_suppress_suggestions:
@@ -10391,21 +9965,14 @@
 +# ical handler owns the suppression logic and re-validates; nothing here is a
 +# reimplementation of it.
  
--    The write side of the correction lifecycle AFTER creation. Until this
--    route existed, ``pwg:correctionStatus`` was written exactly once, by the
--    INSERT in ``POST /api/v1/wiki/correct``, and never again -- so an
--    assistant-proposed correction landed ``pending`` with no exit, and an
--    inline correction could not be undone.
+-    See ``wiki_correct.py`` for the transition table, why a revert lands
+-    ``rejected`` rather than a fourth enum value, and how the audit trail
+-    keeps the previous status. This handler only owns the HTTP plumbing.
 +_SUPPRESS_SUGGESTIONS_PATH = "/api/v1/people/{slug}/suppress-suggestions"
 +_SUPPRESS_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 +_SUPPRESS_UPSTREAM_TIMEOUT_SECONDS = 10.0
- 
--    Body::
- 
--        {"correction_uri": "<uri>",       # the uri echoed by /wiki/correct
--         "action": "approve|reject|revert",
--         "actor": "user-inline|user-doctor|assistant",
--         "reason": "optional free text"}
++
++
 +async def _forward_suppress_suggestions(
 +    slug: str,
 +    body: bytes,
@@ -10414,11 +9981,7 @@
 +) -> httpx.Response:
 +    """POST a suppress-suggestions request to the upstream ical-server,
 +    attaching the per-install service token.
- 
--    Idempotent: re-issuing an action that has already taken effect returns
--    200 with ``changed: false`` and writes nothing. An impossible move (most
--    importantly, reverting a correction that was never applied) returns 409
--    rather than quietly reporting success.
++
 +    The browser never holds the service token (it is an unpaired wiki page);
 +    the Doctor is the one place the token lives, so it is added here on the
 +    server-side forward. Reuses ``proxy._gateway_base_url`` (the customer
@@ -10426,10 +9989,7 @@
 +    and ``proxy._resolve_service_token`` so the base and the token are read from
 +    one place. With no service token configured the forward is a transparent
 +    pass-through, matching ``proxy_request``'s documented posture.
- 
--    See ``wiki_correct.py`` for the transition table, why a revert lands
--    ``rejected`` rather than a fourth enum value, and how the audit trail
--    keeps the previous status. This handler only owns the HTTP plumbing.
++
 +    ``gateway_url`` / ``client`` exist for tests that inject a destination or a
 +    mocked transport; production callers pass neither.
      """
@@ -10485,11 +10045,23 @@
 -        normalised = _validate_transition(body)
 -    except _WikiCorrectError as exc:
 -        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+-
+-    try:
+-        result = _transition(normalised)
+-    except _WikiCorrectError as exc:
+-        # 404 (no such correction) and 409 (refused move, or the guarded
+-        # UPDATE matched nothing because another writer got there first)
+-        # both arrive here carrying their own status.
+-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
 +        parsed = json.loads(raw) if raw else {}
-+    except Exception as exc:
+     except Exception as exc:
+-        # Oxigraph unreachable or rejecting. Same 502 the sister endpoint
+-        # uses, so a client handles one failure mode for both.
 +        return JSONResponse({"error": "invalid JSON: %s" % exc}, status_code=400)
 +    if not isinstance(parsed, dict):
-+        return JSONResponse(
+         return JSONResponse(
+-            {"error": f"oxigraph transition failed: {exc}"},
+-            status_code=502,
 +            {"error": "body must be a JSON object"}, status_code=400,
 +        )
 +    if "suppressed" in parsed and not isinstance(parsed["suppressed"], bool):
@@ -10501,48 +10073,33 @@
 +        return JSONResponse(
 +            {"error": "`reason` must be a string (max 200 chars)"},
 +            status_code=400,
-+        )
+         )
  
+-    return result
 +    # Forward exactly what we validated.
 +    forward_body = json.dumps(parsed).encode("utf-8")
-     try:
--        result = _transition(normalised)
--    except _WikiCorrectError as exc:
--        # 404 (no such correction) and 409 (refused move, or the guarded
--        # UPDATE matched nothing because another writer got there first)
--        # both arrive here carrying their own status.
--        return JSONResponse({"error": exc.detail}, status_code=exc.status)
--    except Exception as exc:
--        # Oxigraph unreachable or rejecting. Same 502 the sister endpoint
--        # uses, so a client handles one failure mode for both.
++    try:
 +        upstream = await _forward_suppress_suggestions(slug, forward_body)
 +    except (httpx.HTTPError, OSError) as exc:
 +        # Upstream ical-server unreachable / timed out. Honest 502 so the
 +        # button surfaces a retry rather than a fabricated success.
-         return JSONResponse(
--            {"error": f"oxigraph transition failed: {exc}"},
++        return JSONResponse(
 +            {"error": "upstream suppress-suggestions unreachable",
 +             "detail": exc.__class__.__name__},
-             status_code=502,
-         )
++            status_code=502,
++        )
 +    return Response(
 +        content=upstream.content,
 +        status_code=upstream.status_code,
 +        media_type=upstream.headers.get("content-type", "application/json"),
 +    )
  
--    return result
  
--
  @app.post("/api/v1/wiki/duplicates/decision", response_class=JSONResponse)
- async def api_wiki_duplicates_decision(request: Request):
-     """Record a duplicate-contact decision (#3 duplicates UX).
-@@ -3804,6 +4178,59 @@
-         )
- 
+@@ -3806,6 +4180,59 @@
      return result
-+
-+
+ 
+ 
 +@app.post("/api/v1/editor/feedback", response_class=JSONResponse)
 +async def api_editor_feedback(request: Request):
 +    """Record one Front Page card tap ("Spot on" / "Not me" / "Don't show").
@@ -10594,9 +10151,11 @@
 +    except Exception as exc:  # noqa: BLE001
 +        return JSONResponse(
 +            {"error": f"could not record the tap: {exc}"}, status_code=500)
- 
- 
++
++
  @app.post("/api/v1/auth/chat-token", response_class=JSONResponse)
+ async def api_chat_token(request: Request):
+     """Mint a fresh ZeroClaw bearer token for the iOS chat tab.
 @@ -3819,7 +4246,18 @@
      See ``chat_token.py`` for the end-to-end logic, the admin-token
      seed convention, and the public-URL resolution rules. This
@@ -10635,12 +10194,10 @@
  # The Hub Governor page + header status chip drive background-work Pause,
  # Resume and a live governor-status read against the Doctor (:8089) -- the
  # SAME origin as ``/api/v1/box-status`` and ``/api/v1/config``. These three
-@@ -4054,8 +4502,25 @@
-     except _PauseError as exc:
-         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+@@ -4056,6 +4504,23 @@
      return JSONResponse(state, status_code=200)
-+
-+
+ 
+ 
 +@app.post("/api/v1/reminders/turn-on", response_class=JSONResponse)
 +async def api_reminders_turn_on(request: Request):
 +    """"Turn reminders back on" after the customer deleted Ostler's Reminders
@@ -10651,9 +10208,9 @@
 +    refusal = _not_hub_local(request) or _cross_site_refusal(request)
 +    if refusal is not None:
 +        return refusal
- 
++
 +    from reminders_runtime import turn_reminders_back_on
- 
++
 +    result = turn_reminders_back_on()
 +    return JSONResponse(result, status_code=200 if result.get("ok") else 500)
 +
@@ -10661,7 +10218,7 @@
  # ── CM019 reverse proxy (CM019 clean-house PR 8) ──────────────────
  #
  # Forwards iOS-initiated CM019 paths to the local gateway over
-@@ -4068,8 +4533,70 @@
+@@ -4068,6 +4533,68 @@
  from proxy import register_proxy_routes
  
  _registered_proxy_paths = register_proxy_routes(app)
@@ -10689,8 +10246,8 @@
 +    "/api/v1/wiki/correct",
 +    "/api/v1/people/{slug}/suppress-suggestions",
 +})
- 
- 
++
++
 +_PUBLIC = frozenset({
 +    "/api/v1/hydration/status",   # per-phase counts, states, ETA; see #178 above
 +})
@@ -10727,51 +10284,10 @@
 +        except Exception:  # noqa: BLE001 - a check that cannot run has not passed
 +            pass
 +    return refusal
-+
-+
- def _config_section_order() -> tuple[str, ...]:
-     """Section display order for the Configuration panel.
  
-@@ -4120,14 +4647,14 @@
-     <style>
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-             --ostler-panel: #FFFFFF;
-             --ostler-panel-elev: #FFFFFF;
--            --ostler-chassis: #14120e;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
--            --ostler-accent-warm: #A82A2A;
-+            --ostler-accent-warm: #7A1F1F;
-             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
-             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-@@ -4136,8 +4663,8 @@
-             --text-muted: rgba(20, 18, 14, 0.50);
-             --text-faint: rgba(20, 18, 14, 0.32);
-             --green: #2C4A2C;
--            --yellow: #8A6D1F;
--            --red: #A82A2A;
-+            --yellow: #5C4611;
-+            --red: #7A1F1F;
-             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-             --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
-             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-@@ -4312,7 +4839,7 @@
-         }}
-         .status-pill.running {{ background: var(--yellow); }}
-         .status-pill.succeeded {{ background: var(--green); }}
--        .status-pill.partial {{ background: #8A6D1F; }}
-+        .status-pill.partial {{ background: #5C4611; }}
-         .status-pill.failed {{ background: var(--red); }}
-         .status-meta {{
-             font-family: var(--font-mono);
-@@ -4605,11 +5132,1037 @@
+ 
+ def _config_section_order() -> tuple[str, ...]:
+@@ -4605,78 +5132,1104 @@
  </html>"""
  
  
@@ -10782,21 +10298,79 @@
 +def _render_import_notion_page(active_job_id=None) -> str:
 +    """Render the Notion import page (CM024 Notion/Obsidian consumer-half fix, 2026-09-13).
  
+-    if not is_feature_enabled():
+-        return JSONResponse(
+-            {"error": "feature_disabled"}, status_code=404,
+-        )
+-    return HTMLResponse(_render_import_evernote_page(
+-        active_job_id=current_running_job_id(),
+-    ))
 +    ``active_job_id`` is the output of
 +    ``import_notion.current_running_job_id()``. When non-None the
 +    page boots straight into the polling-status panel so the operator
 +    who closed and reopened the tab mid-import reattaches without
 +    having to re-enter the path.
-+
+ 
 +    Vanilla HTML + JS, no framework. Matches Doctor's chassis tokens
 +    (Outfit / Plex Sans / Plex Mono, ostler-ink palette) so it sits
 +    visually next to ``/doctor`` rather than feeling bolted on.
-+
+ 
+-@app.post("/api/v1/import/evernote", response_class=JSONResponse)
+-async def api_import_evernote_start(request: Request):
+-    """Start a new Evernote import job.
+-
+-    Body: ``{"enex_path": "/path/to/export.enex"}``. On success returns
+-    ``{"job_id": "...", "status": "started"}`` with 200. Validation
+-    failures surface as 400 / 404 / 409 / 500 per
+-    ``import_evernote.EvernoteImportError``. Returns 404
+-    ``{"error": "feature_disabled"}`` when the flag is off.
 +    Polling cadence per the launch-scope brief:
 +        - ``GET /status`` every 5 seconds
 +        - ``GET /tail``  every 10 seconds
 +    On a terminal status (succeeded / failed) both timers stop.
-+    """
+     """
+-    from import_evernote import (
+-        EvernoteImportError as _Err,
+-        is_feature_enabled as _flag,
+-        start_import as _start,
+-        validate_enex_path as _validate,
+-    )
+-
+-    if not _flag():
+-        return JSONResponse(
+-            {"error": "feature_disabled"}, status_code=404,
+-        )
+-
+-    try:
+-        body = await request.json()
+-    except Exception as exc:
+-        return JSONResponse(
+-            {"error": f"invalid JSON: {exc}"}, status_code=400,
+-        )
+-
+-    if not isinstance(body, dict):
+-        return JSONResponse(
+-            {"error": "body must be a JSON object"}, status_code=400,
+-        )
+-
+-    try:
+-        enex_path = _validate(body.get("enex_path"))
+-        result = _start(enex_path)
+-    except _Err as exc:
+-        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+-
+-    return JSONResponse(result, status_code=200)
+-
+-
+-@app.get("/api/v1/import/evernote/{job_id}/status", response_class=JSONResponse)
+-async def api_import_evernote_status(job_id: str):
+-    """Return the state of an Evernote import job."""
+-    from import_evernote import (
+-        EvernoteImportError as _Err,
+-        is_feature_enabled as _flag,
+-        read_status as _status,
+-    )
+-
 +    initial_job_id_js = json.dumps(active_job_id)
 +    return f"""<!DOCTYPE html>
 +<html lang="en">
@@ -10807,14 +10381,14 @@
 +    <style>
 +        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
 +        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
++            --ostler-ink: #F8F8F4;
++            --ostler-ink-deep: #ECEBE5;
 +            --ostler-panel: #FFFFFF;
 +            --ostler-panel-elev: #FFFFFF;
-+            --ostler-chassis: #ECE8DD;
++            --ostler-chassis: #14120e;
 +            --ostler-accent: #7A1F1F;
 +            --ostler-accent-hover: #6E1717;
-+            --ostler-accent-warm: #7A1F1F;
++            --ostler-accent-warm: #A82A2A;
 +            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
 +            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 +            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -10823,8 +10397,8 @@
 +            --text-muted: rgba(20, 18, 14, 0.50);
 +            --text-faint: rgba(20, 18, 14, 0.32);
 +            --green: #2C4A2C;
-+            --yellow: #5C4611;
-+            --red: #7A1F1F;
++            --yellow: #8A6D1F;
++            --red: #A82A2A;
 +            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
 +            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
 +            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -10999,7 +10573,7 @@
 +        }}
 +        .status-pill.running {{ background: var(--yellow); }}
 +        .status-pill.succeeded {{ background: var(--green); }}
-+        .status-pill.partial {{ background: #5C4611; }}
++        .status-pill.partial {{ background: #8A6D1F; }}
 +        .status-pill.failed {{ background: var(--red); }}
 +        .status-meta {{
 +            font-family: var(--font-mono);
@@ -11320,14 +10894,14 @@
 +    <style>
 +        /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
 +        :root {{
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
++            --ostler-ink: #F8F8F4;
++            --ostler-ink-deep: #ECEBE5;
 +            --ostler-panel: #FFFFFF;
 +            --ostler-panel-elev: #FFFFFF;
-+            --ostler-chassis: #ECE8DD;
++            --ostler-chassis: #14120e;
 +            --ostler-accent: #7A1F1F;
 +            --ostler-accent-hover: #6E1717;
-+            --ostler-accent-warm: #7A1F1F;
++            --ostler-accent-warm: #A82A2A;
 +            --ostler-accent-glow: rgba(122, 31, 31, 0.18);
 +            --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 +            --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
@@ -11336,8 +10910,8 @@
 +            --text-muted: rgba(20, 18, 14, 0.50);
 +            --text-faint: rgba(20, 18, 14, 0.32);
 +            --green: #2C4A2C;
-+            --yellow: #5C4611;
-+            --red: #7A1F1F;
++            --yellow: #8A6D1F;
++            --red: #A82A2A;
 +            --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
 +            --shadow-card: 0 1px 2px rgba(20,18,14,0.11), 0 8px 24px rgba(20,18,14,0.08);
 +            --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -11512,7 +11086,7 @@
 +        }}
 +        .status-pill.running {{ background: var(--yellow); }}
 +        .status-pill.succeeded {{ background: var(--green); }}
-+        .status-pill.partial {{ background: #5C4611; }}
++        .status-pill.partial {{ background: #8A6D1F; }}
 +        .status-pill.failed {{ background: var(--red); }}
 +        .status-meta {{
 +            font-family: var(--font-mono);
@@ -11810,15 +11384,65 @@
 +    """Render the Evernote import page. 404 when the feature flag is off."""
 +    from import_evernote import current_running_job_id, is_feature_enabled
 +
-     if not is_feature_enabled():
++    if not is_feature_enabled():
++        return JSONResponse(
++            {"error": "feature_disabled"}, status_code=404,
++        )
++    return HTMLResponse(_render_import_evernote_page(
++        active_job_id=current_running_job_id(),
++    ))
++
++
++@app.post("/api/v1/import/evernote", response_class=JSONResponse)
++async def api_import_evernote_start(request: Request):
++    """Start a new Evernote import job.
++
++    Body: ``{"enex_path": "/path/to/export.enex"}``. On success returns
++    ``{"job_id": "...", "status": "started"}`` with 200. Validation
++    failures surface as 400 / 404 / 409 / 500 per
++    ``import_evernote.EvernoteImportError``. Returns 404
++    ``{"error": "feature_disabled"}`` when the flag is off.
++    """
++    from import_evernote import (
++        EvernoteImportError as _Err,
++        is_feature_enabled as _flag,
++        start_import as _start,
++        validate_enex_path as _validate,
++    )
++
+     if not _flag():
          return JSONResponse(
              {"error": "feature_disabled"}, status_code=404,
-@@ -4687,7 +6240,201 @@
-     """Return the last 100 lines of the job's import log as text/plain."""
-     from import_evernote import (
-         EvernoteImportError as _Err,
+         )
+ 
+     try:
++        body = await request.json()
++    except Exception as exc:
++        return JSONResponse(
++            {"error": f"invalid JSON: {exc}"}, status_code=400,
++        )
++
++    if not isinstance(body, dict):
++        return JSONResponse(
++            {"error": "body must be a JSON object"}, status_code=400,
++        )
++
++    try:
++        enex_path = _validate(body.get("enex_path"))
++        result = _start(enex_path)
++    except _Err as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++    return JSONResponse(result, status_code=200)
++
++
++@app.get("/api/v1/import/evernote/{job_id}/status", response_class=JSONResponse)
++async def api_import_evernote_status(job_id: str):
++    """Return the state of an Evernote import job."""
++    from import_evernote import (
++        EvernoteImportError as _Err,
 +        is_feature_enabled as _flag,
-+        read_tail as _tail,
++        read_status as _status,
 +    )
 +
 +    if not _flag():
@@ -11827,11 +11451,13 @@
 +        )
 +
 +    try:
-+        return PlainTextResponse(_tail(job_id), status_code=200)
-+    except _Err as exc:
-+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
-+
-+
+         return JSONResponse(_status(job_id), status_code=200)
+     except _Err as exc:
+         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+@@ -4702,6 +6255,200 @@
+         return JSONResponse({"error": exc.detail}, status_code=exc.status)
+ 
+ 
 +@app.get("/import-notion", response_class=HTMLResponse)
 +async def import_notion_page():
 +    """Render the Notion import page. 404 when the feature flag is off."""
@@ -11991,7 +11617,7 @@
 +    """Return the state of an Obsidian import job."""
 +    from import_obsidian import (
 +        ObsidianImportError as _Err,
-         is_feature_enabled as _flag,
++        is_feature_enabled as _flag,
 +        read_status as _status,
 +    )
 +
@@ -12012,59 +11638,23 @@
 +    from import_obsidian import (
 +        ObsidianImportError as _Err,
 +        is_feature_enabled as _flag,
-         read_tail as _tail,
-     )
++        read_tail as _tail,
++    )
++
++    if not _flag():
++        return JSONResponse(
++            {"error": "feature_disabled"}, status_code=404,
++        )
++
++    try:
++        return PlainTextResponse(_tail(job_id), status_code=200)
++    except _Err as exc:
++        return JSONResponse({"error": exc.detail}, status_code=exc.status)
++
++
+ # ── Pair iOS device panel (DFA-002) ──────────────────────────────────
  
-@@ -4725,14 +6472,14 @@
-     <style>
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-             --ostler-panel: #FFFFFF;
-             --ostler-panel-elev: #FFFFFF;
--            --ostler-chassis: #14120e;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
--            --ostler-accent-warm: #A82A2A;
-+            --ostler-accent-warm: #7A1F1F;
-             --ostler-accent-glow: rgba(122, 31, 31, 0.18);
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
-             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-@@ -4740,7 +6487,7 @@
-             --text-secondary: rgba(20, 18, 14, 0.74);
-             --text-muted: rgba(20, 18, 14, 0.50);
-             --text-faint: rgba(20, 18, 14, 0.32);
--            --red: #A82A2A;
-+            --red: #7A1F1F;
-             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-@@ -4906,7 +6653,7 @@
-             border-radius: 8px;
-             font-size: 0.82rem;
-             margin-bottom: 1.4rem;
--            border-left: 3px solid #8A6D1F;
-+            border-left: 3px solid #e0a437;
-             background: rgba(224, 164, 55, 0.10);
-             color: var(--text-secondary);
-             line-height: 1.5;
-@@ -5124,9 +6871,9 @@
-         /* PRIVACY: no webfont @import. A local-first product must not beacon
-            the customer IP+timestamp to a font CDN. Matches pair-ios. */
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
--            --ostler-chassis: #14120e;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
+ 
 @@ -5288,12 +7035,16 @@
  
  
@@ -12084,19 +11674,6 @@
      from whatsapp_pair import fetch_pair_status
      return JSONResponse(fetch_pair_status().to_dict(), status_code=200)
  
-@@ -5327,9 +7078,9 @@
-         /* PRIVACY: no webfont @import. A local-first product must not beacon
-            the customer IP+timestamp to a font CDN. Matches whatsapp-pair. */
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
--            --ostler-chassis: #14120e;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
 @@ -5551,13 +7302,22 @@
  
  
@@ -12175,34 +11752,6 @@
      from pair_status import fetch_pair_status
      return JSONResponse(
          fetch_pair_status(fresh=True).to_dict(), status_code=200,
-@@ -5631,14 +7404,14 @@
-     <style>
-         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
-         :root {{
--            --ostler-ink: #F8F8F4;
--            --ostler-ink-deep: #ECEBE5;
-+            --ostler-ink: #0d0b08;
-+            --ostler-ink-deep: #07060a;
-             --ostler-panel: #FFFFFF;
-             --ostler-panel-elev: #FFFFFF;
--            --ostler-chassis: #14120e;
-+            --ostler-chassis: #ECE8DD;
-             --ostler-accent: #7A1F1F;
-             --ostler-accent-hover: #6E1717;
--            --ostler-accent-warm: #A82A2A;
-+            --ostler-accent-warm: #7A1F1F;
-             --ostler-hairline-soft: rgba(20, 18, 14, 0.16);
-             --ostler-hairline-faint: rgba(20, 18, 14, 0.08);
-             --text: var(--ostler-chassis);
-@@ -5646,7 +7419,7 @@
-             --text-muted: rgba(20, 18, 14, 0.50);
-             --text-faint: rgba(20, 18, 14, 0.32);
-             --green: #2C4A2C;
--            --red: #A82A2A;
-+            --red: #7A1F1F;
-             --shadow-soft: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
-             --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-             --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 @@ -6096,12 +7869,24 @@
  
  
