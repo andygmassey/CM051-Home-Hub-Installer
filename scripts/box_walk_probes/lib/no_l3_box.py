@@ -372,6 +372,10 @@ def _seed_graph(owner, stamp, markers, subjects_out):
     subjects_out.extend(out.get("subjects", []))
     EXACT_TEARDOWN.extend(out.get("teardown_sparql", []))
     EXACT_STATS.update({"excluded": out.get("excluded_quads"), "to_delete": out.get("to_delete_quads")})
+    # Counts only, printed the moment the seed's JSON is read, so the walk record carries
+    # them even if the capture is later lost. Never the quads themselves.
+    _note("seed exact teardown: excluded_pre_existing=%s to_delete=%s (counts only)"
+          % (out.get("excluded_quads"), out.get("to_delete_quads")))
     if p.returncode != 0:
         raise RuntimeError("graph seed rc=%s" % p.returncode)
     return out

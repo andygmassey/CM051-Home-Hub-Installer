@@ -212,6 +212,36 @@ JSON
     exit 2
 }
 
+# THE STORE THE SEED WRITES TO. The walker's NO_L3_SEED_OXIGRAPH_URL is forwarded to the
+# box; if it is unset and the BOX has OSTLER_OXIGRAPH_URL set, refuse: an ambient store
+# setting must never choose where the seed writes. Only the box's answer AMBIENT=0|1 is
+# read, never its environment. Sets NO_L3_SEED_FORWARD. Calls probe_cannot_run on refusal,
+# so it must run in the current shell, not in $(...).
+_no_l3_resolve_seed_url() {
+    NO_L3_SEED_FORWARD=""
+    if [ -n "${NO_L3_SEED_OXIGRAPH_URL:-}" ]; then
+        [[ "${NO_L3_SEED_OXIGRAPH_URL}" =~ ^http://127\.0\.0\.1:[0-9]{1,5}$ ]] \
+            || probe_cannot_run "NO_L3_SEED_OXIGRAPH_URL is not a loopback http://127.0.0.1:<port> URL; refusing to pass it to the box"
+        NO_L3_SEED_FORWARD="${NO_L3_SEED_OXIGRAPH_URL}"
+        return 0
+    fi
+    local amb
+    amb="$(box_run 'if [ -n "${OSTLER_OXIGRAPH_URL:-}" ]; then echo AMBIENT=1; else echo AMBIENT=0; fi')" \
+        || probe_cannot_run "could not read the box's store setting; nothing was seeded"
+    case "${amb}" in
+        *AMBIENT=1*) probe_cannot_run "the box has OSTLER_OXIGRAPH_URL set and NO_L3_SEED_OXIGRAPH_URL is unset on the walker: refusing, so an ambient store setting cannot choose where the seed writes" ;;
+        *AMBIENT=0*) return 0 ;;
+        *) probe_cannot_run "unexpected answer from the box about its store setting: ${amb}" ;;
+    esac
+}
+
+# The env prefix the box launch carries (empty when nothing is forwarded). No exit here.
+_no_l3_seed_prefix() {
+    if [ -n "${NO_L3_SEED_FORWARD:-}" ]; then
+        printf "NO_L3_SEED_OXIGRAPH_URL='%s' " "${NO_L3_SEED_FORWARD}"
+    fi
+}
+
 run_probe() {
     # WALK_WRITES gate: this probe writes two conversations to the box. Refuse
     # on a read-only walk rather than write silently.
@@ -222,6 +252,7 @@ run_probe() {
     [ -n "${OSTLER_NO_L3_OWNER_ID:-}" ] \
         || probe_cannot_run "OSTLER_NO_L3_OWNER_ID is unset; the teardown needs the box owner id"
     box_reachable || probe_cannot_run "cannot reach the box; nothing was seeded or read"
+    _no_l3_resolve_seed_url
     local remote cap tarball pid
     remote="/tmp/ostler-probe-no-l3-$$"
     [ -f "${_DECISION_WRITER}" ] || probe_cannot_run "the shipped decision writer is not in the tree (${_DECISION_WRITER}); the decision arm cannot seed"
@@ -236,7 +267,7 @@ run_probe() {
     # orphans the teardown (run 5, 2026-11-16: ssh rc 255, box slept). So the run
     # is launched under nohup + caffeinate (a process, no pmset or system setting)
     # with its own output files, its pid is recorded, and this side only POLLS.
-    pid="$(box_run "cd ${remote} && OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' nohup caffeinate -dimsu /usr/bin/python3 ${remote}/no_l3_box.py > ${remote}/capture.json 2> ${remote}/stderr.txt < /dev/null & echo \$! | tee ${remote}/pid")"
+    pid="$(box_run "cd ${remote} && OSTLER_NO_L3_OWNER_ID='${OSTLER_NO_L3_OWNER_ID}' $(_no_l3_seed_prefix)nohup caffeinate -dimsu /usr/bin/python3 ${remote}/no_l3_box.py > ${remote}/capture.json 2> ${remote}/stderr.txt < /dev/null & echo \$! | tee ${remote}/pid")"
     pid="$(printf '%s' "${pid}" | tr -dc '0-9')"
     [ -n "${pid}" ] || probe_cannot_run "could not launch the detached box run (no pid came back); staging left in ${remote} on the box"
     probe_note "box run detached: pid ${pid}, dir ${remote} (kept until the pid has exited)"
@@ -311,7 +342,46 @@ _no_l3_capture_ok() {
     [ -s "$1" ] && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1"
 }
 
+# Cases for the seed-URL resolver. Each runs in a subshell with a fake box_run that
+# answers AMBIENT=0|1 (or junk). Prints one line per case; rc 0 only if every case held.
+seed_url_test() {
+    local fails=0 rc out
+    check() {  # name, walker, answer, want-substring-or-"CANNOT"
+        local name="$1" walker="$2" answer="$3" want="$4" got rc
+        got="$( (
+            box_run() { echo "${answer}"; }
+            if [ "${walker}" = "UNSET" ]; then unset NO_L3_SEED_OXIGRAPH_URL; else NO_L3_SEED_OXIGRAPH_URL="${walker}"; fi
+            _no_l3_resolve_seed_url
+            printf 'OK:%s' "$(_no_l3_seed_prefix)"
+        ) 2>/dev/null )"; rc=$?
+        if [ "${want}" = "CANNOT" ]; then
+            if [ "${rc}" -eq 78 ]; then printf '  held   %-40s CANNOT-RUN (rc 78)\n' "${name}"
+            else printf '  FAILED %-40s wanted CANNOT-RUN, got rc %s %s\n' "${name}" "${rc}" "${got}"; fails=$((fails + 1)); fi
+        else
+            case "${got}" in
+                *"${want}"*) printf '  held   %-40s %s\n' "${name}" "${got}" ;;
+                *) printf '  FAILED %-40s wanted %s, got rc %s %s\n' "${name}" "${want}" "${rc}" "${got}"; fails=$((fails + 1)) ;;
+            esac
+        fi
+    }
+    check "unset walker, box has no ambient store" UNSET "AMBIENT=0" "OK:"
+    check "unset walker, box HAS ambient store" UNSET "AMBIENT=1" "CANNOT"
+    check "unset walker, box answer is junk" UNSET "WHAT" "CANNOT"
+    check "walker set, loopback url forwarded" "http://127.0.0.1:7878" "AMBIENT=1" "NO_L3_SEED_OXIGRAPH_URL='http://127.0.0.1:7878'"
+    check "walker set to a non-loopback url" "http://example.com:7878" "AMBIENT=0" "CANNOT"
+    check "walker set to a quote-injection url" "http://127.0.0.1:7878';rm" "AMBIENT=0" "CANNOT"
+    if [ "${fails}" -eq 0 ]; then
+        echo "seed-url resolver: every case held"
+        exit 0
+    fi
+    echo "seed-url resolver: ${fails} case(s) FAILED"
+    exit 1
+}
+
 if [ "${1:-}" = "--negative-control" ]; then
     negative_control
+fi
+if [ "${1:-}" = "--seed-url-test" ]; then
+    seed_url_test
 fi
 probe_main "$@"

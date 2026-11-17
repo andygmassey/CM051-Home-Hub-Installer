@@ -137,6 +137,14 @@ def judge(cap, out=sys.stdout):
     if "error" in cap:
         print(f"  CANNOT {cap['error']}", file=out)
         return CANNOT
+    # The seed's exact-teardown counts (counts only), so the walk record shows how many
+    # quads were on the box before the seed and kept out of the teardown.
+    xs = (cap.get("fixture") or {}).get("exact_stats")
+    if xs:
+        print(f"  info exact teardown: excluded_pre_existing={xs.get('excluded')} "
+              f"to_delete={xs.get('to_delete')} (counts only)", file=out)
+    else:
+        print("  info exact teardown: counts not recorded", file=out)
     m3, m2 = cap["markers"]["l3"], cap["markers"]["l2"]
     m0 = cap["markers"].get("l0")
     paths = cap.get("paths", {})

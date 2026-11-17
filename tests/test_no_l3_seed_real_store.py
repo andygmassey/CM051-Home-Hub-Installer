@@ -460,6 +460,55 @@ class SeedRefusesAmbientStore(unittest.TestCase):
         self.assertNotEqual(len(_visible(store)), before, "nothing reached the dedicated store")
 
 
+class ProbeOutputCarriesExclusionCounts(unittest.TestCase):
+    """The walk record must carry the excluded and to_delete counts: the seed's JSON is
+    read, the counts are printed at once (stderr), and the judge prints them to stdout,
+    which decide() relays as the probe's output."""
+
+    def test_seed_read_prints_the_counts_at_once(self):
+        import io
+        import contextlib
+        import subprocess
+        sys.path.insert(0, str(SEED_SRC.parent))
+        box = _load(SEED_SRC.parent / "no_l3_box.py")
+        seed_json = json.dumps({"subjects": [], "teardown_sparql": ["DROP SILENT GRAPH <urn:x>"],
+                                "excluded_quads": 3, "to_delete_quads": 105, "rc": 0})
+
+        class Done:
+            returncode = 0
+            stdout = seed_json
+            stderr = ""
+
+        real = subprocess.run
+        subprocess.run = lambda *a, **k: Done()
+        box.EXACT_TEARDOWN[:] = []
+        box.EXACT_STATS.clear()
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                box._seed_graph("owner", "stamp", {"L2": "a", "L3": "b", "L0": "c",
+                                                   "l2_topic": "t2", "l3_topic": "t3",
+                                                   "l2_decision": "d2", "l3_decision": "d3"}, [])
+        finally:
+            subprocess.run = real
+        print("\n[probe] seed read printed: %r" % err.getvalue().strip())
+        self.assertIn("excluded_pre_existing=3 to_delete=105", err.getvalue())
+
+    def test_judge_output_carries_the_counts(self):
+        import io
+        import contextlib
+        jp = _load(SEED_SRC.parent / "no_l3_probe.py")
+        cap = {"markers": {"l3": "x", "l2": "y", "l0": "z"}, "paths": {},
+               "fixture": {"exact_stats": {"excluded": 3, "to_delete": 105}}}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            jp.judge(cap, out=sys.stdout)
+        print("\n[probe] judge output line: %r" % [l for l in buf.getvalue().splitlines()
+                                                  if "exact teardown" in l])
+        self.assertIn("info exact teardown: excluded_pre_existing=3 to_delete=105",
+                      buf.getvalue())
+
+
 def _nt_literal(lit):
     """A pyoxigraph literal as SPARQL/N-Triples text (for the pre-load only)."""
     v = lit.value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
