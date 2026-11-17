@@ -117,6 +117,19 @@ deadline ("someone should look at..."), infer conservatively:
 owner = the person who raised it if context suggests they'll do it,
 otherwise `—`; deadline `—`. Don't invent specifics.
 
+**Owner = `{user_name}` only on their own words.** Put `{user_name}` in the
+Owner column only when `{user_name}` themselves said they would do the thing
+("I'll send it", "leave that with me", "will do"). A message the other party
+sent that `{user_name}` never answered is not a commitment by `{user_name}`:
+an introduction ("Hi, this is Sam from Acme"), a pitch, a request
+or a suggestion with no reply yields NO row owned by `{user_name}`. If the
+other party asked for something and `{user_name}` has not replied, that is a
+reply owed, not an action item; leave it out of this table. When `{user_name}`
+later says the thing was done ("sent and cc'd you", "done, it's in your
+inbox"), write that in the Notes cell so the row closes. When someone ELSE
+reports sending or finishing something, write it in Notes with their name in
+front ("Sam: sent the contract") so it is not read as `{user_name}`'s report.
+
 **Reminders integration (downstream).** Action items where
 `owner == {user_name}` are candidates for Apple Reminders sync via
 a dedicated `PWG` list (the ingest layer handles this, not this
@@ -263,13 +276,8 @@ participants:
 location:
   mode: remote              # remote | in-person
   source: zoom_call          # zoom_call | facetime | in-person | apple_watch | wearable | other
-  user_gps:
-    latitude: 51.5074
-    longitude: -0.1278
-    altitude_m: 34
-    accuracy_m: 12
-    captured_via: ios_companion   # ios_companion | macos_sync | inferred_ip | user_entry
-  user_address: "Home"   # reverse-geocoded, null if unknown
+  user_gps: null              # ONLY from the conversation's own metadata; never a value copied from this example
+  user_address: null          # reverse-geocoded, null if unknown
   venue: null                         # business/venue name, null if not at one
   other_party_location: null          # when known for in-person
 prompt_version: 02-work_one-on-one@1.0

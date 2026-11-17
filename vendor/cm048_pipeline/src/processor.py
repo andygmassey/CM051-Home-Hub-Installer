@@ -261,7 +261,7 @@ def process(
             ingest_sinks=ingest_sinks, dry_run=dry_run,
         )
 
-    # Andy's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
+    # The owner's #30 walk, SHAPE 1 (new facts): resolve a carded contact's raw
     # phone/email handle to their NAME so the extraction LLM writes "Jane
     # Doe agreed to..." not "+447700900123 agreed to...". The
     # extraction steps below read the `transcript` var, so resolving here still
@@ -673,6 +673,11 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, EnrichmentBudgetExceeded):
         return False
 
+    # A missing module (or a bad import) is a deploy defect: no retry
+    # can make it appear. Classed permanent before the OSError/unknown
+    # fall-through, so a broken install fails fast instead of sleeping.
+    if isinstance(exc, ImportError):
+        return False
     if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
         return True
     if isinstance(exc, httpx.TimeoutException):
@@ -690,6 +695,31 @@ def _is_retryable(exc: Exception) -> bool:
     return True
 
 
+def _missing_module(exc: BaseException) -> str | None:
+    """The top-level module a permanent ImportError could not find, else None.
+
+    Prefers ``exc.name`` (set by the import system); falls back to the
+    message, because some raisers construct ModuleNotFoundError without it.
+    """
+    if not isinstance(exc, ImportError):
+        return None
+    if exc.name:
+        return exc.name.split(".")[0]
+    import re
+
+    m = re.search(r"No module named '([^'.]+)", str(exc))
+    return m.group(1) if m else None
+
+
+def _backoff_sleep(seconds: float) -> None:
+    """The retry backoff's only sleep. A module-level seam: a test that
+    reaches a transient failure replaces this, so no test can sit in a
+    real 30s/60s backoff."""
+    import time
+
+    time.sleep(seconds)
+
+
 def _run_step(
     state_dir: Path,
     state: PipelineState,
@@ -704,7 +734,6 @@ def _run_step(
 
     Backoff: 30s, 60s, 120s (base * 2^attempt).
     """
-    import time
     import traceback
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -731,7 +760,7 @@ def _run_step(
                     f"{'PERMANENT' if not retryable else 'EXHAUSTED'}: "
                     f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
                 )
-                state.fail(step, reason)
+                state.fail(step, reason, module=_missing_module(exc))
                 _save_state(state_dir, state)
                 if _is_sink_unreachable(exc):
                     raise SinkUnavailableError(
@@ -746,7 +775,7 @@ def _run_step(
 
             delay = BASE_DELAY_SECONDS * (2 ** (attempt - 1))
             logger.info("Retrying step %s in %ds...", step, delay)
-            time.sleep(delay)
+            _backoff_sleep(delay)
 
 
 # ── Step 00: raw transcript ─────────────────────────────────────────
@@ -2826,12 +2855,22 @@ def _step_link(
     # the fact triples exist in Oxigraph and Qdrant for SPARQL/search
     # to find them.
     from .candidates import promote_corroborated
-    candidate_stats = promote_corroborated(
-        conversation_id=conversation_id,
-        state_dir=state_dir,
-        settings=settings,
-        dry_run=dry_run,
-    )
+    # Minor flag: corroboration promotes candidate facts to settled ones,
+    # so a conversation with a flagged person does not take part. An
+    # unreadable flag skips it too (fail closed, as step 07). See
+    # src/minors.py.
+    skip_reason = _minor_skip_reason(state_dir, settings)
+    if skip_reason:
+        logger.info("Step 08 corroboration skipped for %s: %s",
+                    conversation_id, skip_reason)
+        candidate_stats = {"skipped": skip_reason}
+    else:
+        candidate_stats = promote_corroborated(
+            conversation_id=conversation_id,
+            state_dir=state_dir,
+            settings=settings,
+            dry_run=dry_run,
+        )
 
     # Persist link results
     write_json(out_path, {
@@ -2846,6 +2885,21 @@ def _step_link(
         len(link_result.related_ids),
         candidate_stats,
     )
+
+
+def _minor_skip_reason(state_dir: Path, settings: Settings) -> str:
+    """"" when step 08 corroboration may run; else why it must not."""
+    try:
+        from . import minors as _minors
+        mp = state_dir / "00_metadata.json"
+        metadata = json.loads(mp.read_text()) if mp.exists() else {}
+        if _minors.conversation_has_minor(
+                metadata, _minors.load(getattr(settings, "oxigraph_url", ""))):
+            return "minor_participant"
+    except Exception as exc:  # noqa: BLE001 -- fail closed, loudly
+        logger.warning("minor flag unreadable (%s): no corroboration", exc)
+        return "minor_check_unavailable"
+    return ""
 
 
 # ── Step 09: four-artefact bundle (HR015 2026-05-09) ────────────────
@@ -2941,6 +2995,14 @@ def _step_bundle(
         )
         write_json(bundle_json_path, extraction.to_dict())
 
+    # The done state of each todo comes from the enrichment's Action items
+    # table, so a todo the conversation closed never reaches the Reminders
+    # push gate as "extracted". Applied on every run (cached or fresh) so a
+    # resumed run sees the same statuses.
+    extraction = _bundle_extractor.apply_enrichment_status(
+        extraction, enrichment_md
+    )
+
     # ── Sub-step A2: topic bridge (graph) ──────────────────────────
     # The extraction's topics become pwg:ConversationTopic /
     # pwg:TopicMention nodes so the assistant's pwg_topics tool
@@ -3016,10 +3078,23 @@ def _step_bundle(
         )
         return
 
+    # Minor flag: a conversation with a person the owner marked as a
+    # minor never auto-pushes a todo to Reminders. An unreadable flag is
+    # None (no push), never False. See src/minors.py.
+    try:
+        from . import minors as _minors
+        minor_participant = _minors.conversation_has_minor(
+            metadata, _minors.load(getattr(settings, "oxigraph_url", "")))
+    except Exception as exc:  # noqa: BLE001 -- fail closed, loudly
+        logger.warning("minor flag unreadable for %s (%s): no Reminders push",
+                       metadata.get("conversation_id"), exc)
+        minor_participant = None
+
     output = _conversation_writer.write_conversation(
         bundle,
         root=settings.output_conversations_dir,
         gist_post_fn=None,
+        minor_participant=minor_participant,
     )
     logger.info(
         "Bundle written for %s at %s (privacy=%s, gist=%s)",

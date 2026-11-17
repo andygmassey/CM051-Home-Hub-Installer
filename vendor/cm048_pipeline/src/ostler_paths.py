@@ -378,7 +378,7 @@ def migrate_pwg_dotdir_if_needed(
         # sentinel here -- the sentinel body is
         # ``Migrated from ~/.pwg/ on <ts>``, which would be a
         # LIE on a machine that never had a PWG install
-        # (HR015 #233 -- Andy's freshly-wiped 16GB Mini on
+        # (HR015 #233 -- the owner's freshly-wiped 16GB Mini on
         # 2026-07-31 showed the false marker). Beyond the
         # cosmetic lie, a false sentinel actively prevents a
         # legitimate future migration: if the customer later

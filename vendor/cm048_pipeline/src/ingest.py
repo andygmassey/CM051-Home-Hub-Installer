@@ -118,6 +118,19 @@ from pathlib import Path
 import httpx
 import phonenumbers
 
+from . import handle_resolver as _handle_resolver
+from . import people_join as _people_join
+from . import minors as _minors
+
+# Sentinel: a fact writer was called without a minor index (see
+# _drop_minor_facts). Distinct from None (dry run: nothing is written).
+_MINORS_UNREAD = object()
+
+
+def _resolve_minor_index(minor_index, settings, dry_run):
+    if minor_index is _MINORS_UNREAD:
+        return None if dry_run else _minors.load(getattr(settings, "oxigraph_url", ""))
+    return minor_index
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
@@ -320,7 +333,15 @@ def write_all(
         "oxigraph_triples": 0,
         "coach_rows": 0,
         "speaker_feedback": None,
+        "minor_facts_skipped": 0,
     }
+
+    # Minor flag (the owner, 2026-10-19): no fact about a minor reaches a sink.
+    # Read BEFORE any write; an unreadable flag fails the step (it retries)
+    # rather than writing facts it could not check. See src/minors.py.
+    minor_index = None
+    if not dry_run:
+        minor_index = _minors.load(getattr(settings, "oxigraph_url", ""))
 
     # 1. Conversation MD
     md_path = _write_conversation_md(
@@ -331,13 +352,13 @@ def write_all(
     # 2. Qdrant: conversation chunks + facts
     summary["qdrant_points"] = _write_qdrant(
         state_dir, conversation_id, classification, settings, dry_run,
-        metadata=metadata,
+        metadata=metadata, minor_index=minor_index, summary=summary,
     )
 
     # 3. Oxigraph: relationship signals + facts as RDF
     summary["oxigraph_triples"] = _write_oxigraph(
         state_dir, conversation_id, classification, settings, dry_run,
-        metadata=metadata,
+        metadata=metadata, minor_index=minor_index,
     )
 
     # 4. SQLite: coach observation
@@ -352,6 +373,19 @@ def write_all(
 
     logger.info("Ingest summary for %s: %s", conversation_id, summary)
     return summary
+
+
+def _drop_minor_facts(facts: list, metadata: dict | None, minor_index) -> tuple:
+    """(facts that may be written, count dropped). A fact whose subject is a
+    person the owner marked as a minor is never written to a sink."""
+    if not minor_index:
+        return facts, 0
+    keep = [f for f in facts
+            if not _minors.fact_is_about_minor(f, metadata or {}, minor_index)]
+    dropped = len(facts) - len(keep)
+    if dropped:
+        logger.info("minor flag: %d fact(s) about a minor not written", dropped)
+    return keep, dropped
 
 
 # ── 1. Conversation MD ──────────────────────────────────────────────
@@ -386,6 +420,8 @@ def _write_qdrant(
     settings: Settings,
     dry_run: bool,
     metadata: dict | None = None,
+    minor_index=_MINORS_UNREAD,
+    summary: dict | None = None,
 ) -> int:
     """Write conversation summary + per-fact Qdrant points.
 
@@ -476,6 +512,12 @@ def _write_qdrant(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            # A writer called without an index (any caller but write_all)
+            # reads the flag itself: no path writes facts unchecked.
+            minor_index = _resolve_minor_index(minor_index, settings, dry_run)
+            facts, skipped = _drop_minor_facts(facts, metadata, minor_index)
+            if summary is not None:
+                summary["minor_facts_skipped"] = skipped
             for fact in facts:
                 text = fact.get("text", "")
                 if not text:
@@ -547,6 +589,7 @@ def _write_oxigraph(
     settings: Settings,
     dry_run: bool,
     metadata: dict | None = None,
+    minor_index=_MINORS_UNREAD,
 ) -> int:
     """Write relationship signals + facts as RDF triples."""
     if metadata is None:
@@ -555,17 +598,19 @@ def _write_oxigraph(
 
     # Conversation metadata — setting is required for the Foundry
     # candidate-promotion corroboration rule. Emitted once per convo.
+    conv_day = ((metadata.get("date") or metadata.get("started_at") or "")
+                if isinstance(metadata, dict) else "")
     triples.extend(_conversation_to_triples(
-        conversation_id, classification, settings
+        conversation_id, classification, settings, date=conv_day
     ))
 
     # Participant-identity bridge: link the conversation to the
     # JID/handle-keyed Person nodes ostler_fda.pwg_ingest creates, so
     # "who did I talk to" walks pwg:hasParticipant structurally. No-op
     # when metadata lacks resolvable participants.
-    triples.extend(
-        _participant_identity_triples(conversation_id, metadata, settings)
-    )
+    participant_blocks, unlinked_ttl = _participant_join(
+        conversation_id, metadata, settings)
+    triples.extend(participant_blocks)
 
     # Signals
     signals_dir = state_dir / "03_relationship_signals"
@@ -579,6 +624,8 @@ def _write_oxigraph(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            minor_index = _resolve_minor_index(minor_index, settings, dry_run)
+            facts, _skipped = _drop_minor_facts(facts, metadata, minor_index)
             for fact in facts:
                 triples.extend(
                     _fact_to_triples(conversation_id, fact, settings, metadata)
@@ -653,7 +700,26 @@ def _write_oxigraph(
     except Exception as exc:
         logger.error("Oxigraph write failed: %s", exc)
         raise
+    if unlinked_ttl:
+        _write_unlinked_default_graph(unlinked_ttl, settings)
     return len(triples)
+
+
+def _write_unlinked_default_graph(blocks: list[str], settings: Settings) -> None:
+    """UnlinkedHandle records go in the DEFAULT graph, beside the People
+    nodes, where CM041's sweep_unlinked reads them. Raises on failure like
+    the named-graph write (the step is retried; the records are idempotent)."""
+    ttl = "\n\n".join(blocks) + "\n"
+    with httpx.Client(timeout=60.0, transport=httpx.HTTPTransport(proxy=None)) as hc:
+        resp = hc.post(
+            f"{settings.oxigraph_url}/store?default",
+            content=ttl.encode(),
+            headers={"Content-Type": "text/turtle"},
+        )
+        if resp.status_code >= 400:
+            logger.error("Oxigraph rejected the unlinked-handle payload: HTTP %s -- %s",
+                         resp.status_code, (resp.text or "")[:500].replace("\n", " "))
+        resp.raise_for_status()
 
 
 def _turtle_prefixes() -> str:
@@ -687,6 +753,7 @@ def _conversation_to_triples(
     conversation_id: str,
     classification: Classification,
     settings: Settings,
+    date: str = "",
 ) -> list[str]:
     """Emit conversation-level metadata triples.
 
@@ -711,8 +778,15 @@ def _conversation_to_triples(
         f'  <urn:ostler:userId> "{safe_user}" ;',
         f'  <urn:ostler:setting> "{safe_setting}" ;',
         f'  <urn:ostler:shape> "{safe_shape}" ;',
-        f'  <urn:ostler:stakes> "{safe_stakes}" .',
     ]
+    # The conversation's day. CM041 reads <urn:ostler:date> on this node for
+    # the meeting brief's last-conversation pick and the person timeline. Only
+    # the day is written (YYYY-MM-DD), the same value the citation and todo
+    # writers use. No date given means no triple: an absent date stays absent.
+    day = (date or "").strip()[:10]
+    if day:
+        t.append(f'  <urn:ostler:date> "{escape_turtle_literal(day)}" ;')
+    t.append(f'  <urn:ostler:stakes> "{safe_stakes}" .')
     return ["\n".join(t)]
 
 
@@ -739,18 +813,86 @@ def _participant_identity_triples(
     row, or an LLM-only slug with no JID/handle) are skipped -- we never
     fabricate a Person node from a name we cannot key.
     """
+    return _participant_join(conversation_id, metadata, settings)[0]
+
+
+def _participant_join(
+    conversation_id: str,
+    metadata: dict,
+    settings: Settings,
+) -> tuple[list[str], list[str]]:
+    """(named-graph participant blocks, default-graph UnlinkedHandle turtle).
+
+    Every identifier a participant carries is looked up in the People graph
+    first (src/people_join.py): a live Person holding any of them gets the
+    edge; the OWNER gets none; an alias-only participant nobody holds gets
+    an UnlinkedHandle record (never a Person). A jid/handle participant
+    nobody holds keeps the original deterministic URI below.
+    """
     channel = (metadata.get("channel") or "").strip().lower()
     participants = normalise_participants(metadata.get("participants"))
     if not isinstance(participants, list):
-        return []
+        return [], []
 
     conv_uri = _urn(f"conversation/{conversation_id}")
     safe_user = escape_turtle_literal(settings.user_id)
     safe_channel = escape_turtle_literal(channel or "unknown")
 
     out: list[str] = []
+    unlinked: list[str] = []
     seen: set[str] = set()
+    keyed = [
+        (entry, _people_join.participant_keys(entry))
+        for entry in participants
+        if isinstance(entry, dict) and (entry.get("role") or "").lower() != "user"
+    ]
+    all_pairs = [p for _e, ks in keyed for p in ks]
+    found: dict = {}
+    store_ok = True
+    if all_pairs:
+        try:
+            found = _people_join.lookup(all_pairs, getattr(settings, "oxigraph_url", ""))
+        except _handle_resolver.StoreQueryError as exc:
+            store_ok = False
+            logger.error(
+                "people join: People-graph lookup FAILED (%s); participants "
+                "fall back to jid/handle linking and alias-only participants "
+                "are NOT linked this run (DEGRADED)", exc)
+    joined_ids: set[int] = set()
+    for entry, ks in keyed:
+        hit = next((found[k] for k in ks if k in found), None)
+        if hit is None:
+            continue
+        joined_ids.add(id(entry))
+        person_uri, is_owner = hit
+        if is_owner or person_uri in seen:
+            # The owner's own account: never linked as a participant contact.
+            continue
+        seen.add(person_uri)
+        out.append("\n".join([
+            _turtle_prefixes(),
+            f"<{person_uri}> <urn:ostler:participatedIn> {conv_uri} ;",
+            f'  <urn:ostler:hasChatChannel> "{safe_channel}" ;',
+            f'  <urn:ostler:userId> "{safe_user}" .',
+            f"{conv_uri} <urn:ostler:hasParticipant> <{person_uri}> .",
+        ]))
+    for entry, ks in keyed:
+        if id(entry) in joined_ids or not ks or not store_ok:
+            continue
+        if _participant_identifier(channel, entry):
+            continue  # jid/handle path below keeps its original behaviour
+        keys = [f"{t}:{v}" for t, v in ks]
+        u_uri = _people_join.unlinked_uri_for(keys)
+        if u_uri in seen:
+            continue
+        seen.add(u_uri)
+        unlinked.append(_people_join.unlinked_turtle(
+            u_uri, channel or "unknown", channel or "unknown", keys,
+            str(entry.get("display") or entry.get("name") or ""), conversation_id))
+        out.append(f"{conv_uri} <urn:ostler:hasUnlinkedParticipant> <{u_uri}> .")
     for entry in participants:
+        if id(entry) in joined_ids:
+            continue
         raw = _participant_identifier(channel, entry)
         if not raw:
             continue
@@ -783,7 +925,7 @@ def _participant_identity_triples(
             f"{conv_uri} <urn:ostler:hasParticipant> <{person_uri}> .",
         ])
         out.append(block)
-    return out
+    return out, unlinked
 
 
 def _coerce_signal_field(value: object, inner_key: str, default: str = "unknown") -> object:

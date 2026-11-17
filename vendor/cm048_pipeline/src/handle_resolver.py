@@ -1,7 +1,7 @@
 """Resolve a carded contact's raw phone/email handle to their NAME in a
 conversation transcript BEFORE fact extraction.
 
-WHY (Andy's #30 console walk, SHAPE 1 -- the NEW-facts half)
+WHY (the owner's #30 console walk, SHAPE 1 -- the NEW-facts half)
 ===========================================================
 A fact read "+447700900123 agreed to delete messages...", yet that number is
 carded as "Jane Doe". CM048 treats the transcript's speaker

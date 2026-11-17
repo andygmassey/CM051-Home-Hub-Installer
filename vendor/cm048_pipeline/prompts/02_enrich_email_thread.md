@@ -115,7 +115,11 @@ decide.` If none pending, `_Nothing to report._`.
 ### `## Action items`
 
 Markdown table with columns: Owner | Action | Deadline | Priority |
-Notes. Same rules as the spoken-conversation enrichments. Use `-`
+Notes. Same rules as the spoken-conversation enrichments, including: owner =
+`{user_name}` only when `{user_name}` wrote that they would do it; an
+unanswered inbound message (an introduction, a pitch, a request) yields no row
+owned by `{user_name}`; a later "sent" from `{user_name}` goes in Notes so the
+row closes. Use `-`
 when any cell is unknown.
 
 **Reminders integration (downstream).** Action items where

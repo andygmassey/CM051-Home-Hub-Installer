@@ -423,6 +423,10 @@ class PipelineState:
     completed_steps: list[PipelineStep]
     failed_step: PipelineStep | None = None
     failure_reason: str | None = None
+    # Top-level module name when the failure is a permanent ImportError
+    # (e.g. 'phonenumbers'): a deploy defect, named on its own so no reader
+    # has to dig it out of a traceback.
+    failure_module: str | None = None
     retry_count: int = 0
     prompt_versions: dict[str, str] = field(default_factory=dict)
     sink_idempotency_keys: dict[str, str] = field(default_factory=dict)
@@ -444,11 +448,13 @@ class PipelineState:
         self.current_step = step
         self.failed_step = None
         self.failure_reason = None
+        self.failure_module = None
         self.last_updated_at = datetime.now(timezone.utc).isoformat()
 
-    def fail(self, step: PipelineStep, reason: str) -> None:
+    def fail(self, step: PipelineStep, reason: str, module: str | None = None) -> None:
         self.failed_step = step
         self.failure_reason = reason
+        self.failure_module = module
         self.retry_count += 1
         self.last_updated_at = datetime.now(timezone.utc).isoformat()
 

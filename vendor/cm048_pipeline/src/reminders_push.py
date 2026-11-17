@@ -35,6 +35,17 @@ Owner buckets:
                                 clutters the user's list with stuff
                                 they aren't doing).
 
+Push window (owner request, 2026-11-14): a historical import must not push
+every old todo into Reminders at once. A todo is pushed when EITHER
+its conversation's last activity falls in the last N days (N =
+``OSTLER_REMINDERS_WINDOW_DAYS``, default 7), OR it is still open with
+a deadline today or later, from any date, AND it is not closed
+(status dismissed, done, completed or closed). Anything else is skipped
+with reason ``outside_push_window``; it stays in the bundle's
+``todos.md`` and is not lost. A conversation whose day cannot be
+determined is not pushed. "Last activity" (ended_at) rather than
+started_at, so a live thread begun months ago keeps pushing as today.
+
 Demo mode hard-suppresses the entire push pipeline. Synthetic
 fixtures shouldn't pollute an App Store reviewer's Reminders.
 
@@ -50,6 +61,16 @@ next writer run, this module reads that status and flips the
 in-memory ``Todo.status`` to ``"pushed-to-reminders"`` so the
 re-rendered ``todos.md`` reflects reality and the CM044 wiki
 "Reminders" pill shows the right state.
+
+Assistant-suggested rows (owner thumbs-up on a suggested todo):
+The assistant (ostler-assistant ``Db::insert_pending``) also INSERTs
+``status='pending'`` rows of its own, with ``source_session_id`` of the
+form ``assistant-suggested:<channel>`` and ``todo_id`` of the form
+``<channel>:<message id>``. They share the table and the watcher drain
+path but never collide with this writer's keys (a conversation's
+``source_session_id`` / ``make_todo_id``), and this writer only ever
+touches rows for the todos of the bundle it is processing, so it leaves
+them alone. ``test_assistant_suggested_rows_are_left_untouched`` pins that.
 """
 from __future__ import annotations
 
@@ -58,7 +79,7 @@ import os
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -83,6 +104,15 @@ STATUS_PENDING = "pending"
 STATUS_PUSHED = "pushed"
 STATUS_SKIPPED = "skipped"
 STATUS_FAILED = "failed"
+# Completed is the terminal "the commitment was kept" state. The
+# assistant-side EventKit sweep records it (via ``mark_completed``)
+# when it observes the pushed EKReminder flipped to completed, along
+# with the ``completed_at`` timestamp. On the next writer run the
+# in-memory Todo flips to ``"completed"`` and the rendered todos.md
+# carries ``completed_at: <ISO>`` -- the field the CM059
+# Procedural-Memory followup_latency miner needs for promise->done
+# latency samples.
+STATUS_COMPLETED = "completed"
 # Permission-denied is a distinct terminal-ish outcome the assistant
 # records when EKEventStore reports the operator has not granted (or
 # has revoked) Reminders access. It is split out from STATUS_FAILED
@@ -113,6 +143,12 @@ SKIP_REASON_NON_HUMAN = "non_human_sender"
 FLAG_ORG_FILTER_UNAVAILABLE = "org_filter_unavailable"
 # Another open reminder already exists for this person / thread.
 SKIP_REASON_DUPLICATE_THREAD = "duplicate_thread"
+# Minor flag (the owner, 2026-10-19): a conversation with a person the owner
+# marked as a minor never auto-pushes a todo; one whose minor check could
+# not run does not push either (fail closed). Todos stay in todos.md.
+SKIP_REASON_MINOR = "minor_participant"
+SKIP_REASON_MINOR_UNCHECKED = "minor_check_unavailable"
+
 # Junk / spam / fraud mail, a fraud-worded todo, or a payment todo for
 # someone the owner has never written to (scam_guard.py). Reminders has no
 # room for a caveat, so these never reach it.
@@ -124,6 +160,85 @@ SKIP_REASON_SCAM = "possible_scam"
 # the customer can no longer see in todos.md. A PUSHED row is never
 # touched: the reminder already exists and is the customer's.
 SKIP_REASON_SUPERSEDED = "superseded_by_update"
+# Outside the push window: the conversation's last activity is older
+# than N days and the todo is not open with a deadline still ahead.
+SKIP_REASON_OUTSIDE_WINDOW = "outside_push_window"
+# A todo the conversation has closed, or the owner has dismissed. Never
+# pushed, whatever its deadline.
+SKIP_REASON_CLOSED = "closed"
+_CLOSED_STATUSES = frozenset({"dismissed", "done", "completed", "closed"})
+
+# Push window. N days of conversation activity are pushed; see the module
+# docstring. Env var is read at call time so an operator can change it
+# without a code change.
+DEFAULT_PUSH_WINDOW_DAYS = 7
+PUSH_WINDOW_ENV = "OSTLER_REMINDERS_WINDOW_DAYS"
+
+
+def push_window_days() -> int:
+    """N from the environment. Unset, empty, non-numeric or below 1 falls
+    back to the default, with a warning for anything that was set."""
+    raw = os.environ.get(PUSH_WINDOW_ENV, "").strip()
+    if not raw:
+        return DEFAULT_PUSH_WINDOW_DAYS
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 0
+    if n < 1:
+        log.warning(
+            "reminders_push: %s=%r is not a whole number of days >= 1; "
+            "using the default of %d",
+            PUSH_WINDOW_ENV, raw, DEFAULT_PUSH_WINDOW_DAYS,
+        )
+        return DEFAULT_PUSH_WINDOW_DAYS
+    return n
+
+
+def _today() -> date:
+    """The owner's local calendar day.
+
+    ``CM048_PIN_TODAY`` (ISO date) pins it. It is the test seam for a
+    subprocess, which cannot be patched in-process; unset in production.
+    """
+    pinned = os.environ.get("CM048_PIN_TODAY")
+    if pinned:
+        return date.fromisoformat(pinned)
+    return datetime.now().astimezone().date()
+
+
+def _day_of(stamp: Optional[str]) -> Optional[date]:
+    """Calendar day of an ISO-8601 stamp or date, as the source wrote it.
+    None when it is empty or not a date."""
+    if not stamp:
+        return None
+    try:
+        return date.fromisoformat(str(stamp).strip()[:10])
+    except ValueError:
+        return None
+
+
+def _in_push_window(
+    todo: "Todo",
+    bundle: "ConversationBundle",
+    *,
+    window_days: int,
+    today: date,
+) -> bool:
+    due = _day_of(todo.deadline)
+    if due is not None and due >= today:
+        # Still open and still due: pushed whatever the source date.
+        return True
+    # Last activity, falling back to start, then the folder date.
+    activity = (
+        _day_of(getattr(bundle, "ended_at", ""))
+        or _day_of(getattr(bundle, "started_at", ""))
+        or _day_of(getattr(bundle, "date", ""))
+    )
+    if activity is None:
+        return False
+    cutoff = today - timedelta(days=window_days - 1)
+    return activity >= cutoff
 
 
 def make_todo_key(conversation_id: str, owner: str, text: str) -> str:
@@ -766,7 +881,7 @@ def _format_push_title(
     detail at those levels.
 
     L2, private 1:1 whose partner resolves to a person: ``"<Name>: <short
-    commitment text>"`` (Andy's decision, 2026-10-11: the commitment text of
+    commitment text>"`` (the owner's decision, 2026-10-11: the commitment text of
     a 1:1 now syncs to iCloud with the reminder; truncated to about 60
     characters with any phone / email / handle / ISO date stripped).
     L2, 1:1 whose partner does not resolve: the generic title, never the
@@ -852,19 +967,34 @@ def decide_push(
     name_resolver: Optional[NameResolver] = None,
     now: Optional[datetime] = None,
     max_age_days_override: Optional[int] = None,
+    minor_participant: Optional[bool] = False,
 ) -> PushDecision:
     """Run the writer-side gate for one todo.
+
+    ``minor_participant``: True when a participant is a person the owner
+    marked as a minor, None when that could not be checked. Either way the
+    todo is not pushed.
 
     Demo mode is checked OUTSIDE this function (callers don't even
     open the SQLite DB when demo mode is on). This function assumes
     demo_mode=False and returns a decision purely on the privacy +
-    owner + content rules.
+    owner + content + push-window rules.
     """
     text = (todo.text or "").strip()
     if not text:
         return PushDecision(
             eligible=False,
             skip_reason=SKIP_REASON_EMPTY_TEXT,
+            push_title="",
+            push_notes="",
+            push_deadline=None,
+        )
+
+    if minor_participant is not False:
+        return PushDecision(
+            eligible=False,
+            skip_reason=(SKIP_REASON_MINOR if minor_participant
+                         else SKIP_REASON_MINOR_UNCHECKED),
             push_title="",
             push_notes="",
             push_deadline=None,
@@ -914,6 +1044,15 @@ def decide_push(
         return PushDecision(
             eligible=False,
             skip_reason=SKIP_REASON_OWNER_OTHER,
+            push_title="",
+            push_notes="",
+            push_deadline=None,
+        )
+
+    if (todo.status or "").strip().lower() in _CLOSED_STATUSES:
+        return PushDecision(
+            eligible=False,
+            skip_reason=SKIP_REASON_CLOSED,
             push_title="",
             push_notes="",
             push_deadline=None,
@@ -1007,6 +1146,7 @@ CREATE TABLE IF NOT EXISTS reminders_map (
     push_deadline     TEXT,
     calendar_item_identifier TEXT,
     pushed_at         TEXT,
+    completed_at      TEXT,
     last_seen_at      TEXT NOT NULL,
     failure_reason    TEXT,
     PRIMARY KEY (user_id, source_session_id, todo_id)
@@ -1031,6 +1171,7 @@ def _open_db(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(_SCHEMA)
+    _migrate_completed_at(conn)
     # Writer-owned additive columns, added in place on an existing DB. thread_key
     # is the vendored stable person/thread id (CM051 divergence; the assistant's
     # REQUIRED_COLUMNS do not include it, so an older reader is unaffected);
@@ -1068,6 +1209,23 @@ def _open_thread_exists(
         (user_id, thread_key, STATUS_PENDING, STATUS_PUSHED, session_id, todo_id),
     ).fetchone()
     return row is not None
+
+
+def _migrate_completed_at(conn: sqlite3.Connection) -> None:
+    """Add the ``completed_at`` column to a pre-existing mapping DB.
+
+    ``CREATE TABLE IF NOT EXISTS`` is a no-op on installs whose DB
+    predates the column, so upgrades need an explicit ALTER. Additive
+    and idempotent: existing rows get NULL (no completion observed),
+    which is exactly the honest state.
+    """
+    cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(reminders_map)")
+    }
+    if "completed_at" not in cols:
+        conn.execute(
+            "ALTER TABLE reminders_map ADD COLUMN completed_at TEXT"
+        )
 
 
 def _resolve_row_id(
@@ -1170,10 +1328,12 @@ def _upsert_skipped(
         (user_id, session_id, todo_id),
     )
     existing = cur.fetchone()
-    if existing is not None and existing[0] == STATUS_PUSHED:
-        # Don't downgrade a previously-pushed row to skipped here.
-        # Just bump last_seen_at so the assistant knows the writer
-        # is still aware of this todo.
+    if existing is not None and existing[0] in (STATUS_PUSHED, STATUS_COMPLETED):
+        # Don't downgrade a previously-pushed (or completed) row to
+        # skipped here. Just bump last_seen_at so the assistant knows
+        # the writer is still aware of this todo. A completed row in
+        # particular is a latency sample the CM059 miner depends on;
+        # a later gate change must never erase it.
         conn.execute(
             "UPDATE reminders_map SET last_seen_at=? "
             "WHERE user_id=? AND source_session_id=? AND todo_id=?",
@@ -1208,7 +1368,7 @@ def _upsert_pending(
     session_id: str,
     todo_id: str,
     decision: PushDecision,
-) -> str:
+) -> tuple[str, Optional[str]]:
     """Upsert an eligible todo into the mapping table.
 
     First insertion for a (user_id, session_id, todo_id) lands as
@@ -1220,12 +1380,15 @@ def _upsert_pending(
     assistant may want to UPDATE the EKReminder if the payload
     changed, but that's a refinement for the assistant-side PR.
 
-    Returns the current status post-upsert so the caller can use it
-    to decide whether to flip the in-memory Todo.status.
+    Returns ``(current_status, completed_at)`` post-upsert so the
+    caller can decide whether to flip the in-memory Todo.status and
+    stamp its completion timestamp. ``completed_at`` is only ever
+    non-None for rows the assistant marked via ``mark_completed``.
     """
     now = _now_iso()
     cur = conn.execute(
-        "SELECT status FROM reminders_map WHERE user_id=? AND source_session_id=? AND todo_id=?",
+        "SELECT status, completed_at FROM reminders_map "
+        "WHERE user_id=? AND source_session_id=? AND todo_id=?",
         (user_id, session_id, todo_id),
     )
     existing = cur.fetchone()
@@ -1242,9 +1405,10 @@ def _upsert_pending(
             ),
         )
         conn.commit()
-        return STATUS_PENDING
+        return STATUS_PENDING, None
 
-    # Existing row: refresh payload + last_seen_at, preserve status.
+    # Existing row: refresh payload + last_seen_at, preserve status
+    # (and completed_at -- the UPDATE deliberately never touches it).
     conn.execute(
         "UPDATE reminders_map SET "
         "  push_title=?, push_notes=?, push_deadline=?, last_seen_at=?, "
@@ -1258,7 +1422,90 @@ def _upsert_pending(
         ),
     )
     conn.commit()
-    return existing[0]
+    return existing[0], existing[1]
+
+
+# ---------------------------------------------------------------------------
+# Completion recording: the assistant-side sweep's entry point
+# ---------------------------------------------------------------------------
+
+
+def mark_completed(
+    *,
+    user_id: str,
+    session_id: str,
+    todo_id: str,
+    completed_at: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Record that a pushed commitment was KEPT.
+
+    This is the completion side of the ledger contract: the
+    assistant-side EventKit sweep (ostler-assistant) calls this when
+    it observes an EKReminder it previously pushed flip to completed,
+    passing EventKit's ``completionDate`` as ``completed_at``
+    (ISO-8601; defaults to now-UTC when the sweep can only observe
+    "it is complete" and not when). The next writer run reads the row
+    back via ``apply_push_status_to_todos`` and the rendered
+    ``todos.md`` item line gains ``completed_at: <ISO>`` -- the
+    latency sample the CM059 followup_latency miner consumes.
+
+    Idempotent: re-marking an already-completed row preserves the
+    FIRST completion timestamp (the earliest observation is the
+    honest one; a later sweep must not shift the latency sample).
+
+    Returns True when a row was marked (or already was), False when
+    no matching row exists -- the caller pushed something this ledger
+    never recorded, which the assistant should log, not crash on.
+    """
+    if db_path is None:
+        db_path = default_db_path()
+    try:
+        conn = _open_db(db_path)
+    except (sqlite3.Error, OSError) as exc:
+        log.warning(
+            "reminders_push: cannot open mapping DB at %s (%s); "
+            "completion for %s not recorded",
+            db_path, exc, todo_id,
+        )
+        return False
+    try:
+        now = _now_iso()
+        cur = conn.execute(
+            "SELECT status, completed_at FROM reminders_map "
+            "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+            (user_id, session_id, todo_id),
+        )
+        existing = cur.fetchone()
+        if existing is None:
+            log.warning(
+                "reminders_push: mark_completed for unknown row "
+                "(user_id=%s, session_id=%s, todo_id=%s)",
+                user_id, session_id, todo_id,
+            )
+            return False
+        if existing[0] == STATUS_COMPLETED and existing[1]:
+            # Already completed with a timestamp: keep the first
+            # observation, just bump last_seen_at.
+            conn.execute(
+                "UPDATE reminders_map SET last_seen_at=? "
+                "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+                (now, user_id, session_id, todo_id),
+            )
+            conn.commit()
+            return True
+        conn.execute(
+            "UPDATE reminders_map SET status=?, completed_at=?, last_seen_at=? "
+            "WHERE user_id=? AND source_session_id=? AND todo_id=?",
+            (
+                STATUS_COMPLETED, completed_at or now, now,
+                user_id, session_id, todo_id,
+            ),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1274,6 +1521,7 @@ def apply_push_status_to_todos(
     demo_mode: bool = False,
     user_id: str = _DEFAULT_USER_ID,
     db_path: Optional[Path] = None,
+    minor_participant: Optional[bool] = False,
 ) -> tuple:
     """Walk the bundle's todos through the push gate and return a
     new (immutable) tuple with statuses updated to reflect the
@@ -1376,6 +1624,7 @@ def apply_push_status_to_todos(
                 demo_mode=False,
                 user_id=user_id,
                 summary_path=summary_path,
+                minor_participant=minor_participant,
             )
             if not decision.eligible:
                 _upsert_skipped(
@@ -1418,7 +1667,7 @@ def apply_push_status_to_todos(
             if decision.flag:
                 unverifiable_rows += 1
 
-            current_status = _upsert_pending(
+            current_status, row_completed_at = _upsert_pending(
                 conn,
                 user_id=user_id,
                 session_id=session_id,
@@ -1431,7 +1680,16 @@ def apply_push_status_to_todos(
                 conversation_id=bundle.conversation_id,
             )
             conn.commit()
-            if current_status == STATUS_PUSHED:
+            if current_status == STATUS_COMPLETED:
+                # The assistant observed the pushed EKReminder flip
+                # to completed (mark_completed). Surface both the
+                # status and the completion timestamp so the rendered
+                # todos.md carries ``completed_at:`` -- the CM059
+                # followup_latency miner's latency sample.
+                out.append(_replace_status(
+                    todo, "completed", completed_at=row_completed_at,
+                ))
+            elif current_status == STATUS_PUSHED:
                 # The assistant pushed this row on a prior sweep and
                 # recorded calendar_item_identifier. Reflect that in
                 # the rendered todos.md so the wiki pill flips.
@@ -1476,14 +1734,24 @@ def apply_push_status_to_todos(
         conn.close()
 
 
-def _replace_status(todo: "Todo", new_status: str, *, new_id: Optional[str] = None):
-    """Return a new Todo with ``status`` replaced.
+def _replace_status(
+    todo: "Todo",
+    new_status: str,
+    *,
+    new_id: Optional[str] = None,
+    completed_at: Optional[str] = None,
+):
+    """Return a new Todo with ``status`` replaced (optionally ``id``
+    and ``completed_at``).
 
     The Todo dataclass is frozen, so we can't mutate; rebuild
     instead. ``dataclasses.replace`` would also work but importing
     ``dataclasses`` only for that is more import surface for one
     call site -- a manual rebuild keeps the dependency graph small
     and the intent explicit.
+
+    ``completed_at`` defaults to preserving the input todo's value;
+    an explicit timestamp (the completed-row path) overrides it.
     """
     from .conversation_writer import Todo
     return Todo(
@@ -1493,18 +1761,21 @@ def _replace_status(todo: "Todo", new_status: str, *, new_id: Optional[str] = No
         deadline=todo.deadline,
         source_anchor=todo.source_anchor,
         status=new_status,
+        completed_at=completed_at if completed_at is not None else todo.completed_at,
     )
 
 
 __all__ = [
     "PushDecision",
     "STATUS_PENDING", "STATUS_PUSHED", "STATUS_SKIPPED", "STATUS_FAILED",
-    "STATUS_PERMISSION_DENIED",
+    "STATUS_PERMISSION_DENIED", "STATUS_COMPLETED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+    "SKIP_REASON_MINOR", "SKIP_REASON_MINOR_UNCHECKED",
     "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
     "apply_push_status_to_todos",
     "decide_push",
     "default_db_path",
+    "mark_completed",
     "make_todo_key",
 ]
