@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple
 
 import pwg_privacy  # the one outbound table; repo-root module, see ical-server.py
+import pwg_privacy_readers as _pr
 
 CONTRACT_VERSION = "derived-preferences.v1"
 
@@ -61,6 +62,7 @@ class AffinityView:
     node: str = ""       # the derived node's URI, to resolve "because" later
     tier: str = ""       # "broad" | "specific"; "" for graphs written before tiers
     privacy: str = ""    # highest privacy level of the evidence (CM019 #423); "" = none stated
+    privacy_label: str = ""  # "private" when served to owner_local as L3 / untagged / legacy L0
 
 
 def interleave_by_category(views, limit: int) -> list:
@@ -107,7 +109,7 @@ class DerivedGraphReader:
                  destination: Optional[str] = None):
         self._sparql = sparql
         self._graph = derived_graph
-        # The request's destination. Undeclared or unknown = cloud (fail closed).
+        # The request's destination. undeclared or unknown = unknown (strictest) (fail closed).
         self.destination = pwg_privacy.resolve_destination(destination)
 
     def get_derived_preferences(
@@ -131,7 +133,7 @@ class DerivedGraphReader:
             "    OPTIONAL { ?s pwg:intensityTier ?intensity }\n"
             "    OPTIONAL { ?s pwg:category ?category }\n"
             "    OPTIONAL { ?s pwg:tier ?tier }\n"
-            "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            "    " + _pr.optional_level("s", "privacy") + "\n"
             "    OPTIONAL { ?s pwg:privacyScale ?scale }\n"
             f"    FILTER(?confidence >= {float(min_confidence)})\n"
             + ("    FILTER(?strength < 0)\n" if negative_only else "")
@@ -148,10 +150,10 @@ class DerivedGraphReader:
         for b in self._sparql(q):
             privacy = (b.get("privacy") or "").strip().upper()
             # The outbound table decides, per destination. A relabelled L0 carries
-            # privacy_scale; an unmigrated L0 is withheld by legacy_l0_guard.
-            if not pwg_privacy.outbound_ok(
-                    {"privacy_level": privacy, "privacy_scale": b.get("scale") or ""},
-                    destination=self.destination, legacy_absent_serves=True):
+            # privacyScale stamp; an unmigrated L0 is withheld by legacy_l0_guard.
+            _rec = {"privacy_level": privacy,
+                    pwg_privacy.CANONICAL_SCALE_KEY: b.get("scale") or ""}
+            if not pwg_privacy.outbound_ok(_rec, destination=self.destination):
                 continue
             subj_uri = b.get("s")
             because = (
@@ -171,6 +173,8 @@ class DerivedGraphReader:
                     node=subj_uri or "",
                     tier=b.get("tier") or "",
                     privacy=privacy,
+                    privacy_label=pwg_privacy.served_label(
+                        _rec, destination=self.destination) or "",
                 )
             )
         return views
@@ -284,6 +288,8 @@ def _item(view) -> dict:
     # (same shape as CM019 derive/endpoint.py, PWG #423).
     if getattr(view, "privacy", ""):
         d["privacy_level"] = view.privacy
+    if getattr(view, "privacy_label", ""):
+        d["privacy_label"] = view.privacy_label
     return d
 
 

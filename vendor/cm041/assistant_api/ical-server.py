@@ -58,6 +58,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 import pwg_privacy
+import pwg_privacy_readers as _pr
 
 # SECURITY: encrypted database wrapper from ostler_security.
 #
@@ -2263,7 +2264,7 @@ _SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 # test suite route through the ONE helper rather than a second copy.
 
 
-def _qdrant_fact_is_explicit_l3(fact):
+def _qdrant_fact_is_explicit_l3(fact, destination=None):
     """Deprecated shim -> pwg_privacy.is_l3 (fail-closed).
 
     Historically this returned True only on an *explicit* L3 tag and the
@@ -2272,7 +2273,7 @@ def _qdrant_fact_is_explicit_l3(fact):
     fact is "L3 for hiding purposes" whenever it carries no parseable,
     non-L3 clearance of its own. Kept only for call-site/back-compat.
     """
-    return pwg_privacy.is_l3(fact)
+    return _pr.outbound_hidden(fact, destination=destination)
 
 
 def _filter_qdrant_facts(facts, owner_level=None, destination=None):
@@ -2296,8 +2297,7 @@ def _filter_qdrant_facts(facts, owner_level=None, destination=None):
     inherit a coarse person-level clearance from, so each fact must clear
     itself. Non-list shapes are dropped whole (un-auditable).
     """
-    return pwg_privacy.filter_outbound_facts(
-        facts, owner_level, destination or pwg_privacy.DEFAULT_DESTINATION)
+    return _pr.outbound_filter(facts, owner_level, destination)
 
 
 # 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
@@ -2307,14 +2307,10 @@ def _filter_qdrant_facts(facts, owner_level=None, destination=None):
 
 
 def _outbound_level_ok(record, destination=None):
-    """True when a person or debt record may leave the box.
-
-    LEGACY: no level under any spelling passes (the 133 untagged rule).
-    Anything else follows the outbound table for the Hub route.
-    """
+    """True when a person or debt record may be served to ``destination``
+    (the shared table; untagged = L3, owner_local only)."""
     return pwg_privacy.outbound_ok(
-        record, destination=destination or pwg_privacy.DEFAULT_DESTINATION,
-        legacy_absent_serves=True)
+        record, destination=destination or pwg_privacy.DEFAULT_DESTINATION)
 
 
 def _fact_outbound_ok(fact, destination=None):
@@ -2403,11 +2399,9 @@ def people_search(query, limit=10, timeout=30, destination=None):
         # sender id or bulk mailbox is not found by search either.
         if _is_non_human_person(p, dn):
             continue
-        # Person-level outbound gate (133): a person tagged L0 or L3, or with
-        # an unparseable tag, must not surface in search. An untagged person
-        # is still searchable (search coverage must not collapse for the many
-        # points that predate the privacy_level default), and their individual
-        # facts are still fail-closed filtered below.
+        # Person-level gate for the declared destination (the shared table).
+        # An untagged person is canonical L3 (the 133 untagged rule is retired,
+        # Archie 2026-11-17): owner_local only, labelled; withheld elsewhere.
         if not _outbound_level_ok(p, destination):
             continue
         entry = {
@@ -2415,6 +2409,7 @@ def people_search(query, limit=10, timeout=30, destination=None):
             "slug": _wiki_slug(dn),
             "score": round(pt.get("score", 0), 3),
             "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(dn)}/",
+            **_pr.label_for(p, None, destination),
         }
         if _is_provisional_phone_name(dn):
             entry["provisional_name"] = True
@@ -5946,7 +5941,7 @@ def _domain_corroborates(org: str, domains: set):
     return None
 
 
-def _query_operator_career_facts(outbound: bool = False) -> list:
+def _query_operator_career_facts(outbound: bool = False, destination=None) -> list:
     """Reified, dated ``career_position`` facts about the operator.
 
     Read off ``USER_URI`` only. Returns raw binding dicts (fact, org,
@@ -5993,21 +5988,24 @@ def _query_operator_career_facts(outbound: bool = False) -> list:
             '  OPTIONAL {{ ?fact pwg:endDate ?endDate }}\n'
             '  OPTIONAL {{ ?fact pwg:factText ?factText }}\n'
             '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
-            '  OPTIONAL {{ ?fact pwg:privacyLevel ?fpriv }}\n'
-            '  OPTIONAL {{ <{user}> pwg:privacyLevel ?ownerPriv }}\n'
+            '  {pf_fact}\n'
+            '  {pf_owner}\n'
             '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?vt }}\n'
-            '}}'.format(ns=PWG_NS, user=USER_URI)
+            '}}'.format(ns=PWG_NS, user=USER_URI,
+                        pf_fact=_pr.optional_level("fact", "fpriv"),
+                        pf_owner=_pr.optional_level_iri(USER_URI, "ownerPriv"))
         )
     except Exception:
         return []
     if outbound:
         rows = [r for r in rows
-                if not pwg_privacy.is_l3({"privacy_level": r.get("fpriv")},
-                                         owner_level=r.get("ownerPriv"))]
+                if not _pr.outbound_hidden({"privacy_level": _pr.level_input(r.get("fpriv"))},
+                                           destination=destination,
+                                         owner_level=_pr.level_input(r.get("ownerPriv")))]
     return rows
 
 
-def _select_current_employer(outbound: bool = False) -> dict:
+def _select_current_employer(outbound: bool = False, destination=None) -> dict:
     """Deterministically resolve the operator's CURRENT employer.
 
     Combines three signals (the operator's stated corroboration
@@ -6040,7 +6038,7 @@ def _select_current_employer(outbound: bool = False) -> dict:
 
     verdicts = _hygiene_verdicts()
     domains = _operator_email_domains()
-    raw = _query_operator_career_facts(outbound=outbound)
+    raw = _query_operator_career_facts(outbound=outbound, destination=destination)
     # F3 (Archie re-review): the operator's OWN memory-tab corrections are
     # authoritative over the source triples. A career fact the operator has
     # explicitly forgotten via POST /api/v1/memory/correct/{id} MUST never be
@@ -6236,13 +6234,13 @@ def _select_current_employer(outbound: bool = False) -> dict:
     }
 
 
-def _current_employer_safe(outbound: bool = False) -> dict:
+def _current_employer_safe(outbound: bool = False, destination=None) -> dict:
     """``_select_current_employer`` wrapped so no read path can 5xx.
 
     ``outbound=True`` withholds L3 career facts (see
     ``_query_operator_career_facts``)."""
     try:
-        return _select_current_employer(outbound=outbound)
+        return _select_current_employer(outbound=outbound, destination=destination)
     except Exception:
         return {"found": False}
 
@@ -6611,7 +6609,7 @@ def _merged_cluster(person_uri):
     return out
 
 
-_PRIVACY_ORDER = ("L0", "L1", "L2", "L3")
+_PRIVACY_ORDER = pwg_privacy.VALID_PRIVACY_LEVELS   # read from the shared table
 
 
 def _effective_privacy_level(record_level, owner_level):
@@ -6622,15 +6620,14 @@ def _effective_privacy_level(record_level, owner_level):
     either axis, which every caller treats as hidden. This returns the LEVEL
     so a reader can serve it alongside the record.
     """
-    levels = [lvl for lvl in (pwg_privacy.parse_privacy_level(record_level),
-                              pwg_privacy.parse_privacy_level(owner_level))
-              if lvl is not None]
-    if not levels:
-        return None
-    return max(levels, key=_PRIVACY_ORDER.index)
+    # One strictness order for the whole CM041 tree (effective_level). An
+    # UNREADABLE or ABSENT class returns None, which callers hide.
+    lvl = pwg_privacy.effective_level(_pr.level_input(record_level),
+                                      _pr.level_input(owner_level))
+    return lvl if lvl in _PRIVACY_ORDER else None
 
 
-def person_context(name):
+def person_context(name, destination=None):
     """Gather everything known about a person by name."""
     esc = name.replace("\\", "\\\\").replace('"', '\\"')
     # last_contact is the MAX of the four per-source predicates, computed
@@ -6661,8 +6658,9 @@ def person_context(name):
         '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
-        '  OPTIONAL {{ ?person pwg:privacyLevel ?priv }}\n'
-        '}} LIMIT 50').format(ns=PWG_NS, q=esc)
+        '  {pf_person}\n'
+        '}} LIMIT 50').format(ns=PWG_NS, q=esc,
+                             pf_person=_pr.optional_level("person", "priv"))
     )
     if not persons:
         return {"query": name, "found": False,
@@ -6739,7 +6737,8 @@ def person_context(name):
             # so a multi-match on the operator's name is disambiguable and the
             # brief LLM never has to guess which candidate is "you".
             entry["is_operator"] = True
-            emp = _current_employer_safe()
+            # A route: the employer is gated for the declared destination.
+            emp = _current_employer_safe(outbound=True, destination=destination)
             operator_employer = emp
             if emp.get("found"):
                 entry["organisation"] = emp["employer"]
@@ -6799,9 +6798,9 @@ def person_context(name):
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?f ?text ?fpriv WHERE {{\n'
             '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
-            '  OPTIONAL {{ ?f pwg:privacyLevel ?fpriv }}\n'
+            '  {pf_f}\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
-            '}}'.format(ns=PWG_NS, uri=uri)
+            '}}'.format(ns=PWG_NS, uri=uri, pf_f=_pr.optional_level("f", "fpriv"))
         )
         if facts:
             # Memory-Hygiene overlay (LEFT JOIN <urn:ostler:hygiene>): drop any
@@ -6812,13 +6811,19 @@ def person_context(name):
             # does. Empty overlay (hygiene never run / Oxigraph down) => the
             # list is unchanged; the reader never raises.
             facts = _hygiene_drop_retired(facts)
-            visible = pwg_privacy.filter_l3_facts(
+            visible = _pr.outbound_filter(
                 [{"text": f["text"], "privacy_level": f.get("fpriv")}
                  for f in facts],
                 owner_level=person.get("priv"),
+                destination=destination,
             )
             if visible:
                 entry["facts"] = [f["text"] for f in visible]
+                # owner_local only: the served facts labelled private (L3,
+                # untagged, legacy L0). No other destination receives them.
+                _private = [f["text"] for f in visible if _pr.is_labelled(f)]
+                if _private:
+                    entry["private_facts"] = _private
 
         # Meetings -- fail-closed L3 filter, and every served meeting carries
         # its effective privacy_level (118 MUST, A14 review). A meeting summary
@@ -6836,19 +6841,26 @@ def person_context(name):
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
-            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri)
+            '  {pf_m}\n'
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri,
+                                                       pf_m=_pr.optional_level("m", "mpriv"))
         )
         visible_meetings = []
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), person.get("priv"))
-            if level is None or level == "L3":
+            # The meeting's OWN level goes to the gate beside the owner's, so a
+            # legacy L0 meeting is withheld by legacy_l0_guard even when the
+            # person's looser level would make the effective class L1/L2.
+            _mrec = {"privacy_level": _pr.level_input(m.get("mpriv"))}
+            if _pr.outbound_hidden(_mrec, owner_level=_pr.level_input(person.get("priv")),
+                                   destination=destination):
                 continue
             visible_meetings.append({
                 "summary": m["summary"],
                 "date": m.get("date", "")[:10] if m.get("date") else "",
                 "location": m.get("location", ""),
                 "privacy_level": level,
+                **_pr.label_for(_mrec, _pr.level_input(person.get("priv")), destination),
             })
         if visible_meetings:
             entry["meetings"] = visible_meetings[:10]
@@ -6867,9 +6879,9 @@ def person_context(name):
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
                 '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-                '  OPTIONAL {{ ?signal <urn:ostler:privacyLevel> ?spriv }}\n'
+                '  {pf_spriv}\n'
                 '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
-                    slug=person_slug)
+                    slug=person_slug, pf_spriv=_pr.optional_level("signal", "spriv"))
             )
             + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
@@ -6909,9 +6921,10 @@ def person_context(name):
         # When everything returned is hidden the field is OMITTED rather than
         # emitted empty: `if signals:` guards the assignment below. An absence
         # a consumer can see is not the same as a false claim of no warmth.
-        signals = pwg_privacy.filter_l3_facts(
+        signals = _pr.outbound_filter(
             [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
             owner_level=person.get("priv"),
+            destination=destination,
         )
         if signals:
             sig = signals[0]
@@ -6980,7 +6993,7 @@ def _max_past_last_contact(dates):
     return max(past) if past else None
 
 
-def person_enrichment(slug):
+def person_enrichment(slug, destination=None):
     """Handle GET /api/v1/people/{slug}/enrichment.
 
     Per-slug enrichment payload for the iOS / Hub person card. Where
@@ -7075,8 +7088,9 @@ def person_enrichment(slug):
             '  OPTIONAL {{ <{uri}> pwg:lastContactIMessage ?lcIMessage }}\n'
             '  OPTIONAL {{ <{uri}> pwg:notes ?notes }}\n'
             '  OPTIONAL {{ <{uri}> pwg:birthday ?bday }}\n'
-            '  OPTIONAL {{ <{uri}> pwg:privacyLevel ?priv }}\n'
-            '}} LIMIT 1'.format(ns=PWG_NS, uri=person_uri)
+            '  {pf_priv}\n'
+            '}} LIMIT 1'.format(ns=PWG_NS, uri=person_uri,
+                                pf_priv=_pr.optional_level_iri(person_uri, "priv"))
         )
     except Exception as exc:
         return {
@@ -7106,7 +7120,8 @@ def person_enrichment(slug):
         # F2 (Archie re-review): tag the operator's own card (mirrors
         # person_context) so any consumer can disambiguate it.
         entry["is_operator"] = True
-        emp = _current_employer_safe()
+        # A route: the employer is gated for the declared destination.
+        emp = _current_employer_safe(outbound=True, destination=destination)
         if emp.get("found"):
             entry["organisation"] = emp["employer"]
             if emp.get("job_title"):
@@ -7177,22 +7192,28 @@ def person_enrichment(slug):
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?f ?text ?fpriv WHERE {{\n'
             '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
-            '  OPTIONAL {{ ?f pwg:privacyLevel ?fpriv }}\n'
+            '  {pf_f}\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
-            '}}'.format(ns=PWG_NS, uri=person_uri)
+            '}}'.format(ns=PWG_NS, uri=person_uri, pf_f=_pr.optional_level("f", "fpriv"))
         )
         if facts:
             # Drop facts the hygiene pass retired before the L3 filter (same
             # verdicts the memory tab and person_context honour). Empty
             # overlay => unchanged; never raises.
             facts = _hygiene_drop_retired(facts)
-            visible = pwg_privacy.filter_l3_facts(
+            visible = _pr.outbound_filter(
                 [{"text": f["text"], "privacy_level": f.get("fpriv")}
                  for f in facts],
                 owner_level=row.get("priv"),
+                destination=destination,
             )
             if visible:
                 entry["facts"] = [f["text"] for f in visible]
+                # owner_local only: the served facts labelled private (L3,
+                # untagged, legacy L0). No other destination receives them.
+                _private = [f["text"] for f in visible if _pr.is_labelled(f)]
+                if _private:
+                    entry["private_facts"] = _private
 
         # Meetings: same fail-closed L3 rule as person_context (118 MUST,
         # S23). Stricter of the meeting's and the person's level wins, no
@@ -7204,19 +7225,26 @@ def person_enrichment(slug):
             '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
-            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=person_uri)
+            '  {pf_m}\n'
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=person_uri,
+                                                       pf_m=_pr.optional_level("m", "mpriv"))
         )
         visible_meetings = []
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), row.get("priv"))
-            if level is None or level == "L3":
+            # The meeting's OWN level goes to the gate beside the owner's, so a
+            # legacy L0 meeting is withheld by legacy_l0_guard even when the
+            # person's looser level would make the effective class L1/L2.
+            _mrec = {"privacy_level": _pr.level_input(m.get("mpriv"))}
+            if _pr.outbound_hidden(_mrec, owner_level=_pr.level_input(row.get("priv")),
+                                   destination=destination):
                 continue
             visible_meetings.append({
                 "summary": m["summary"],
                 "date": m.get("date", "")[:10] if m.get("date") else "",
                 "location": m.get("location", ""),
                 "privacy_level": level,
+                **_pr.label_for(_mrec, _pr.level_input(row.get("priv")), destination),
             })
         if visible_meetings:
             entry["meetings"] = visible_meetings[:10]
@@ -7233,9 +7261,9 @@ def person_enrichment(slug):
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
                 '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-                '  OPTIONAL {{ ?signal <urn:ostler:privacyLevel> ?spriv }}\n'
+                '  {pf_spriv}\n'
                 '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
-                    slug=slug)
+                    slug=slug, pf_spriv=_pr.optional_level("signal", "spriv"))
             )
             + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
@@ -7275,9 +7303,10 @@ def person_enrichment(slug):
         # When everything returned is hidden the field is OMITTED rather than
         # emitted empty: `if signals:` guards the assignment below. An absence
         # a consumer can see is not the same as a false claim of no warmth.
-        signals = pwg_privacy.filter_l3_facts(
+        signals = _pr.outbound_filter(
             [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
             owner_level=row.get("priv"),
+            destination=destination,
         )
         if signals:
             sig = signals[0]
@@ -7380,7 +7409,7 @@ def _timeline_human_date(iso_date):
 _PERSON_URI_PATTERN = re.compile(r"^[A-Za-z0-9._~:/#%+-]{1,300}$")
 
 
-def person_timeline_by_uri(person_uri, limit=50, days=None):
+def person_timeline_by_uri(person_uri, limit=50, days=None, destination=None):
     """GET /api/v1/people/timeline?uri=... : the timeline for one exact person.
 
     Takes the person URI, not a slug, so it never runs slug resolution and
@@ -7408,10 +7437,11 @@ def person_timeline_by_uri(person_uri, limit=50, days=None):
     if not rows:
         return {"found": False, "message": "No person found for that uri."}, 404
     pname = rows[0].get("name", "")
-    return _person_timeline_body(person_uri, pname, _wiki_slug(pname), limit, days)
+    return _person_timeline_body(person_uri, pname, _wiki_slug(pname), limit, days,
+                                 destination=destination)
 
 
-def person_timeline(slug, limit=50, days=None):
+def person_timeline(slug, limit=50, days=None, destination=None):
     """Handle GET /api/v1/person/{slug}/timeline.
 
     A UNIFIED, cross-channel relationship timeline for one person: every
@@ -7487,10 +7517,11 @@ def person_timeline(slug, limit=50, days=None):
             "message": "No person found for slug '{}'.".format(slug),
         }, 404
 
-    return _person_timeline_body(person_uri, pname, slug, limit, days)
+    return _person_timeline_body(person_uri, pname, slug, limit, days,
+                                 destination=destination)
 
 
-def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
+def _person_timeline_body(person_uri, pname, slug, limit=50, days=None, destination=None):
     """Build the timeline for a person already resolved to ``person_uri``.
 
     Shared by the slug route (which resolves first) and the by-URI route
@@ -7515,8 +7546,9 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
         # rather than serving unlabelled rows.
         owner_rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?priv WHERE {{ <{uri}> pwg:privacyLevel ?priv }} LIMIT 1'
-            .format(ns=PWG_NS, uri=person_uri)
+            'SELECT ?priv WHERE {{ {pf} }} LIMIT 1'
+            .format(ns=PWG_NS, uri=person_uri,
+                    pf=_pr.optional_level_iri(person_uri, "priv"))
         )
         owner_level = owner_rows[0].get("priv") if owner_rows else None
         meetings = _sparql_select(
@@ -7526,12 +7558,18 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
             'pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
-            '}} ORDER BY DESC(?date)'.format(ns=PWG_NS, uri=person_uri)
+            '  {pf_m}\n'
+            '}} ORDER BY DESC(?date)'.format(ns=PWG_NS, uri=person_uri,
+                                             pf_m=_pr.optional_level("m", "mpriv"))
         )
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), owner_level)
-            if level is None or level == "L3":
+            # The meeting's OWN level goes to the gate beside the owner's, so a
+            # legacy L0 meeting is withheld by legacy_l0_guard even when the
+            # person's looser level would make the effective class L1/L2.
+            _mrec = {"privacy_level": _pr.level_input(m.get("mpriv"))}
+            if _pr.outbound_hidden(_mrec, owner_level=_pr.level_input(owner_level),
+                                   destination=destination):
                 continue
             iso = (m.get("date") or "")[:10]
             if not iso:
@@ -7545,6 +7583,7 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
                 "summary": m.get("summary", ""),
                 "location": m.get("location", ""),
                 "privacy_level": level,
+                **_pr.label_for(_mrec, _pr.level_input(owner_level), destination),
             })
     except Exception as exc:
         degraded_sources.append(f"meetings: {exc}")
@@ -7563,8 +7602,8 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
                 '  ?fact <urn:ostler:about> <{uri}> ; '
                 '<urn:ostler:fromConversation> ?conv .\n'
                 '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-                '  OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}\n'.format(
-                    uri=person_uri)
+                '  {pf_fpriv}\n'.format(
+                    uri=person_uri, pf_fpriv=_pr.optional_level("fact", "fpriv"))
             )
             + '\n}'
         )
@@ -7577,9 +7616,10 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
         # that links them. owner_level is None here because person_timeline
         # resolves no person-level clearance; each fact carries its own, and
         # an untagged one fails closed.
-        conv_rows = pwg_privacy.filter_l3_facts(
+        conv_rows = _pr.outbound_filter(
             [dict(_r, privacy_level=_r.get("fpriv")) for _r in conv_rows],
             owner_level=None,
+            destination=destination,
         )
         seen_convs = set()
         for r in conv_rows:
@@ -7603,12 +7643,12 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
                 "conversation_id": conv_id,
                 "wiki_url": (f"{WIKI_BASE_URL}/Conversations/{conv_id}/"
                              if conv_id else ""),
-                # Owner-local timeline EMITS the row's own level (Archie ruling,
-                # L3 window). The iPhone keeps its L0 events. The outbound
-                # gates (commitments, people, reply-debt) withhold L0 at the
-                # Hub. This route does not.
-                "privacy_level": pwg_privacy.parse_privacy_level(
+                # Every served event EMITS the row's own level (Archie ruling,
+                # L3 window). The gate above is per destination: a legacy L0,
+                # an L3 or an untagged row reaches owner_local only, labelled.
+                "privacy_level": _pr.level_of(
                     r.get("privacy_level")),
+                **({"privacy_label": "private"} if _pr.is_labelled(r) else {}),
             })
     except Exception as exc:
         degraded_sources.append(f"conversations: {exc}")
@@ -7868,19 +7908,21 @@ def _conversation_levels_for(convs):
     # the same default-plus-named UNION every other CM048 reader uses.
     body = (
         "  VALUES ?conv { " + values + " }\n"
-        "  { ?conv pwg:privacyLevel ?lvl }\n"
-        "  UNION { ?src <urn:ostler:fromConversation> ?conv ; <urn:ostler:privacyLevel> ?lvl }\n"
-        "  UNION { ?src pwg:fromConversation ?conv ; pwg:privacyLevel ?lvl }\n"
+        "  " + _pr.optional_level("conv", "lvl") + "\n"
+        "  OPTIONAL { ?src <urn:ostler:fromConversation> ?conv . "
+        + _pr.optional_level("src", "srclvl") + " }\n"
     )
     rows = _sparql_select(
         'PREFIX pwg: <{ns}>\n'.format(ns=PWG_NS)
-        + 'SELECT ?conv ?lvl WHERE {\n'
+        + 'SELECT ?conv ?lvl ?srclvl WHERE {\n'
         + _read_across_graphs(body)
         + '\n}'
     )
     for r in rows:
-        if r.get("conv") and r.get("lvl") is not None:
-            out.setdefault(r["conv"], []).append(r["lvl"])
+        if r.get("conv"):
+            for key in ("lvl", "srclvl"):
+                if r.get(key) is not None:
+                    out.setdefault(r["conv"], []).append(r[key])
     return out
 
 
@@ -8003,11 +8045,13 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
                 # the named user graphs (the seed and CM048 writers). Oxigraph has
                 # no union default graph, so each level pattern matches both.
                 '  OPTIONAL {{ <{uri}> pwg:decisionSource ?m .\n'
-                '    OPTIONAL {{ {{ ?m pwg:privacyLevel ?mpriv }} UNION {{ GRAPH ?gm {{ ?m pwg:privacyLevel ?mpriv }} }} }} }}\n'
+                '    {pf_mpriv} }}\n'
                 '  OPTIONAL {{ <{uri}> pwg:decisionAbout ?p .\n'
                 '    OPTIONAL {{ ?p pwg:displayName ?name }}\n'
-                '    OPTIONAL {{ {{ ?p pwg:privacyLevel ?ppriv }} UNION {{ GRAPH ?gp {{ ?p pwg:privacyLevel ?ppriv }} }} }} }}\n'
-                '}}'.format(ns=PWG_NS, uri=decision_uri)
+                '    {pf_ppriv} }}\n'
+                '}}'.format(ns=PWG_NS, uri=decision_uri,
+                            pf_mpriv=_pr.optional_level("m", "mpriv"),
+                            pf_ppriv=_pr.optional_level("p", "ppriv"))
             )
             meeting_levels = [a.get("mpriv") for a in arows if a.get("m")] or [None]
             # Collected per attendee, not per name: an attendee whose level
@@ -8087,11 +8131,13 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
             '  OPTIONAL {{\n'
             '    ?m a pwg:TopicMention ; pwg:mentionsTopic ?topic .\n'
             '    OPTIONAL {{ ?m pwg:topicWeight ?w }}\n'
-            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '    {pf_mpriv}\n'
             '    OPTIONAL {{ ?m pwg:inConversation ?conv .\n'
-            '      OPTIONAL {{ ?conv pwg:privacyLevel ?cpriv }} }}\n'
+            '      {pf_cpriv} }}\n'
             '  }}\n'
-            '}}'.format(ns=PWG_NS)
+            '}}'.format(ns=PWG_NS,
+                        pf_mpriv=_pr.optional_level("m", "mpriv"),
+                        pf_cpriv=_pr.optional_level("conv", "cpriv"))
         )
         conv_levels = _conversation_levels_for([r.get("conv") for r in rows])
     except Exception as exc:
@@ -8184,10 +8230,12 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
             '    OPTIONAL {{ ?m pwg:viaChannel ?channel }}\n'
             '    OPTIONAL {{ ?m pwg:senderName ?sender }}\n'
             '    OPTIONAL {{ ?m pwg:validFrom ?date }}\n'
-            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
-            '    OPTIONAL {{ ?conversation pwg:privacyLevel ?cpriv }}\n'
+            '    {pf_mpriv}\n'
+            '    {pf_cpriv}\n'
             '  }}\n'
-            '}}'.format(ns=PWG_NS, slug=slug)
+            '}}'.format(ns=PWG_NS, slug=slug,
+                        pf_mpriv=_pr.optional_level("m", "mpriv"),
+                        pf_cpriv=_pr.optional_level("conversation", "cpriv"))
         )
         conv_levels = _conversation_levels_for([r.get("conversation") for r in rows])
     except Exception as exc:
@@ -8253,7 +8301,7 @@ def _commitment_privacy_level(raw):
 
 
 def commitments_list(owner=None, due_before=None, status="open",
-                     limit=_MOAT_DEFAULT_LIMIT):
+                     limit=_MOAT_DEFAULT_LIMIT, destination=None):
     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
 
     Read-only listing of ``pwg:OutstandingTodo`` nodes -- the
@@ -8307,7 +8355,7 @@ def commitments_list(owner=None, due_before=None, status="open",
                 '  OPTIONAL { ?todo <urn:ostler:deadline> ?deadline }\n'
                 '  OPTIONAL { ?todo <urn:ostler:sourceConversationDate> ?source }\n'
                 '  OPTIONAL { ?todo <urn:ostler:todoCreatedAt> ?createdAt }\n'
-                '  OPTIONAL { ?todo <urn:ostler:privacyLevel> ?plevel }\n'
+                '  ' + _pr.optional_level("todo", "plevel") + '\n'
                 + status_filter
             )
             + '\n}'
@@ -8333,33 +8381,30 @@ def commitments_list(owner=None, due_before=None, status="open",
             # Undated commitments cannot satisfy a "due before" window.
             if not deadline or deadline >= due_norm:
                 continue
-        verdict = pwg_privacy.provenance_verdict(r.get("plevel"))
-        if not _count_withheld(withheld, verdict):
-            continue
-        # 133 outbound gate, applied to the rows the verdict serves. This
-        # list is read by the assistant's promise filter for channel replies
-        # and briefs, so only L1, L2 and untagged may leave. An L0 row is
-        # not outbound-safe. The withheld block has no L0 key, so it is
-        # counted under "unknown" (the outbound view cannot name it).
-        # 133 outbound gate, explicit at this call site. L0 and L3 are
-        # withheld, and so is a tagged value that does not parse. Untagged is
-        # served at the default level. Same rule as _outbound_level_ok.
+        # The request's destination decides (Archie 2026-11-17), through the
+        # shared table: undeclared = unknown. An untagged row is canonical L3:
+        # served to owner_local only, labelled "private", and counted as
+        # legacy_untagged there; everywhere else it is withheld.
         plevel_raw = r.get("plevel")
-        plevel = pwg_privacy.parse_privacy_level(plevel_raw)
-        if plevel in ("L0", "L3") or (
-                plevel is None and str(plevel_raw or "").strip()):
-            withheld["unknown"] += 1
+        verdict = pwg_privacy.provenance_verdict(plevel_raw)
+        _rec = {"privacy_level": _pr.level_input(plevel_raw)}
+        if _pr.outbound_hidden(_rec, destination=destination):
+            withheld["l3" if verdict == "l3" else "unknown"] += 1
             continue
+        if verdict == "legacy_untagged":
+            withheld["legacy_untagged"] += 1
         commitments.append({
             "action": r.get("action", ""),
             "owner": r.get("owner", ""),
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
-            # An untagged row is served at the default L2 label, as before,
-            # and is counted under legacy_untagged. It is not claimed tagged.
-            "privacy_level": (pwg_privacy.parse_privacy_level(r.get("plevel"))
-                              or "L2"),
+            # 134 (red-team CM041-09): an untagged row is served with NO level
+            # label. The old default "L2" passed any consumer that reads the label
+            # as outbound-safe, while the row is untagged (counted under
+            # legacy_untagged). Only a parsed level is ever labelled.
+            "privacy_level": _pr.level_of(r.get("plevel")) or "",
+            **_pr.label_for(_rec, None, destination),
             "_created": r.get("createdAt", ""),
         })
 
@@ -8467,7 +8512,7 @@ def _load_reply_debt_service():
 
 
 def api_reply_debt(threshold_hours=None, lookback_days=None,
-                   include_group=False, limit=None):
+                   include_group=False, limit=None, destination=None):
     """Compute the operator's outstanding reply debts.
 
     Read-only. Returns ``({"count": N, "brief_line": str,
@@ -8510,7 +8555,7 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
         # and rebinding to a plain list drops them (payload reads None).
         debts[:] = [d for d in debts if _outbound_level_ok(
             d.get("privacy_level") if isinstance(d, dict)
-            else getattr(d, "privacy_level", None))]
+            else getattr(d, "privacy_level", None), destination)]
         if limit is not None and limit >= 0:
             debts = debts[:limit]
         payload = service.reply_debt_payload(debts)
@@ -10000,7 +10045,7 @@ def _calendar_events_in_process(days):
     return body.get("events", [])
 
 
-def api_meeting_upcoming(within_minutes=120):
+def api_meeting_upcoming(within_minutes=120, destination=None):
     """Return enriched pre-meeting briefs for events starting within
     ``within_minutes`` from now.
 
@@ -10138,7 +10183,7 @@ TIMELINE_SOURCE_UNKNOWN = "unknown"
 
 
 def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
-                         ascending=False, outbound=False):
+                         ascending=False, outbound=False, destination=None):
     """Historic timeline rows from the People Graph - one entry PER MEETING.
 
     The Timeline is mainly a HISTORIC view, so its primary source is the graph
@@ -10151,15 +10196,14 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
     Returns ``(rows, error)`` - newest first. ``error`` is a string when the
     graph query failed (so the caller can surface a degraded marker), else None.
 
-    ``outbound=True`` is the path that leaves the box (the 7-day digest reads
-    ``/api/v1/timeline?outbound=1`` into the assistant's context, and channel
-    replies leave the box). Same rule as the brief readers: each meeting's own
-    ``pwg:privacyLevel`` and EACH attendee's are read, most-restrictive wins,
-    a meeting with no level (own or inherited) is hidden, an unparseable level
-    is hidden, and one L3 attendee hides the meeting. An attendee with no level
-    is kept in the check as "unknown", never skipped. The default ``False``
-    keeps the on-box hub timeline seeing every level.
+    Every call is gated for ``destination`` (Archie 2026-11-17: the Timeline
+    obeys the request's destination; undeclared = ``unknown``). ``outbound``
+    is accepted for old callers and no longer changes anything. Same rule as
+    the brief readers: each meeting's own level and EACH attendee's are read
+    pairwise, and any pair the table withholds hides the meeting. owner_local
+    sees every meeting; one with an L3, untagged or legacy level is labelled.
     """
+    outbound = True   # the gate is unconditional; see the docstring
     from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc)
               - timedelta(days=max(1, past_days))).strftime("%Y-%m-%d")
@@ -10171,10 +10215,14 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
             '(GROUP_CONCAT(DISTINCT COALESCE(STR(?apriv), "none"); '
             'SEPARATOR="|") AS ?alevels)'
         )
+        # level_where is spliced into the outer .format() below, so the helper
+        # SQL is brace-escaped here; the literal braces stay as they were.
+        def _esc(t):
+            return t.replace('{', '{{').replace('}', '}}')
         level_where = (
-            '  OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '  ' + _esc(_pr.optional_level('m', 'mpriv')) + '\n'
             '  OPTIONAL {{ ?m pwg:meetingAttendee ?pa . '
-            'OPTIONAL {{ ?pa pwg:privacyLevel ?apriv }} }}\n'
+            + _esc(_pr.optional_level('pa', 'apriv')) + ' }}\n'
         )
     try:
         rows = _sparql_select(
@@ -10211,10 +10259,14 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
         def _lv(raw):
             vals = [v for v in (raw or "").split("|")]
             return [None if v in ("", "none") else v for v in vals] or [None]
-        rows = [r for r in rows
-                if not any(pwg_privacy.is_l3({"privacy_level": m}, owner_level=a)
-                           for m in _lv(r.get("mlevels"))
-                           for a in _lv(r.get("alevels")))]
+        def _pairs(r):
+            return [({"privacy_level": m}, a) for m in _lv(r.get("mlevels"))
+                    for a in _lv(r.get("alevels"))]
+        rows = [dict(r, _label=any(_pr.label_for(rec, own, destination)
+                                   for rec, own in _pairs(r)))
+                for r in rows
+                if not any(_pr.outbound_hidden(rec, owner_level=own, destination=destination)
+                           for rec, own in _pairs(r))]
 
     out = []
     for r in rows:
@@ -10239,12 +10291,13 @@ def _timeline_from_graph(past_days=730, limit=200, start=None, end=None,
             # event title by both writers (meeting_syncer/syncer.py and
             # ostler_fda/pwg_ingest.py ingest_calendar); nothing else writes it.
             "source": TIMELINE_SOURCE_CALENDAR,
+            **({"privacy_label": "private"} if r.get("_label") else {}),
         })
     return out, None
 
 
 def _timeline_conversations(past_days=730, limit=200, start=None, end=None,
-                            outbound=False):
+                            outbound=False, destination=None):
     """Historic conversation rows for the Timeline, from Qdrant.
 
     Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
@@ -10319,8 +10372,9 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None,
             continue
         if (start and date <= start) or (end and date >= end):
             continue
-        # Outbound: the payload's own level, fail-closed (untagged hidden).
-        if outbound and pwg_privacy.is_l3(payload):
+        # The payload's own level, for the request's destination, always
+        # (undeclared = unknown). owner_local sees L3/untagged labelled.
+        if _pr.outbound_hidden(payload, destination=destination):
             continue
         counterpart = (payload.get("contact_name")
                        or payload.get("wing")
@@ -10342,6 +10396,7 @@ def _timeline_conversations(past_days=730, limit=200, start=None, end=None,
             "participants": participants,
             # #2565: this title is composed by Ostler (_conversation_title).
             "source": TIMELINE_SOURCE_OSTLER,
+            **_pr.label_for(payload, None, destination),
         })
 
     # Truncate from the side nearest the window edge the client asked for:
@@ -10370,7 +10425,7 @@ def _conversation_title(channel, participants):
     return "{} conversation".format(label)
 
 
-def _timeline_photos(past_days=730, limit=200):
+def _timeline_photos(past_days=730, limit=200, destination=None):
     """Aggregated photo rows for the Timeline: one row per (day, place).
 
     Source: the per-photo ``pwg:PhotoEvent`` nodes that
@@ -10399,9 +10454,10 @@ def _timeline_photos(past_days=730, limit=200):
             'SELECT ?photo ?date ?place ?priv WHERE {{\n'
             '  ?photo a pwg:PhotoEvent ; pwg:photoDate ?date .\n'
             '  OPTIONAL {{ ?photo pwg:photoPlace ?place }}\n'
-            '  OPTIONAL {{ ?photo pwg:privacyLevel ?priv }}\n'
+            '  {pf_photo}\n'
             '  FILTER(STR(?date) >= "{cutoff}")\n'
-            '}}'.format(ns=PWG_NS, cutoff=cutoff)
+            '}}'.format(ns=PWG_NS, cutoff=cutoff,
+                        pf_photo=_pr.optional_level("photo", "priv"))
         )
     except Exception as exc:
         return [], str(exc)
@@ -10423,14 +10479,13 @@ def _timeline_photos(past_days=730, limit=200):
     for ph in photos.values():
         if not ph["date"] or not ph["levels"]:
             continue
-        # L3 is withheld from the outbound Timeline (iOS and the digest) too.
-        if any(lvl == "L3" or pwg_privacy.is_l3(lvl) for lvl in ph["levels"]):
+        if any(_pr.outbound_hidden(lvl, destination=destination) for lvl in ph["levels"]):
             continue
         key = (ph["date"], ph["place"])
         g = groups.setdefault(key, {"count": 0, "levels": set()})
         g["count"] += 1
         for lvl in ph["levels"]:
-            parsed = pwg_privacy.parse_privacy_level(lvl)
+            parsed = _pr.level_of(lvl)
             if parsed:
                 g["levels"].add(parsed)
 
@@ -10459,7 +10514,7 @@ def _timeline_photos(past_days=730, limit=200):
 
 
 def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
-                 outbound=False):
+                 outbound=False, destination=None):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
 
     The Timeline is a HISTORIC view first. Its backbone is the People Graph
@@ -10473,19 +10528,20 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                    entries: [...CM031 shape...], days, past_days, limit, count}
     Rows are newest-first and capped at ``limit``.
 
-    ``outbound=True`` (``?outbound=1``) is the path whose output enters the
-    assistant's context and so can leave the box: meetings and conversations
-    pass the fail-closed L3 filter, and the live-calendar strip is omitted
-    (those events carry no privacy level, so none can be cleared). The
-    default keeps the on-box hub timeline unchanged.
+    Every source is gated for the request's ``destination`` (Archie
+    2026-11-17; undeclared = ``unknown``, the strictest row). ``outbound`` is
+    accepted for old callers (``?outbound=1``) and no longer changes anything.
+    The live-calendar strip carries no level, so it is canonical L3: shown
+    to owner_local only, labelled "private", and omitted everywhere else.
     """
     items = []
+    cal_ok = pwg_privacy.may_leave(pwg_privacy.ABSENT, destination) in pwg_privacy.SERVING_VERDICTS
 
     # Future: calendar events (omitted outbound: no level to clear them by)
     try:
         cal_events = []
         try:
-            if not outbound:
+            if cal_ok:
                 result = subprocess.run(
                     [ICAL_SCRIPT, str(days)],
                     capture_output=True, text=True, timeout=30,
@@ -10494,7 +10550,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         except Exception:
             pass
         try:
-            if not outbound:
+            if cal_ok:
                 cal_events.extend(query_google_calendar(days))
         except Exception:
             pass
@@ -10512,6 +10568,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                 "attendees": e.get("attendees", []),
                 # #2565: the customer's own calendar title, never rewritten.
                 "source": TIMELINE_SOURCE_CALENDAR,
+                "privacy_label": "private",  # untagged: owner_local only
             })
     except Exception as exc:
         items.append({"kind": "calendar_error", "error": str(exc),
@@ -10536,7 +10593,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
         window_end = (_date.today() + _td(days=max(0, days) + 1)).isoformat()
     past_rows, past_err = _timeline_from_graph(
         past_days=past_days, limit=limit, start=window_start, end=window_end,
-        ascending=forward, outbound=outbound)
+        ascending=forward, outbound=outbound, destination=destination)
     if past_err is not None:
         items.append({"kind": "meeting_error", "error": past_err,
                       "source": TIMELINE_SOURCE_OSTLER})
@@ -10552,7 +10609,7 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     # degrade this section, not empty the whole Timeline of its meetings.
     conv_rows, conv_err = _timeline_conversations(
         past_days=past_days, limit=limit, start=window_start, end=window_end,
-        outbound=outbound)
+        outbound=outbound, destination=destination)
     if conv_err is not None:
         items.append({"kind": "conversation_error", "error": conv_err,
                       "source": TIMELINE_SOURCE_OSTLER})
@@ -10561,7 +10618,8 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
 
     # Photos: aggregated per day and place from the PhotoEvent graph
     # (_timeline_photos). A failure is reported, never fatal.
-    photo_rows, photo_err = _timeline_photos(past_days=past_days, limit=limit)
+    photo_rows, photo_err = _timeline_photos(past_days=past_days, limit=limit,
+                                             destination=destination)
     # The same window as the graph rows: a page never carries photo days
     # outside its bounds (before/after are exclusive, as for meetings).
     if photo_err is None:
@@ -13124,13 +13182,15 @@ def api_preferences_derived(limit=8, min_confidence=0.4, tier=None, destination=
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph; see _api_preferences_derived_core. An empty
     answer also carries ``still_learning`` (see _still_learning_note)."""
-    result = _api_preferences_derived_core(limit=limit, min_confidence=min_confidence, tier=tier)
+    result = _api_preferences_derived_core(limit=limit, min_confidence=min_confidence, tier=tier,
+                                           destination=destination)
     if not result.get("items"):
         result["still_learning"] = _still_learning_note()
     return result
 
 
-def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None):
+def _api_preferences_derived_core(limit=8, min_confidence=0.4, tier=None,
+                                  destination=None):
     """GET /api/v1/preferences/derived -- derived affinities ("What you like")
     from the derived named graph, built through the CM019 producer builder
     (vendored verbatim in derived_preferences.py beside this file).
@@ -13315,6 +13375,16 @@ def _instrumented(fn):
     return wrapper
 
 
+def _is_loopback_client(client_address):
+    """True when the HTTP peer is this Mac's loopback (127.0.0.0/8 or ::1)."""
+    import ipaddress
+    try:
+        host = client_address[0]
+        return ipaddress.ip_address(str(host).split("%", 1)[0]).is_loopback
+    except (TypeError, ValueError, IndexError):
+        return False
+
+
 class Handler(BaseHTTPRequestHandler):
     # Destination of the current request (Archie, 2026-11-17). Undeclared or
     # unknown = cloud (fail closed). Set per request in do_GET and do_POST.
@@ -13332,7 +13402,13 @@ class Handler(BaseHTTPRequestHandler):
         declared = self.headers.get("X-Ostler-Destination")
         if declared is None:
             declared = parse_qs(parsed.query).get("destination", [None])[0]
-        self._destination = pwg_privacy.resolve_destination(declared)
+        dest = pwg_privacy.resolve_destination(declared)
+        # owner_local serves L3 (labelled). A request can only claim it from
+        # this Mac's loopback: a remote caller declaring owner_local is read
+        # as unknown (strictest row), so L3 never leaves the box on a header.
+        if dest == pwg_privacy.OWNER_LOCAL and not _is_loopback_client(self.client_address):
+            dest = pwg_privacy.DEFAULT_DESTINATION
+        self._destination = dest
 
     def send_response(self, code, message=None):
         self._ical_status = code
@@ -13649,7 +13725,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": "Missing ?name= parameter"}).encode())
                 return
             try:
-                result = person_context(name)
+                result = person_context(name, destination=self._destination)
             except Exception as e:
                 result = {"query": name, "found": False,
                           "degraded": True, "reason": str(e), "error": str(e)}
@@ -13801,7 +13877,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(err).encode())
                 return
             try:
-                result = api_meeting_upcoming(within_minutes=within_minutes)
+                result = api_meeting_upcoming(within_minutes=within_minutes,
+                                              destination=self._destination)
             except Exception as exc:
                 result = {
                     "meetings": [],
@@ -13838,7 +13915,8 @@ class Handler(BaseHTTPRequestHandler):
                     "1", "true", "yes")
                 result = api_timeline(days=days, past_days=past_days,
                                       limit=limit, before=before, after=after,
-                                      outbound=outbound)
+                                      outbound=outbound,
+                                      destination=self._destination)
             except Exception as exc:
                 # `entries` mirrors `items` per the iOS ServerTimelineResponse
                 # decoder (F-1, 2026-05-27). Without it the Companion drops
@@ -13970,7 +14048,7 @@ class Handler(BaseHTTPRequestHandler):
         # employer from the flat fact list. Never 5xx: returns
         # {"found": false} when there is no evidence.
         if parsed.path == "/api/v1/employer":
-            result = _current_employer_safe(outbound=True)
+            result = _current_employer_safe(outbound=True, destination=self._destination)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -14032,7 +14110,8 @@ class Handler(BaseHTTPRequestHandler):
                 days = int(days_raw) if days_raw is not None else None
             except (ValueError, TypeError):
                 days = None
-            result, status = person_timeline_by_uri(uri, limit=limit, days=days)
+            result, status = person_timeline_by_uri(uri, limit=limit, days=days,
+                                                    destination=self._destination)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -14056,7 +14135,8 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError, TypeError):
                     days = None
             try:
-                result, status = person_timeline(slug, limit=limit, days=days)
+                result, status = person_timeline(slug, limit=limit, days=days,
+                                                 destination=self._destination)
             except Exception as exc:
                 result, status = {
                     "found": False,
@@ -14169,6 +14249,7 @@ class Handler(BaseHTTPRequestHandler):
                 result, status = commitments_list(
                     owner=owner, due_before=due_before,
                     status=status_param, limit=limit,
+                    destination=self._destination,
                 )
             except Exception as exc:
                 result, status = {
@@ -14211,6 +14292,7 @@ class Handler(BaseHTTPRequestHandler):
                     lookback_days=lookback_days,
                     include_group=include_group,
                     limit=limit,
+                    destination=self._destination,
                 )
             except Exception as exc:
                 result, status = {
@@ -14256,7 +14338,7 @@ class Handler(BaseHTTPRequestHandler):
                 and parsed.path.endswith("/enrichment")):
             slug = parsed.path[len("/api/v1/people/"):-len("/enrichment")]
             try:
-                result, status = person_enrichment(slug)
+                result, status = person_enrichment(slug, destination=self._destination)
             except Exception as exc:
                 result, status = {
                     "found": False,
