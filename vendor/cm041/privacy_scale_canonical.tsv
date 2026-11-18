@@ -1,0 +1,41 @@
+# Canonical privacy scale (Ostler). ONE table, byte-identical in every repo that reads or writes a level.
+# Pinned by sha256 in each repo (test_privacy_scale_shared.py). Change it here and re-pin every copy in one held set.
+# Never copy these values into code: load them through privacy_scale.py (the tiny loader that sits next to this file).
+# Direction: L0 least private (no protection, public) ... L3 most private (owner-only). Rank 3 = most private.
+# Fail closed: a missing, empty, unknown or unparseable level is L3.
+# Rulings: owner 2026-11-16 ("L3 was most secure / owner only, and L0 was no protection / public");
+# design 2026-11-16 section 1 OUTBOUND RULING (owner, 2026-11-17).
+level	rank	meaning
+L0	0	public, no protection; least private
+L1	1	personal; leaves the owner's own surfaces only in redacted form
+L2	2	private / sensitive; may reach the owner's own brief, never a cloud model, other people or an export
+L3	3	most private, owner-only; never leaves the box
+
+[scale_stamp]
+# Written next to the level by every writer converted to this scale (design PR 2), and by the relabel (PR 4).
+# A reader treats L0 WITH this stamp as canonical L0. An L0 WITHOUT it is legacy (see [legacy]) until the relabel.
+field	value
+privacyScale	canonical-2026-11
+
+[outbound]
+# outbound_rule(level, destination): full = may leave as is; redacted = only its redacted form; labelled = owner-local, shown with the private label and the one-time note; no = withheld.
+# Every Hub route is outbound unless proven owner-local. An unknown destination is read as the "unknown" row (the strictest).
+# thread_participants: a reply drafted INTO a thread may draw on THAT thread's own content at L0-L2. An L3 thread never produces a draft.
+# Any OTHER owner data pulled into that draft (other threads, facts, calendar, people) is checked against the "others" row,
+# not this one: only L0, or L1 in redacted form. Minors follow the existing minors ruling on top of this table.
+destination	L0	L1	L2	L3
+owner_local	full	full	full	labelled
+owner_own_brief	full	full	full	no
+thread_participants	full	full	full	no
+cloud_model	full	redacted	no	no
+others	full	redacted	no	no
+export	full	redacted	no	no
+unknown	full	redacted	no	no
+
+[legacy]
+# Labels written under an OLD scale, before that store's per-writer relabel (design section 2, PR 4).
+# An L0 is legacy exactly when it carries no [scale_stamp] value.
+# Only rows the owner has ruled are listed. treat_as applies on every outbound path until the relabel proves 0 meaning-down-moves.
+# The rest of the per-writer mapping is a DRAFT awaiting Archie's row-by-row approval and is NOT in this table.
+scale	old_label	meaning_at_write	treat_as
+pwg_cm041_ladder	L0	LEGACY-AMBIGUOUS: old PWG / CM041 L0 meant owner-private	L3

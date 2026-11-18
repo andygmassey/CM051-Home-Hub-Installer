@@ -2354,6 +2354,25 @@ Not grafted in this commit: CM041's new tests (`test_topic_conversation_level_13
 `test_interest_l0_withheld_134.py`, `test_prop_outbound_privacy_gates.py`) and the
 CI hypothesis dependency. They stay CM041-side.
 
+## 133 follow-up: CM041 #278 @2dbac8c tests, vendored (separate PR)
+
+Tests copied byte-identical from CM041 `assistant_api/tests/` at `2dbac8c`:
+`test_topic_conversation_level_134.py`, `test_interest_l0_withheld_134.py`,
+`test_prop_outbound_privacy_gates.py`. Run against the vendored ical-server.
+
+CM051-local harness changes (test file only, not the server):
+- `test_topic_conversation_level_134.py`: `_select` runs each query through
+  `ICAL._graph_scoped`, as this tree's `_sparql_select` does, and the named-graph
+  test sets `_USER_GRAPH_URIS`. Without it the named-graph fact is never seen.
+- `test_prop_outbound_privacy_gates.py`: the person display name placeholder is
+  lowercase (`placeholder display N`), not a name-shaped pair; the name guard blocks
+  the CM041 form. No assertion reads that value.
+- `test_prop_outbound_privacy_gates.py` needs `vendor/cm041` on `PYTHONPATH`
+  (for `pwg_privacy`); the workflow sets it.
+
+Wired into `.github/workflows/cm041-133-outbound-privacy.yml`; collected floor 70.
+Two `strict` xfails in the property file are open CM041 bugs, not 133 checks.
+
 ## 2026-11-17 (absent-tier fix, the 133 Box finding): gate re-grafted, digest re-pinned
 
 The verifier PASS path reports tier_state `absent` for every production licence (CM050 mintLicense emits no `tier`). The gate counted only known and unknown as signed, so no founding or ff buyer got an included window. Fixed at the source: CM052 PR #26, head `31153f67c`, merged as the same bytes. Both vendored copies are byte-identical to it.
@@ -2363,3 +2382,40 @@ The verifier PASS path reports tier_state `absent` for every production licence 
 - digest pin in `tests/test_g7_gate_copies_are_one.py` re-set to the new value.
 
 Tree `cm041/assistant_api`: `vendor/cm041/assistant_api/subscription_gate.py` re-grafted byte-identical (vendor-only row in VENDOR_ONLY.tsv).
+
+## Graft: effective_level (CM051 #3582, 2026-11-17)
+
+Tree: cm041/assistant_api. Source: CM041 eee9b72 (PR #295, stacked on #291).
+
+Three hand edits in vendor/cm041/assistant_api/ical-server.py, each byte-identical to the CM041 function text (checked with an AST compare):
+
+- `_outbound_level_ok(record)`: reads every spelling via `pwg_privacy.effective_level`. Was: one raw value.
+- `_fact_outbound_ok(fact)`: reads every spelling via `pwg_privacy.effective_level`. Was: first parseable key wins.
+- `people_search`: one line, `_outbound_level_ok(p)` in place of `_outbound_level_ok(p.get("privacy_level"))`.
+
+Test edit: vendor/cm041/assistant_api/tests/test_prop_outbound_privacy_gates.py. Two `@pytest.mark.xfail(strict=True)` markers removed (the two multi-spelling leaks). `_truth_must_serve` now treats an unparseable present spelling as withholding (fail closed), per the UNREADABLE ordering in CM041 eee9b72.
+
+Reverted-graft check: with the pre-graft ical-server and pwg_privacy, both flipped tests go red (2 failed).
+
+Revision (CM041 1e1523f): `_outbound_level_ok` tests the `ABSENT` sentinel by identity (`pwg_privacy.ABSENT`), not the string. Function text is byte-identical to CM041 1e1523f.
+
+Revision (CM041 be69c80): `_filter_qdrant_facts` calls `pwg_privacy.filter_outbound_facts` (serves no L0). The vendored `test_prop_outbound_privacy_gates.py` is the 88338dcc copy with the be69c80 hunks applied (mutant docstrings, the L0 filter layer, xfails flipped). It is not a byte copy of CM041. `_outbound_level_ok` and `_fact_outbound_ok` are byte-identical to CM041 be69c80.
+
+Revision (CM041 866a7aa, canonical scale): `_outbound_level_ok`, `_fact_outbound_ok`, `_filter_qdrant_facts`, `_level_verdict` and `_count_withheld` are byte-identical to CM041 866a7aa. The retired `_OUTBOUND_PRIVACY_LEVELS` constant is removed. `people_search` has the one-line `_outbound_level_ok(p)` change and the comment change. `derived_preferences.py` is replaced by the CM041 866a7aa file, byte-identical: `SERVED_PRIVACY_LEVELS` is empty, so levelled nodes are not served on that route. `test_133_outbound_levels.py` is the CM041 866a7aa file, byte-identical. `test_prop_outbound_privacy_gates.py` is the vendored copy with the 866a7aa hunks applied; it is not a byte copy (CM041 carries a synthetic name the name guard blocks).
+
+Tree: cm041/assistant_api (canonical re-graft, CM041 866a7aa).
+
+Revision (CM041 531ac94, per-request destination). Tree: cm041/assistant_api. The Handler gains `_destination`, `_declare_destination` and the `do_GET`/`do_POST` calls (the text is byte-identical to CM041 531ac94). Every response carries `X-Ostler-Served-For` through the `end_headers` override, which is in this vendored copy. `_filter_qdrant_facts`, `_outbound_level_ok` and `_fact_outbound_ok` are byte-identical to CM041 531ac94. `people_search` and `api_preferences_derived` are surgical edits: the destination parameter and its call sites only. The vendored copy keeps its own name-rule drift. `test_prop_outbound_privacy_gates.py` takes the 866a7aa-to-531ac94 hunk. `derived_preferences.py` (pwg_privacy import) is byte-identical to CM041 531ac94.
+
+Revision (CM041 cf443dc). Tree: cm041/assistant_api. No change to this tree in cf443dc; the helper it imports changed (owner_local exemption), see the pwg_privacy record.
+
+Revision (CM041 #296 final head 6c5f709, re-graft for CM051 #3582). Tree: cm041/assistant_api.
+
+- `derived_preferences.py`: byte-identical to CM041 6c5f709 (imports `pwg_privacy_readers`).
+- `ical-server.py`: function-level three-way graft, base CM041 cf443dc (the previous graft), theirs CM041 6c5f709, ours the vendored file. The 26 functions #296 changed after cf443dc, plus the new `_is_loopback_client`, plus the module-level `import pwg_privacy_readers as _pr` and `_PRIVACY_ORDER` read from the shared table. Byte-identical to 6c5f709 where the vendored function equalled cf443dc: `_qdrant_fact_is_explicit_l3`, `_filter_qdrant_facts`, `_outbound_level_ok`, `_query_operator_career_facts`, `_select_current_employer`, `_current_employer_safe`, `_effective_privacy_level`, `person_timeline_by_uri`, `_conversation_levels_for`, `topics_list`, `topic_mentions`, `Handler._declare_destination`, `_is_loopback_client`. Merged, with the CM051 drift kept: `people_search` (name rules), `person_context` (LIMIT 50), `person_enrichment`, `person_timeline`, `_person_timeline_body`, `decisions_list`, `commitments_list`, `api_reply_debt`, `_timeline_from_graph` / `_timeline_conversations` / `api_timeline` (before/after window, #2565 source tags), `_timeline_photos` (window filter, photos_error as a status), `Handler.do_GET` (before/after).
+- `commitments_list`: takes the 6c5f709 untagged rule (no level label, `label_for` per destination). The vendored "untagged keeps the L2 label" line is retired with it.
+- CM051-only edits, not in CM041 6c5f709:
+  - `api_meeting_upcoming` passes NO `destination` to `pre_meeting_brief`: the vendored `meeting_syncer/brief.py` (pin 42d73102) takes no such argument. The brief's own L3 gate is unchanged. Owed: re-graft the brief with destination when the meeting_syncer pin moves.
+  - `_assert_resolve_and_write` calls `people_search(..., destination="owner_local")`. 6c5f709 passes none, so the identity lookup runs as `unknown` and cannot see an untagged person: an assert about a known person mints a duplicate. Caught by `tests/test_memory_assert_answers_inside_the_probe_timeout.py` (red before, green after). Owed upstream.
+  - `_api_preferences_derived_core` takes and forwards `destination`. The previous head read an undefined name there (NameError on every /api/v1/preferences/derived request).
+- Tests converted (destination declared, intent unchanged): `test_133_outbound_levels.py` and `test_l3_withheld_moat_readers.py` byte-identical to 6c5f709; `test_prop_outbound_privacy_gates.py`, `test_meeting_routes_privacy.py`, `test_person_context_meetings_privacy.py`, `test_person_timeline_by_uri.py`, `test_timeline_photos.py` take the 6c5f709 hunks onto the vendored copies; CM051-only `test_timeline_keeps_meeting_time.py`, `test_ical_server_wire_shape.py`, `test_filter_before_limit.py` declare `owner_local`.

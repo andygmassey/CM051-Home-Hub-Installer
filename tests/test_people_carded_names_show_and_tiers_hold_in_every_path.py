@@ -150,7 +150,7 @@ check("list: true sender ID with no card hidden", "HSBCALERT" not in lst and "NH
 check("list: uncarded JEAN-LUC (point 8) is not a second carded row", lst.count("JEAN-LUC") == 1, lst)
 
 print("--- people_search ---")
-res = names(m.people_search("anyone")["results"])
+res = names(m.people_search("anyone", destination="owner_local")["results"])
 check("search: carded given name over phone", "Alice Example" in res and PH1 not in res, res)
 check("search: email over phone", EM in res and PH2 not in res, res)
 check("search: carded all-caps shows", all(n in res for n in ("JEAN-LUC", "MARY-JANE", "J.R.")), res)

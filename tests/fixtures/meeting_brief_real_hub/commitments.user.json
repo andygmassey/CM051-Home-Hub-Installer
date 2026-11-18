@@ -10,9 +10,9 @@
     }
   ],
   "count": 1,
-  "legacy_untagged": 1,
+  "legacy_untagged": 0,
   "withheld": {
-    "l3": 0,
+    "l3": 1,
     "unknown": 0
   }
 }

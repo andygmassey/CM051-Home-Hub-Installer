@@ -99,9 +99,11 @@ class MeetingHistoryL3(unittest.TestCase):
         t = _meeting("a", "SYNTH-L1", "L1") + [(PERSON, PWG + "privacyLevel", "L3")]
         self.assertEqual(_meetings(t), [])
 
-    def test_untagged_meeting_on_l2_person_kept(self):
-        t = _meeting("a", "SYNTH-UNTAGGED", None) + [(PERSON, PWG + "privacyLevel", "L2")]
-        self.assertEqual(_meetings(t), ["SYNTH-UNTAGGED"])
+    def test_untagged_meeting_on_l2_person_hidden(self):
+        # Canonical (CM041 6c5f709): untagged beside the person's L2 = L3; L2 control served.
+        t = (_meeting("a", "SYNTH-UNTAGGED", None) + _meeting("b", "SYNTH-L2", "L2")
+             + [(PERSON, PWG + "privacyLevel", "L2")])
+        self.assertEqual(_meetings(t), ["SYNTH-L2"])
 
     def test_untagged_meeting_on_untagged_person_hidden(self):
         self.assertEqual(_meetings(_meeting("a", "SYNTH-UNTAGGED", None)), [])
@@ -121,9 +123,11 @@ class LastConversationL3(unittest.TestCase):
     def test_untagged_fact_hidden(self):
         self.assertEqual(_conv_id(_conv("f1", "convX", "2026-01-01", None)), "")
 
-    def test_untagged_fact_on_l2_person_kept(self):
-        t = _conv("f1", "convX", "2026-01-01", None) + [(PERSON, PWG + "privacyLevel", "L2")]
-        self.assertEqual(_conv_id(t), "convX")
+    def test_untagged_fact_on_l2_person_hidden(self):
+        # Canonical (CM041 6c5f709): untagged beside the person's L2 = L3; L2 control served.
+        t = (_conv("f1", "convX", "2026-02-01", None) + _conv("f2", "convL2", "2026-01-01", "L2")
+             + [(PERSON, PWG + "privacyLevel", "L2")])
+        self.assertEqual(_conv_id(t), "convL2")
 
     def test_l3_person_hides_an_l1_fact(self):
         t = _conv("f1", "convX", "2026-01-01", "L1") + [(PERSON, PWG + "privacyLevel", "L3")]

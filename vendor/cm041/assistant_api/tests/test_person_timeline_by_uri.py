@@ -117,7 +117,8 @@ class PersonTimelineByUri(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_by_uri_returns_the_named_person_not_the_slug_winner(self):
-        body, status = server.person_timeline_by_uri(PERSON_B)
+        # L1 meetings: the owner's own channel view (cloud would withhold L1).
+        body, status = server.person_timeline_by_uri(PERSON_B, destination="owner_own_brief")
         self.assertEqual(status, 200, body)
         self.assertEqual(body["person"]["person_uri"], PERSON_B)
         summaries = [e.get("summary") for e in body["events"]]

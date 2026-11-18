@@ -5,14 +5,17 @@ pwg:privacyLevel through as the item's `privacy_level` and never serves L3.
 
 CM019 #423 stamps the level; the oa tool, the brief and the digest drop L3
 client-side. This pins the route agreeing with them, using the hub's existing
-pwg_privacy doctrine (L3 hidden, L0/L1/L2 served, unparseable fails closed, no
-level = served untagged so older graphs do not go blank). The reader runs
-against a REAL in-memory pyoxigraph store. Synthetic values only.
+shared outbound table for the request's destination (CM041 6c5f709). On the
+owner's own brief: L1 and L2 served, L3 withheld, an unparseable level fails
+closed, and no level is canonical L3 (withheld). On owner_local the unlevelled
+node is served, labelled private. The reader runs against a REAL in-memory
+pyoxigraph store. Synthetic values only.
 
   arm 1  L1 and L2 nodes are served and tagged with their level.
   arm 2  an L3 node is not served.
   arm 3  a present-but-unparseable level is not served.
-  arm 4  CONTROL: a node with no level IS served, untagged.
+  arm 4  a node with no level is withheld on the brief, and served labelled
+         private on owner_local (CONTROL: the node is readable at all).
   arm 5  the Python guard holds when the store ignores the query filter.
 
 Exit: 0 pass, 1 real failure, 2 cannot-run.
@@ -33,6 +36,9 @@ except ImportError:
     print("CANNOT-RUN: pyoxigraph is not installed")
     sys.exit(2)
 sys.path.insert(0, str(AAPI))
+# derived_preferences imports pwg_privacy (and through it privacy_scale and
+# pwg_privacy_readers) from the vendored CM041 root, as the installed layout does.
+sys.path.insert(1, str(AAPI.parent))
 from derived_preferences import (  # noqa: E402
     DERIVED_GRAPH, PWG_NS, DerivedGraphReader, build_derived_preferences_response,
 )
@@ -79,8 +85,10 @@ def sparql(store):
 NODES = [("a", "synthetic noir", "L1"), ("b", "synthetic opera", "L2"),
          ("c", "synthetic sealed", "L3"), ("d", "synthetic plain", None),
          ("e", "synthetic odd", "secret")]
+DEST = "owner_own_brief"
 resp = build_derived_preferences_response(
-    DerivedGraphReader(sparql(store_with(NODES))), "synthetic_owner_01", limit=20)
+    DerivedGraphReader(sparql(store_with(NODES)), destination=DEST),
+    "synthetic_owner_01", limit=20)
 items = {i["label"]: i for i in resp["items"]}
 
 print("arm 1: L1 and L2 are served and tagged")
@@ -91,16 +99,23 @@ print("arm 2: L3 is not served")
 check("synthetic sealed" not in items, "the L3 node is absent")
 print("arm 3: an unparseable level is not served")
 check("synthetic odd" not in items, "the 'secret' node is absent")
-print("arm 4: control, no level is served untagged")
-check("synthetic plain" in items and "privacy_level" not in items["synthetic plain"],
-      "the unlevelled node is served without privacy_level")
+print("arm 4: no level is canonical L3: withheld on the brief, labelled on owner_local")
+check("synthetic plain" not in items, "the unlevelled node is absent on the brief")
+own = build_derived_preferences_response(
+    DerivedGraphReader(sparql(store_with(NODES)), destination="owner_local"),
+    "synthetic_owner_01", limit=20)
+own_items = {i["label"]: i for i in own["items"]}
+check("synthetic plain" in own_items
+      and own_items["synthetic plain"].get("privacy_label") == "private",
+      "owner_local serves the unlevelled node, labelled private")
 print("arm 5: the Python guard holds when the store ignores the filter")
 rows = [{"s": "urn:d:1", "dimension": "x", "subject": "synthetic sealed",
          "strength": "0.5", "confidence": "0.9", "privacy": "L3"},
         {"s": "urn:d:2", "dimension": "x", "subject": "synthetic opera",
          "strength": "0.5", "confidence": "0.9", "privacy": "l2"}]
 r5 = build_derived_preferences_response(
-    DerivedGraphReader(lambda q: rows if "DerivedPreference" in q else []), "synthetic_owner_01")
+    DerivedGraphReader(lambda q: rows if "DerivedPreference" in q else [], destination=DEST),
+    "synthetic_owner_01")
 check([i["label"] for i in r5["items"]] == ["synthetic opera"], "only the L2 row is served")
 
 print(f"\n{PASS} passed, {FAIL} failed")

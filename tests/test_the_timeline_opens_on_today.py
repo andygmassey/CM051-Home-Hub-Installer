@@ -131,7 +131,7 @@ ics.query_google_calendar = lambda days: []
 
 print("the Timeline opens on today (#106c)")
 
-res = ics.api_timeline(days=7, past_days=730, limit=200)
+res = ics.api_timeline(days=7, past_days=730, limit=200, destination="owner_local")
 dates = [i["date"] for i in res["items"]]
 check("the opening page contains today's rows",
       day(0) in dates, "no row dated today in the first page")
@@ -141,10 +141,10 @@ check("the opening page reaches into history",
 check("the opening page does not run a year ahead",
       max(dates) <= day(8), "newest row {}".format(max(dates) if dates else None))
 
-older = ics.api_timeline(limit=200, before=day(-10))
+older = ics.api_timeline(limit=200, before=day(-10), destination="owner_local")
 check("an older page returns only rows before its bound",
       older["items"] and all(i["date"] < day(-10) for i in older["items"]))
-later = ics.api_timeline(limit=20, after=day(7))
+later = ics.api_timeline(limit=20, after=day(7), destination="owner_local")
 later_dates = sorted(i["date"] for i in later["items"])
 check("a later page returns the EARLIEST rows after its bound",
       later_dates and later_dates[0] == day(8),
