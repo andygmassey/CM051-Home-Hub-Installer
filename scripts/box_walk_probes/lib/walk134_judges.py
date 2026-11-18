@@ -27,15 +27,15 @@ import sys
 
 PASS, FAIL, CANNOT = "PASS", "FAIL", "CANNOT"
 
-# The seven clients the 134 must-check names. The enrich log carries no
-# per-client line (measured: vendor/cm019_preferences/services/enrich/src/
-# enricher.py logs only the batch totals and the per-category "Completed"
-# lines), so each of these is reported as NOT MEASURED until the enricher
-# prints per-client counts.
+# The seven clients the 134 must-check names. The enricher prints ONE counts-only
+# line per batch (enricher.py enrich_batch, finally-block):
+#   enrichment looked up per client: music=N books=N films=N podcasts=N places=N food=N interests=N
+# Absent that line, every client is NOT MEASURED and the verdict is CANNOT-RUN.
 CLIENTS = ["music", "books", "films", "podcasts", "places", "food", "interests"]
 
 _LOOKED = re.compile(r"creators looked up: (\d+)\s*$")
 _DROPPED = re.compile(r"creators dropped: contact store unreadable: (\d+)")
+_PER_CLIENT = re.compile(r"enrichment looked up per client:((?: [a-z]+=\d+)+)\s*$")
 _COMPLETED = re.compile(r"Completed ([A-Za-z_]+): (\d+) enriched")
 
 
@@ -60,12 +60,19 @@ def judge_enrich(log_text):
     zero = [c for c, n in sorted(done.items()) if n == 0]
     if zero:
         return (FAIL, "categories completed with 0 enriched: %s" % ", ".join(zero), len(done), CLIENTS)
-    # Per-client evidence does not exist in the log today. The verdict is PASS
-    # only when every client has its own measured look-up count.
-    unmeasured = [c for c in CLIENTS if c not in done]
-    if unmeasured:
-        return (CANNOT, "creators looked up: %d and the contact-loader line are present, but the log has no per-client look-up count for: %s" % (m, ", ".join(unmeasured)), len(looked), unmeasured)
-    return (PASS, "creators looked up: %d on the last batch; contact loader reported" % m, len(looked), [])
+    # Per-client evidence: the LAST per-client line. PASS only when every client has
+    # its own measured look-up count above zero; a zero or a missing client is a FAIL.
+    perc = [m.group(1) for ln in lines for m in [_PER_CLIENT.search(ln)] if m]
+    if not perc:
+        return (CANNOT, "creators looked up: %d and the contact-loader line are present, but the log has no 'enrichment looked up per client' line: %s unmeasured" % (m, ", ".join(CLIENTS)), len(looked), CLIENTS)
+    counts = {k: int(v) for k, v in (t.split("=") for t in perc[-1].split())}
+    missing = [c for c in CLIENTS if c not in counts]
+    if missing:
+        return (FAIL, "the per-client line does not name: %s" % ", ".join(missing), len(CLIENTS) - len(missing), missing)
+    zero = [c for c in CLIENTS if counts[c] == 0]
+    if zero:
+        return (FAIL, "clients with 0 look-ups on the last batch: %s" % ", ".join(zero), len(CLIENTS), [])
+    return (PASS, "creators looked up: %d; every client reached (%s)" % (m, " ".join("%s=%d" % (c, counts[c]) for c in CLIENTS)), len(CLIENTS), [])
 
 
 def _decision(env_text):
@@ -201,8 +208,14 @@ def _cases():
     out.append(("enrich: a completed category with 0 -> FAIL", FAIL,
                 judge_enrich(_ENRICH_GOOD + "[PARALLEL] Completed food: 0 enriched\n")[0]))
     out.append(("enrich: good log, no per-client counts -> CANNOT", CANNOT, judge_enrich(_ENRICH_GOOD)[0]))
-    full = _ENRICH_GOOD + "".join("[PARALLEL] Completed %s: 2 enriched\n" % c for c in CLIENTS)
-    out.append(("enrich: every client completed with >0 -> PASS", PASS, judge_enrich(full)[0]))
+    out.append(("enrich: Completed lines alone are not per-client evidence -> CANNOT", CANNOT,
+                judge_enrich(_ENRICH_GOOD + "".join("[PARALLEL] Completed %s: 2 enriched\n" % c for c in CLIENTS))[0]))
+    line = "enrichment looked up per client: music=3 books=2 films=2 podcasts=1 places=2 food=1 interests=2\n"
+    out.append(("enrich: per-client line, every client > 0 -> PASS", PASS, judge_enrich(_ENRICH_GOOD + line)[0]))
+    out.append(("enrich: per-client line, one client 0 -> FAIL", FAIL,
+                judge_enrich(_ENRICH_GOOD + line.replace("podcasts=1", "podcasts=0"))[0]))
+    out.append(("enrich: per-client line missing a client -> FAIL", FAIL,
+                judge_enrich(_ENRICH_GOOD + line.replace(" food=1", ""))[0]))
     # decline
     dec = 'OSTLER_CONSENT_ENRICHMENT_DECISION="declined"\n'
     out.append(("decline: declined, no agent -> PASS", PASS, judge_decline(dec, 0)[0]))
