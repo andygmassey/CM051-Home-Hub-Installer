@@ -4282,7 +4282,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:9732, :17778) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20787 / :20965 / :21122 / :21567 path. There the
+    # :20814 / :20992 / :21149 / :21594 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -18888,7 +18888,7 @@ TOMLPREAMBLE
         _brief_channel_esc="${_brief_channel//\"/\\\"}"
         _brief_to_esc="${_brief_to//\"/\\\"}"
         _user_tz_esc="${USER_TZ//\"/\\\"}"
-        _morning_prompt="You are the user's personal assistant: sharp, warm and discreet, like a good executive assistant. Write this morning's brief in plain prose for delivery as a short message. The block at the top of your context headed \"What needs the user today\" is the only source of facts: lead with it, and name the people, promises, reminders and calendar items exactly as given there. Every time in it is already the user's local time: copy it as written, never convert or re-read it. If a section says it could not be checked, say you could not check it, never that there is nothing; if it says the calendar was last refreshed hours ago, say so. Use ONLY those facts; do not add, infer or embellish, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. Do not retell the user's own chats with you, and do not look anything up: the facts are already here. Vary the opening and the order from one day to the next so the brief never reads the same way twice; a light day is short and breezy, a heavy day is crisp and ordered by what matters most. One light touch of humour at most, never at anyone's expense and never about a health or medication item. Three to five short sentences. British English. No headings, no lists, no markdown. Output only the brief itself."
+        _morning_prompt="You are the user's personal assistant: sharp, warm and discreet, like a good executive assistant. Write this morning's brief in plain prose for delivery as a short message. The block at the top of your context headed \"What needs the user today\" is the only source of facts: lead with it, and name the people, promises, reminders and calendar items exactly as given there. Every time in it is already the user's local time: copy it as written, never convert or re-read it. If a section says it could not be checked, say you could not check it, never that there is nothing; if it says the calendar was last refreshed hours ago, say so. Apart from the tastes the preferences tool gives you, use ONLY those facts; do not add, infer or embellish, and never invent flight numbers, routings, destinations, times or connections. For tastes, call the pwg_derived_preferences tool once: weave in AT MOST two of the user's liked things, and only where they fit today's items. NEVER mention a dislike. If the tool returns nothing, say nothing about tastes and never invent one. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. Do not retell the user's own chats with you, and do not look anything up: the facts are already here. Vary the opening and the order from one day to the next so the brief never reads the same way twice; a light day is short and breezy, a heavy day is crisp and ordered by what matters most. One light touch of humour at most, never at anyone's expense and never about a health or medication item. Three to five short sentences. British English. No headings, no lists, no markdown. Output only the brief itself."
         _evening_prompt="You are the user's personal assistant. Write a concise evening wrap in plain prose for delivery as a short message. Reflect on the most notable items from today's conversations, meetings and emails. Use ONLY the facts provided in your context; do not add, infer or embellish details, and never invent flight numbers, routings, destinations, times or connections. Calendar items are labelled with whose calendar they belong to: keep each person's events distinct, never merge two people's events, and never reassign one person's trip to another. If an item is on another person's calendar, attribute it to that person, not to the user. Aim for three or four short sentences. If today was quiet, say so warmly without padding. British English. No headings, no lists, no markdown. Output only the wrap itself."
         _morning_prompt_esc="${_morning_prompt//\"/\\\"}"
         _evening_prompt_esc="${_evening_prompt//\"/\\\"}"
@@ -18974,6 +18974,33 @@ TOMLPREAMBLE
     echo "backend = \"sandbox-exec\""
 } > "$ASSISTANT_CONFIG"
 chmod 600 "$ASSISTANT_CONFIG"
+# ── "What you like" reader switch (walk 132, dislike_respected_in_brief) ──
+# The assistant's pwg_derived_preferences reader is OFF by default in the
+# daemon schema, and this file never wrote the table, so the brief could not
+# see the derived graph the producer builds. Flip it on AFTER the regenerate
+# above: edit the key in place when the table is already present (an existing
+# config.toml with enabled = false would otherwise get a second table, which
+# is invalid TOML and stops the assistant starting), and add the table only
+# when it is absent. Other keys inside the table are kept.
+_ostler_ensure_pwg_derived_enabled() {
+    local cfg="${1:-}" tmp
+    [[ -n "$cfg" && -f "$cfg" ]] || return 1
+    tmp="$(mktemp "${cfg}.derived.XXXXXX")" || return 1
+    if ! awk '
+        BEGIN { hdr = "[pwg_derived_preferences]" }
+        $0 == hdr { in_s = 1; seen = 1; print; next }
+        in_s && /^[ \t]*\[/ { if (!done) { print "enabled = true"; done = 1 }; in_s = 0 }
+        in_s && /^[ \t]*enabled[ \t]*=/ { if (!done) { print "enabled = true"; done = 1 }; next }
+        { print }
+        END {
+            if (seen && in_s && !done) print "enabled = true"
+            else if (!seen) printf "\n[pwg_derived_preferences]\nenabled = true\n"
+        }
+    ' "$cfg" > "$tmp"; then rm -f "$tmp"; return 1; fi
+    chmod 600 "$tmp" && mv -f "$tmp" "$cfg"
+}
+_ostler_ensure_pwg_derived_enabled "$ASSISTANT_CONFIG" \
+    || warn "Could not switch on the preference reader in config.toml."  # i18n-exempt
 umask "$umask_orig"
 
 # Scrub the plaintext password from the bash environment as soon as
