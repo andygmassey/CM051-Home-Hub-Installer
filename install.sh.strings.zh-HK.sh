@@ -1362,6 +1362,8 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="說話者辨識只在這部 Mac 上進行。Cr
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="查詢你儲存內容的公開資料嗎？"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler 可以為它找到的事物補充公開參考資料，例如書籍、電影、專輯或地點。為此，它會把該項事物的「名稱」傳送到 Wikidata、MusicBrainz 和 OpenLibrary 等公開參考服務，並把結果儲存在這部 Mac 上。
 
+Ostler 會喺網上查詢音樂、書籍、電影同地點等公開話題，以了解你嘅喜好。佢絕不查詢健康、金錢或法律事務、地址，亦不查詢你認識嘅人。
+
 離開你 Mac 的內容：只有被查詢事物的名稱。僅此而已。不包括你的訊息、聯絡人、檔案，也不包括是誰提到它。
 
 對方服務可以看到的內容：你的 IP 位址，以及請求來自 Ostler。查詢會直接從你的 Mac 發送給對方，不會經過我們的伺服器，所以無法在不讓對方知道有人查詢的情況下進行。

@@ -1368,6 +1368,8 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="La reconnaissance des voix reste sur ce Mac. C
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Rechercher des faits publics sur ce que vous conservez ?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler peut ajouter des informations de référence publiques aux éléments qu’il trouve : un livre, un film, un album, un lieu. Pour cela, il envoie le NOM de cet élément à des services de référence publics tels que Wikidata, MusicBrainz et OpenLibrary, et conserve la réponse sur ce Mac.
 
+Ostler recherche en ligne des sujets publics comme la musique, les livres, les films et les lieux, afin de comprendre vos goûts. Il ne recherche jamais rien sur la santé, l’argent ou les affaires juridiques, les adresses ni les personnes que vous connaissez.
+
 Ce qui quitte votre Mac : le nom de l’élément recherché. Rien d’autre. Ni vos messages, ni vos contacts, ni vos fichiers, ni la personne qui l’a mentionné.
 
 Ce que le service distant peut voir : votre adresse IP, et le fait que la requête provient d’Ostler. La recherche va directement de votre Mac vers eux, rien ne passe par nos serveurs, il est donc impossible de demander sans qu’ils sachent que quelqu’un a demandé.

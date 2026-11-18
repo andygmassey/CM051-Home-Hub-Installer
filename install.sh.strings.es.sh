@@ -1367,6 +1367,8 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="El reconocimiento de hablantes permanece en es
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="¿Buscar datos públicos sobre lo que guardas?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler puede añadir información de referencia pública a lo que encuentra: un libro, una película, un álbum, un lugar. Para ello envía el NOMBRE de ese elemento a servicios de referencia públicos como Wikidata, MusicBrainz y OpenLibrary, y guarda la respuesta en este Mac.
 
+Ostler busca en internet temas públicos como música, libros, películas y lugares, para entender tus gustos. Nunca busca nada sobre salud, dinero o asuntos legales, direcciones ni las personas que conoces.
+
 Lo que sale de tu Mac: el nombre del elemento que se busca. Nada más. Ni tus mensajes, ni tus contactos, ni tus archivos, ni quién lo mencionó.
 
 Lo que puede ver el servicio al otro lado: tu dirección IP y que la solicitud viene de Ostler. La consulta va directamente de tu Mac a ellos, sin pasar por nuestros servidores, así que no hay forma de preguntar sin que sepan que alguien ha preguntado.

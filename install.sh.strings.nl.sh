@@ -1364,6 +1364,8 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Sprekerherkenning blijft op deze Mac. Creative
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Openbare feiten opzoeken over dingen die je bewaart?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler kan openbare referentiegegevens toevoegen aan dingen die het vindt – een boek, een film, een album, een plaats. Daarvoor stuurt het de NAAM van dat ene ding naar openbare referentiediensten zoals Wikidata, MusicBrainz en OpenLibrary en slaat het antwoord op deze Mac op.
 
+Ostler zoekt online naar openbare onderwerpen zoals muziek, boeken, films en plaatsen, om je smaak te begrijpen. Het zoekt nooit iets op over gezondheid, geld of juridische zaken, adressen of de mensen die je kent.
+
 Wat je Mac verlaat: de naam van het ding dat wordt opgezocht. Verder niets. Niet je berichten, niet je contacten, niet je bestanden en niet wie het heeft genoemd.
 
 Wat de dienst aan de andere kant kan zien: je IP-adres, en dat het verzoek van Ostler kwam. Het opzoeken gaat rechtstreeks van je Mac naar hen - er loopt niets via onze servers - dus je kunt het niet vragen zonder dat zij weten dat iemand het vroeg.
