@@ -5657,6 +5657,7 @@ def _memory_query_facts() -> list:
         'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
         '?fpriv ?ownerPriv '
         'WHERE {{\n'
+        '  {{\n'
         '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
         '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
         '  UNION\n'
@@ -5683,6 +5684,7 @@ def _memory_query_facts() -> list:
         '    }}\n'
         '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
         '    BIND(?privacy AS ?fpriv)\n'
+        '    {pf_owner}\n'
         # CM048 grades a fact qualitatively; the consumer wants a float and
         # falls back to 0.5 on anything unparseable. Mapping here keeps the
         # ordering CM048 intended instead of flattening all 990 to the
@@ -6735,28 +6737,7 @@ def _owner_instruction_facts(destination=None, withheld=None) -> list:
             **_pr.label_for(_rec, None, destination),
         })
 
-    # Sort by (rank desc, valid_from desc) where rank is the hygiene
-    # overlay's effectiveWeight when present, else raw confidence
-    # (unchanged pre-hygiene ordering). Stable for ties so the order
-    # stays deterministic between calls -- the iOS list uses the order
-    # to drive its diffable data source.
-    out.sort(
-        key=lambda f: (f["_rank"], f["valid_from"]),
-        reverse=True,
-    )
-    out = out[:MEMORY_LIMIT]
-    others.sort(key=lambda f: (f["_rank"], f["valid_from"]), reverse=True)
-    others = others[:MEMORY_LIMIT]
-    for f in out + others:
-        f.pop("_rank", None)
-    response = {"facts": out, "count": len(out), "about_others": others}
-    # Overlay the deterministically-resolved current employer so the
-    # brief LLM never has to guess it from the flat fact list. Guarded:
-    # a failure here must not degrade the Memory tab.
-    employer = _current_employer_safe()
-    if employer.get("found"):
-        response["current_employer"] = employer
-    return response
+    return out
 
 
 def api_memory_correct(fact_id: str, payload: dict):
