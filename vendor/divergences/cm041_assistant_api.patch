@@ -405,7 +405,7 @@
      def start(self) -> None:
 --- /dev/null
 +++ b/hub_contract.yaml
-@@ -0,0 +1,7074 @@
+@@ -0,0 +1,7077 @@
 +{
 + "auth_schemes": {
 +  "admin_token": {
@@ -1450,7 +1450,8 @@
 +    "current_employer",
 +    "degraded",
 +    "facts",
-+    "reason"
++    "reason",
++    "withheld_private"
 +   ],
 +   "source": "install.sh"
 +  },
@@ -4055,7 +4056,8 @@
 +    "current_employer",
 +    "degraded",
 +    "facts",
-+    "reason"
++    "reason",
++    "withheld_private"
 +   ],
 +   "source": "ostler-assistant:crates/zeroclaw-gateway/src/lib.rs"
 +  },
@@ -6148,7 +6150,8 @@
 +    "current_employer",
 +    "degraded",
 +    "facts",
-+    "reason"
++    "reason",
++    "withheld_private"
 +   ],
 +   "source": "vendor/cm041/assistant_api/ical-server.py"
 +  },
@@ -7532,7 +7535,7 @@
  _PLAINTEXT_WARNED = False
  
  # Record the security posture for Doctor / external introspection.
-@@ -113,9 +138,46 @@
+@@ -113,38 +138,109 @@
      record_posture(
          "ical-server",
          "disabled",
@@ -7543,9 +7546,9 @@
 +        # different facts, and Doctor must not print them identically.
 +        reason=_DB_KEY.reason,
          backend="plaintext",
-+    )
-+
-+
+     )
+ 
+ 
 +class DbKeyMissingError(RuntimeError):
 +    """A database that must be encrypted was asked for with no key."""
 +
@@ -7574,13 +7577,13 @@
 +        f"refusing to open {db_path} without a database key "
 +        f"(no database key: {_DB_KEY.reason}).{detail} "
 +        "Recover the key with `ostler-unlock --install-key-file`."
-     )
++    )
 +    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
 +    raise DbKeyMissingError(msg)
- 
- 
++
++
  def _warn_plaintext_once(db_path: str) -> None:
-@@ -123,28 +185,62 @@
+     """Print a one-shot stderr warning when the coach DB falls through
      to plaintext SQLite. Loud is the right level here: silent plaintext
      is the bug we are fixing.
  
@@ -8219,11 +8222,10 @@
  # ~/.ostler/processing, NOT under PWG_HOME (~/.pwg). Confirmed by
  # src/ostler_paths.py:42-44 (`processing_dir()` default), src/settings.py:
  # 93-94 (`Settings.processing_state_dir` default) and shipped production
-@@ -975,7 +1053,33 @@
-     "tauri://localhost",
+@@ -976,6 +1054,32 @@
      "https://tauri.localhost",
  }
-+
+ 
 +# CM048 ships as its own venv'd service installed by CM051 install.sh
 +# phase 3.10b. The installer symlinks
 +# ${OSTLER_DIR}/services/cm048/.venv/bin/pwg-convo → /usr/local/bin/pwg-convo,
@@ -8246,7 +8248,7 @@
 +    if exists(owner_side):
 +        return owner_side
 +    return "/usr/local/bin/pwg-convo"
- 
++
 +
 +PWG_CONVO_BIN = os.environ.get("PWG_CONVO_BIN") or _default_pwg_convo_bin()
 +
@@ -8473,12 +8475,10 @@
  def _safe_int(params, key, default):
      """Parse a query param as int, returning (value, error_dict_or_None).
  
-@@ -1098,6 +1389,77 @@
-         return float(raw), None
-     except (ValueError, TypeError):
+@@ -1100,6 +1391,77 @@
          return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
-+
-+
+ 
+ 
 +# ── Optional pagination for the two big list endpoints ───────────────────
 +# /api/v1/preferences (tens of thousands of rows) and /api/v1/people. ADDITIVE:
 +# a request with none of `cursor` / `fields` (and, for people, `limit`) gets
@@ -8548,14 +8548,25 @@
 +        page = [{k: it[k] for k in fields if isinstance(it, dict) and k in it}
 +                for it in page]
 +    return page, {"next_cursor": next_cursor, "page_size": len(page)}, None
- 
- 
++
++
  def _to_iso8601(raw):
+     """Convert one of the date-ish strings we emit into ISO-8601.
+ 
 @@ -1113,20 +1475,88 @@
      """
      if not raw:
          return ""
 -    s = str(raw)
+-    try:
+-        if len(s) == 15 and "T" in s:
+-            dt = datetime.strptime(s, "%Y%m%dT%H%M%S")
+-            return dt.strftime("%Y-%m-%dT%H:%M:%S")
+-        if len(s) == 8 and s.isdigit():
+-            dt = datetime.strptime(s, "%Y%m%d")
+-            return dt.strftime("%Y-%m-%d")
+-        # Already looks ISO-ish: leave it alone.
+-        return s
 +    return _timeline_timestamp(str(raw))
 +
 +
@@ -8596,15 +8607,7 @@
 +            return local(datetime.strptime(s, fmt).replace(hour=12)).isoformat(timespec="seconds")
 +        except ValueError:
 +            pass
-     try:
--        if len(s) == 15 and "T" in s:
--            dt = datetime.strptime(s, "%Y%m%dT%H%M%S")
--            return dt.strftime("%Y-%m-%dT%H:%M:%S")
--        if len(s) == 8 and s.isdigit():
--            dt = datetime.strptime(s, "%Y%m%d")
--            return dt.strftime("%Y-%m-%d")
--        # Already looks ISO-ish: leave it alone.
--        return s
++    try:
 +        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
 +        if dt.tzinfo is None:
 +            dt = local(dt)
@@ -8612,8 +8615,8 @@
      except ValueError:
 -        return s
 +        return ""
- 
- 
++
++
 +def _graph_all_day(value):
 +    """pwg:meetingAllDay as True / False, or None when the graph has no flag
 +    (a meeting ingested before the flag existed)."""
@@ -8628,7 +8631,7 @@
 +def _timeline_row_time(raw, all_day=None):
 +    """``(timestamp, all_day)`` for one Timeline row, from the calendar's own
 +    start value and all-day flag (I22).
-+
+ 
 +    The graph stores a meeting's full start (``2026-10-20 09:30:00+00:00``)
 +    and, since the calendar ingest writes it, whether the calendar marked it
 +    all-day. The Timeline used to cut the start to its date, so every past
@@ -8645,7 +8648,7 @@
 +    if re.match(r"\d{4}-\d{2}-\d{2} \d", s):
 +        s = s.replace(" ", "T", 1)
 +    return _to_iso8601(s), False
-+
+ 
 +
  # Google Calendar via gws CLI
  GWS_BIN = "/usr/local/bin/gws"
@@ -8994,11 +8997,10 @@
          msg = f"coach database {COACH_DB} could not be read: {exc}"
          print(f"ERROR: {msg}", file=sys.stderr, flush=True)
          raise CoachDbError(msg) from exc
-@@ -1944,7 +2559,83 @@
- 
+@@ -1945,6 +2560,82 @@
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
-+
+ 
 +# Placed here, BEFORE _conversation_process_background, rather than
 +# between it and api_conversation_process: several tests (e.g.
 +# tests/test_vendored_conversation_process_failure_reason.py,
@@ -9014,7 +9016,7 @@
 +    re.IGNORECASE,
 +)
 +_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
- 
++
 +
 +def _is_safe_meeting_id(meeting_id):
 +    """True when meeting_id is a UUID or a plain slug with no path
@@ -9272,15 +9274,15 @@
      queued = _conversation_retry_rearm(force=True)
      threading.Thread(target=_conversation_retry_sweep, daemon=True).start()
      return {"queued": queued, "status": "accepted"}, 202
- 
- 
+-
+-
 -_MEETING_ID_UUID_RE = re.compile(
 -    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
 -    re.IGNORECASE,
 -)
 -_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
--
--
+ 
+ 
 -def _is_safe_meeting_id(meeting_id):
 -    """True when meeting_id is a UUID or a plain slug with no path
 -    characters (no '/', '.', or whitespace). Guards metadata.meeting_id
@@ -9832,6 +9834,49 @@
 -        r.startswith("tombstone_failed") for r in degraded_reasons
 -    ):
 -        degraded_reasons.append("tombstone_failed: could not write the tombstone file")
+-
+-    # Oxigraph: delete every triple where this URI is subject, then
+-    # every triple where it's object (incoming relationships, mentions).
+-    # All in one UPDATE so partial-failure is less likely.
+-    #
+-    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
+-    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
+-    # signals and conversation links into the NAMED graph
+-    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
+-    # and compartment.py requires it stays off) an unqualified DELETE
+-    # cannot see them. The erasure therefore silently under-deleted and
+-    # left the person's records behind. Each named graph in this user's
+-    # scope needs its own explicitly-scoped pair.
+-    #
+-    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
+-    # span -- so a forget removes everything any Ostler surface could
+-    # still show, without deleting out of another user's compartment.
+-    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
+-    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
+-    try:
+-        _sparql_update(sparql_update)
+-        stores_purged.append("oxigraph")
+-    except Exception as exc:
+-        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+-
+-    # Qdrant: delete every point in `people` whose payload.person_uri
+-    # matches. `wait=true` so the response reflects the actual purge.
+-    qdrant_body = json.dumps({
+-        "filter": {
+-            "must": [
+-                {"key": "person_uri", "match": {"value": person_uri}}
+-            ]
+-        }
+-    }).encode()
+-    try:
+-        req = urllib.request.Request(
+-            QDRANT_URL.rstrip("/")
+-            + "/collections/people/points/delete?wait=true",
+-            data=qdrant_body,
+-            headers={"Content-Type": "application/json"},
+-            method="POST",
+-        )
+-        urllib.request.urlopen(req, timeout=30)
 +    if resumed:
 +        # The first call wrote the tombstone before it erased; do not
 +        # re-derive identifiers from a graph that is already empty.
@@ -9915,49 +9960,7 @@
 +            degraded_reasons.append(f"oxigraph_still_holds_triples: {len(still)} node(s)")
 +        elif still is not None:
 +            stores_purged.append("oxigraph")
- 
--    # Oxigraph: delete every triple where this URI is subject, then
--    # every triple where it's object (incoming relationships, mentions).
--    # All in one UPDATE so partial-failure is less likely.
--    #
--    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
--    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
--    # signals and conversation links into the NAMED graph
--    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
--    # and compartment.py requires it stays off) an unqualified DELETE
--    # cannot see them. The erasure therefore silently under-deleted and
--    # left the person's records behind. Each named graph in this user's
--    # scope needs its own explicitly-scoped pair.
--    #
--    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
--    # span -- so a forget removes everything any Ostler surface could
--    # still show, without deleting out of another user's compartment.
--    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
--    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
--    try:
--        _sparql_update(sparql_update)
--        stores_purged.append("oxigraph")
--    except Exception as exc:
--        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
--
--    # Qdrant: delete every point in `people` whose payload.person_uri
--    # matches. `wait=true` so the response reflects the actual purge.
--    qdrant_body = json.dumps({
--        "filter": {
--            "must": [
--                {"key": "person_uri", "match": {"value": person_uri}}
--            ]
--        }
--    }).encode()
--    try:
--        req = urllib.request.Request(
--            QDRANT_URL.rstrip("/")
--            + "/collections/people/points/delete?wait=true",
--            data=qdrant_body,
--            headers={"Content-Type": "application/json"},
--            method="POST",
--        )
--        urllib.request.urlopen(req, timeout=30)
++
 +    # Qdrant: delete every point in `people` whose payload.person_uri matches
 +    # (wait=true), then count what is left. On a retry this runs even though
 +    # the graph is already empty.
@@ -10014,8 +10017,8 @@
 +    # customer can try again, instead of being told it is done.
      status_code = 200 if forgotten else 503
      return response, status_code
- 
- 
++
++
 +# ── Under-18 registry: owner-set "mark as minor" (the owner 2026-10-19, 118) ──
 +#
 +# project_minors_flag: a minor is stored and searchable, but never nudged, never
@@ -10199,7 +10202,7 @@
 +    names = sorted({c["name"] for c in matched if c.get("name")})
 +    if minor and not person_uris:
 +        return {"error": "No such person"}, 404
-+
+ 
 +    identifiers = []
 +    identifier_degraded = False
 +    if minor:
@@ -10207,7 +10210,7 @@
 +            identifiers = _personal_identifiers_for(person_uris, slug)
 +        except Exception:
 +            identifier_degraded = True  # name-only entry still matches
-+
+ 
 +    path = _minors_path()
 +    with _private_file_lock(path):
 +        try:
@@ -10602,7 +10605,16 @@
          conn = sqlite3.connect(db_path)
      conn.row_factory = _row_factory_for(conn)
      return conn
-@@ -4428,11 +5596,66 @@
+@@ -4386,7 +5554,7 @@
+     return uri
+ 
+ 
+-def _memory_query_facts() -> list:
++def _memory_query_facts(destination=None) -> list:
+     """SPARQL: every PersonFact about the configured user.
+ 
+     Returns a list of raw fact dicts (uri, text, source, domain,
+@@ -4428,11 +5596,70 @@
      #
      # ?about is returned so a caller can name the subject: answering "who is
      # my wife" needs jane's name, not just the sentence.
@@ -10660,6 +10672,10 @@
 +    # forbids L3 on facts (see ostler_hygiene/model.py), and an L3 row
 +    # appearing here would be a new leak introduced by a fix. Withheld
 +    # explicitly rather than trusted not to exist.
++    # The CM048 arm drops L3 in the query for every destination except
++    # owner_local, which serves it labelled (the same rule as the owner arms).
++    l3_filter = ('' if destination == pwg_privacy.OWNER_LOCAL else
++                 '    FILTER (!BOUND(?privacy) || UCASE(STR(?privacy)) != "L3")\n')
      sparql = (
          'PREFIX pwg: <{ns}>\n'
          'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
@@ -10669,7 +10685,7 @@
          '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
          '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
          '  UNION\n'
-@@ -4446,10 +5669,34 @@
+@@ -4446,10 +5673,35 @@
          '  {pf_fact}\n'
          '  {pf_owner}\n'
          '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
@@ -10686,6 +10702,7 @@
 +        '      OPTIONAL {{ ?fact <urn:ostler:signalStrength> ?signal }}\n'
 +        '    }}\n'
 +        '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
++        '{l3_filter}'
 +        '    BIND(?privacy AS ?fpriv)\n'
 +        '    {pf_owner}\n'
 +        # CM048 grades a fact qualitatively; the consumer wants a float and
@@ -10696,7 +10713,7 @@
 +        '         IF(STR(?signal) = "medium", 0.6,\n'
 +        '         IF(STR(?signal) = "weak", 0.3, ?unmapped))) AS ?conf)\n'
 +        '  }}\n'
-+        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID,
++        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID, l3_filter=l3_filter,
                      # The fact's own level and the owner node's (Archie
                      # 2026-11-17): api_memory_list gates every row through
 -                    # the shared table for the request's destination.
@@ -10706,7 +10723,7 @@
                      pf_fact=_pr.optional_level("fact", "fpriv"),
                      pf_owner=_pr.optional_level_iri(USER_URI, "ownerPriv"))
      )
-@@ -4769,123 +6016,8 @@
+@@ -4769,121 +6021,6 @@
                                             destination=destination,
                                           owner_level=_pr.level_input(r.get("ownerPriv")))]
      return rows
@@ -10737,12 +10754,12 @@
 -
 -def _resolve_person_employment(uri: str, scalar_orgs) -> dict:
 -    """Resolve a (non-operator) person's employers into one honest answer.
- 
+-
 -    BUG: a person with two employers (a job change) was named by whichever
 -    ``pwg:organization`` scalar the store returned first, often the stale
 -    one. Here the dated ``career_position`` facts decide, most recent
 -    start first; an open-ended role (no endDate) beats a closed one.
- 
+-
 -    Returns ``{}`` when there is nothing to say (zero or one distinct
 -    employer: the caller's existing scalar behaviour is unchanged), else:
 -
@@ -10825,12 +10842,10 @@
 -        "previous_organisations": prev,
 -        "employer_ambiguous": False,
 -    }
--
--
- def _select_current_employer(outbound: bool = False, destination=None) -> dict:
-     """Deterministically resolve the operator's CURRENT employer.
  
-@@ -5146,17 +6278,10 @@
+ 
+ def _select_current_employer(outbound: bool = False, destination=None) -> dict:
+@@ -5146,26 +6283,19 @@
      the degraded shape with reason="user_id_not_configured" so the iOS
      tab can prompt the user to finish onboarding.
      """
@@ -10850,8 +10865,9 @@
              "degraded": True,
              "reason": "user_id_not_configured",
          }
-@@ -5164,8 +6289,8 @@
-         raw_facts = _memory_query_facts()
+     try:
+-        raw_facts = _memory_query_facts()
++        raw_facts = _memory_query_facts(destination)
      except Exception as exc:
          return {
 -            "facts": instr,
@@ -10861,7 +10877,7 @@
              "degraded": True,
              "reason": f"oxigraph_unreachable: {exc}",
          }
-@@ -5178,8 +6303,17 @@
+@@ -5178,8 +6308,17 @@
      # Routed through the canonical ostler_hygiene reader (Phase 2); the
      # employer resolver's own inline overlay is orthogonal.
      hygiene, verdicts = _hygiene_overlay()
@@ -10879,7 +10895,7 @@
      # Facts this destination may not see (Archie 2026-11-17). Every Hub
      # route is outbound: each row's own level and the owner node's go
      # through the shared table (may_leave) for the request's destination,
-@@ -5190,6 +6324,8 @@
+@@ -5190,6 +6329,8 @@
      withheld_private = 0
      for row in raw_facts:
          uri = row.get("fact", "")
@@ -10888,7 +10904,7 @@
          if hygiene is not None and hygiene.is_dropped(uri, verdicts):
              # Retired by the hygiene pass -- withheld from the surface
              # exactly like a user "forget" (the source triple stays put).
-@@ -5233,7 +6369,7 @@
+@@ -5233,7 +6374,7 @@
              withheld_private += 1
              continue
  
@@ -10897,7 +10913,7 @@
              "id": fact_id,
              "predicate": domain,
              "object": text,
-@@ -5249,8 +6385,14 @@
+@@ -5249,8 +6390,14 @@
              # popped before the response so the wire shape is unchanged.
              "_rank": rank,
              **_pr.label_for(_rec, _owner_lvl, destination),
@@ -10912,7 +10928,7 @@
      _instr_withheld = [0]
      out.extend(_owner_instruction_facts(destination, _instr_withheld))
      withheld_private += _instr_withheld[0]
-@@ -5264,9 +6406,11 @@
+@@ -5264,9 +6411,11 @@
          reverse=True,
      )
      out = out[:MEMORY_LIMIT]
@@ -10926,7 +10942,7 @@
                  "withheld_private": withheld_private}
      # Overlay the deterministically-resolved current employer so the
      # brief LLM never has to guess it from the flat fact list. Guarded:
-@@ -5590,6 +6734,7 @@
+@@ -5590,6 +6739,7 @@
              "_rank": 1.0,
              **_pr.label_for(_rec, None, destination),
          })
@@ -10934,7 +10950,7 @@
      return out
  
  
-@@ -5613,17 +6758,6 @@
+@@ -5613,17 +6763,6 @@
      if not fact_id or len(fact_id) > 200:
          return {"error": "Invalid fact_id"}, 400
  
@@ -10952,7 +10968,7 @@
      is_forget = bool(payload.get("forget"))
      new_value = payload.get("newValue")
      if not is_forget and (not isinstance(new_value, str) or not new_value.strip()):
-@@ -5633,38 +6767,203 @@
+@@ -5633,38 +6772,203 @@
          }, 400
      if new_value and len(new_value) > 4096:
          return {"error": "newValue too long (max 4096 chars)."}, 400
@@ -11185,7 +11201,7 @@
  
  
  _PRIVACY_ORDER = pwg_privacy.VALID_PRIVACY_LEVELS   # read from the shared table
-@@ -5691,13 +6990,20 @@
+@@ -5691,13 +6995,20 @@
      # last_contact is the MAX of the four per-source predicates, computed
      # in Python after the query so each source remains independently
      # OPTIONAL (a missing source must not exclude the row).
@@ -11210,7 +11226,7 @@
          '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
          '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
          '  OPTIONAL {{ ?person pwg:relationship ?rel }}\n'
-@@ -5710,36 +7016,58 @@
+@@ -5710,36 +7021,58 @@
          '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
          '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
          '  {pf_person}\n'
@@ -11283,7 +11299,7 @@
          }
          # API surface is British English and matches the iOS Codable
          # expectations (see CM031 docs/API_CONTRACT.md). Per #ARCH-01:
-@@ -5793,13 +7121,6 @@
+@@ -5793,13 +7126,6 @@
              entry["deprecated_fragment"] = True
              entry["merged_into"] = person["mergedInto"]
  
@@ -11297,7 +11313,7 @@
          # MAX across the four per-source last-contact predicates, capped
          # at today so a future-dated event never wins (see
          # _max_past_last_contact). Missing sources contribute nothing.
-@@ -5905,10 +7226,12 @@
+@@ -5905,10 +7231,12 @@
          person_slug = _wiki_slug(pname)
          # CM048 writes these signals into the per-user NAMED graph, so an
          # unqualified read returns nothing. Measured 0 rows as shipped,
@@ -11312,7 +11328,7 @@
                  '  ?signal <urn:ostler:about> ?person .\n'
                  '  ?signal <urn:ostler:warmth> ?warmth .\n'
                  '  ?signal <urn:ostler:trust> ?trust .\n'
-@@ -6075,13 +7398,12 @@
+@@ -6075,13 +7403,12 @@
      # Resolve slug -> person URI by recomputing _wiki_slug(displayName).
      # Slug is not stored in the graph directly; it is derived from the
      # display name by the wiki compiler (see api_people_forget).
@@ -11331,7 +11347,7 @@
      except Exception as exc:
          return {
              "found": False,
-@@ -6090,15 +7412,6 @@
+@@ -6090,15 +7417,6 @@
              "error": str(exc),
          }, 503
  
@@ -11347,7 +11363,7 @@
      if person_uri is None:
          return {
              "slug": slug,
-@@ -6295,10 +7608,12 @@
+@@ -6295,10 +7613,12 @@
  
          # CM048 writes these signals into the per-user NAMED graph, so an
          # unqualified read returns nothing. Measured 0 rows as shipped,
@@ -11362,7 +11378,7 @@
                  '  ?signal <urn:ostler:about> ?person .\n'
                  '  ?signal <urn:ostler:warmth> ?warmth .\n'
                  '  ?signal <urn:ostler:trust> ?trust .\n'
-@@ -6380,7 +7695,7 @@
+@@ -6380,7 +7700,7 @@
              data=body,
              headers={"Content-Type": "application/json"},
          )
@@ -11371,7 +11387,7 @@
              qresult = json.loads(resp.read())
          points = qresult.get("result", {}).get("points", [])
          if points:
-@@ -6538,13 +7853,12 @@
+@@ -6538,13 +7858,12 @@
      # This is the load-bearing query: if it fails we cannot identify the
      # person at all, so degrade the whole request (503) rather than return
      # a misleading empty timeline.
@@ -11390,7 +11406,7 @@
      except Exception as exc:
          return {
              "found": False,
-@@ -6553,15 +7867,6 @@
+@@ -6553,15 +7872,6 @@
              "error": str(exc),
          }, 503
  
@@ -11406,7 +11422,7 @@
      if person_uri is None:
          return {
              "slug": slug,
-@@ -6650,7 +7955,7 @@
+@@ -6650,7 +7960,7 @@
          # matches in both arms of the UNION.
          conv_rows = _sparql_select(
              'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
@@ -11415,7 +11431,7 @@
                  '  ?fact <urn:ostler:about> <{uri}> ; '
                  '<urn:ostler:fromConversation> ?conv .\n'
                  '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-@@ -6806,6 +8111,89 @@
+@@ -6806,6 +8116,89 @@
      return limit, None
  
  
@@ -11505,7 +11521,7 @@
  def _new_withheld():
      """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
      items. ``legacy_untagged`` is NOT withheld: those items are served and
-@@ -6813,9 +8201,14 @@
+@@ -6813,9 +8206,14 @@
      return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
  
  
@@ -11522,7 +11538,7 @@
          withheld["l3"] += 1
          return False
      if verdict == "unknown":
-@@ -6895,7 +8288,7 @@
+@@ -6895,7 +8293,7 @@
      return out
  
  
@@ -11531,7 +11547,7 @@
      """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
  
      Read-only listing of ``pwg:Decision`` nodes (the typed "what did we
-@@ -6943,13 +8336,10 @@
+@@ -6943,13 +8341,10 @@
                  "error": "Invalid 'about' slug. Expected lowercase ASCII "
                           "letters, digits, hyphens (max 80 chars).",
              }, 400
@@ -11548,7 +11564,7 @@
          except Exception as exc:
              return {
                  "decisions": [],
-@@ -6957,17 +8347,14 @@
+@@ -6957,17 +8352,14 @@
                  "degraded": True,
                  "reason": f"oxigraph_lookup_failed: {exc}",
              }, 503
@@ -11568,7 +11584,7 @@
          if about_uri else ''
      )
      try:
-@@ -6982,6 +8369,15 @@
+@@ -6982,6 +8374,15 @@
              '}}'.format(ns=PWG_NS, about_clause=about_clause)
          )
      except Exception as exc:
@@ -11584,7 +11600,7 @@
          return {
              "decisions": [],
              "count": 0,
-@@ -7028,7 +8424,7 @@
+@@ -7028,7 +8429,7 @@
          except Exception:
              about_people = []
              verdict = "unknown"
@@ -11593,7 +11609,7 @@
              continue
          decisions.append({
              "summary": summary,
-@@ -7038,15 +8434,28 @@
+@@ -7038,15 +8439,28 @@
              "status": r.get("status", ""),
          })
  
@@ -11626,7 +11642,7 @@
      """Handle GET /api/v1/topics?q=<text>&limit=N.
  
      Read-only listing of ``pwg:ConversationTopic`` nodes ranked by total
-@@ -7119,7 +8528,7 @@
+@@ -7119,7 +8533,7 @@
          # The mention inherits its conversation's level: strictest wins.
          verdict = _topic_mention_verdict(
              r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(r.get("conv"), []))
@@ -11635,7 +11651,7 @@
              continue
          agg["weight"] += _as_int(r.get("w"))
          agg["mentions"] += 1
-@@ -7237,14 +8646,22 @@
+@@ -7237,14 +8651,22 @@
      }, 200
  
  
@@ -11664,7 +11680,7 @@
  def commitments_list(owner=None, due_before=None, status="open",
                       limit=_MOAT_DEFAULT_LIMIT, destination=None):
      """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
-@@ -7292,7 +8709,7 @@
+@@ -7292,7 +8714,7 @@
          # Rows are gated per row in the loop, fail closed.
          rows = _sparql_select(
              'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
@@ -11673,7 +11689,7 @@
                  '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                  '        <urn:ostler:todoText> ?action ;\n'
                  '        <urn:ostler:owner> ?owner ;\n'
-@@ -7359,6 +8776,8 @@
+@@ -7359,6 +8781,8 @@
      commitments = commitments[:limit]
      for c in commitments:
          c.pop("_created", None)
@@ -11682,7 +11698,7 @@
      return {"commitments": commitments, "count": len(commitments),
              "withheld": _withheld_view(withheld),
              "legacy_untagged": withheld["legacy_untagged"]}, 200
-@@ -7375,24 +8794,27 @@
+@@ -7375,24 +8799,27 @@
  #
  # The detector itself lives in CM048 (src/reply_debt.py + adapters +
  # service). It is deliberately source-agnostic stdlib-only code (no LLM,
@@ -11721,7 +11737,7 @@
  
  # Where the CM048 checkout lives on the box. Mirrors OSTLER_PROJECT_DIR
  # used by _conversation_process_background; that env var points at the
-@@ -7500,23 +8922,38 @@
+@@ -7500,23 +8927,38 @@
              debts = debts[:limit]
          payload = service.reply_debt_payload(debts)
      except Exception as exc:
@@ -11765,7 +11781,7 @@
      return payload, 200
  
  
-@@ -7651,7 +9088,7 @@
+@@ -7651,7 +9093,7 @@
                  data=data,
                  headers={"Content-Type": "application/json"},
              )
@@ -11774,7 +11790,7 @@
                  result = json.loads(resp.read()).get("result", {}) or {}
              batch = result.get("points", []) or []
              points.extend(batch)
-@@ -7686,10 +9123,10 @@
+@@ -7686,10 +9128,10 @@
              uri = r.get("person")
              typ = (r.get("type") or "").strip()
              val = (r.get("value") or "").strip()
@@ -11787,7 +11803,7 @@
              )
              if val not in bucket[typ]:
                  bucket[typ].append(val)
-@@ -7735,6 +9172,21 @@
+@@ -7735,6 +9177,21 @@
          name = p.get("display_name") or p.get("name") or ""
          given = (p.get("given_name") or "").strip()
          family = (p.get("family_name") or "").strip()
@@ -11809,7 +11825,7 @@
  
          # Walk #6, bug 2: the STORED name can be a bare email/phone
          # fallback even though this same record now carries a real
-@@ -7747,8 +9199,12 @@
+@@ -7747,8 +9204,12 @@
          # nameless/automated checks below -- a bare-phone fallback is
          # exactly what _is_nameless_name hides outright, so upgrading
          # first is the only way this row ever reaches the list at all.
@@ -11824,7 +11840,7 @@
  
          # CM051 #2568: this used to be `if not name: continue`, which only
          # catches an EMPTY name (case 1 of _is_nameless_name's three). A
-@@ -7758,8 +9214,19 @@
+@@ -7758,8 +9219,19 @@
          # the Hub/wiki count gap. Reuse the LOCKED predicate rather than a
          # second filter: it is explicitly byte-identical across all three
          # surfaces for exactly this reason (Ref #664).
@@ -11845,7 +11861,7 @@
          # Walk #6, bug 1 -- CORRECTED after Archie's review (walk #6 round
          # 2). The service/notification shape checks are vocabulary-and-shape
          # heuristics, not a structural law, and Archie measured two classes
-@@ -7787,10 +9254,18 @@
+@@ -7787,10 +9259,18 @@
          # specifically, not "has a given/family name" generically -- only a
          # card is proof of a real address-book entry.
          has_contacts_card = bool((p.get("icloud_uid") or "").strip())
@@ -11867,7 +11883,7 @@
              _is_automated_or_service_name(name)
              or _is_service_mailbox_name(name)
          ):
-@@ -7808,7 +9283,7 @@
+@@ -7808,7 +9288,7 @@
          # the bug-2 upgrade above already re-labels it with its own human
          # name on every read, so it is not "a name that is a bare email
          # address" by the time this check runs; not a new defect, see the
@@ -11876,7 +11892,7 @@
          # shape as self_uris/ident_by_uri above.
          if (
              not has_contacts_card
-@@ -7823,6 +9298,30 @@
+@@ -7823,6 +9303,30 @@
                  for v in ident_by_uri.get(uri, {}).get("email", [])
              )
              if row_emails & human_named_emails:
@@ -11907,7 +11923,7 @@
                  continue
  
          # Sort keys -- prefer the parsed given/family name, fall back to a
-@@ -7842,6 +9341,10 @@
+@@ -7842,6 +9346,10 @@
              "slug": slug,
              "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
          }
@@ -11918,7 +11934,7 @@
          role = p.get("job_title") or p.get("organization") or ""
          if role:
              row["role"] = role
-@@ -7977,6 +9480,10 @@
+@@ -7977,6 +9485,10 @@
      return suppressed_slugs, suppressed_uris
  
  
@@ -11929,7 +11945,7 @@
  def people_stale(months=3, limit=5):
      """Find contacts not spoken to in N months, reconciled against the graph.
  
-@@ -8008,10 +9515,6 @@
+@@ -8008,10 +9520,6 @@
      import time
      cutoff_ts = int(time.time()) - (months * 30 * 86400)
      cutoff_date = datetime.utcfromtimestamp(cutoff_ts).strftime("%Y-%m-%d")
@@ -11940,7 +11956,7 @@
      try:
          body = {
              "filter": {
-@@ -8031,40 +9534,105 @@
+@@ -8031,40 +9539,105 @@
                       "match": {"any": ["person", "unclassified"]}},
                  ]
              },
@@ -12063,7 +12079,7 @@
          has_card = bool((p.get("icloud_uid") or "").strip())
          if not has_card and (
              _is_automated_or_service_name(name)
-@@ -8078,7 +9646,10 @@
+@@ -8078,7 +9651,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -12075,7 +12091,7 @@
              "_person_uri": p.get("person_uri") or "",
          })
  
-@@ -8092,16 +9663,20 @@
+@@ -8092,16 +9668,20 @@
      if unresolved:
          try:
              names = sorted({c["name"] for c in unresolved})
@@ -12106,7 +12122,7 @@
          except Exception as exc:
              # FAIL CLOSED (CM051 #2521): can't identify these candidates in
              # the graph at all, so none of this batch can be trusted.
-@@ -8128,17 +9703,19 @@
+@@ -8128,17 +9708,19 @@
      graph_max_by_uri = {}
      if uris:
          try:
@@ -12137,7 +12153,7 @@
          except Exception as exc:
              # FAIL CLOSED (CM051 #2521). Qdrant's last_contact_ts has
              # already been shown wrong in the direction that announces
-@@ -8177,8 +9754,6 @@
+@@ -8177,8 +9759,6 @@
              continue
          if uri in suppressed_uris or _wiki_slug(c["name"]) in suppressed_slugs:
              continue
@@ -12146,7 +12162,7 @@
          graph_max = graph_max_by_uri.get(uri)
          if graph_max:
              graph_max = graph_max[:10]
-@@ -8203,27 +9778,42 @@
+@@ -8203,27 +9783,42 @@
      from datetime import datetime, timedelta, timezone
      cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
      try:
@@ -12199,7 +12215,7 @@
      carded_uris = _load_carded_uris(r.get("p") for r in rows)
      # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
      # fail closed so a suppressed person is never a follow-up nudge.
-@@ -8234,16 +9824,23 @@
+@@ -8234,16 +9829,23 @@
                  "reason": f"suppression_index_failed: {exc}", "error": str(exc)}
  
      seen = set()
@@ -12225,7 +12241,7 @@
          if uri and uri in self_uris:
              continue
          has_card = uri in carded_uris
-@@ -8253,6 +9850,8 @@
+@@ -8253,6 +9855,8 @@
          ):
              continue
          seen.add(name)
@@ -12234,7 +12250,7 @@
          contacts.append({
              "name": name,
              "slug": _wiki_slug(name),
-@@ -8272,21 +9871,46 @@
+@@ -8272,21 +9876,46 @@
      today = datetime.now()
      results = []
      try:
@@ -12291,7 +12307,7 @@
      self_uris = _load_people_list_self_uris()
      carded_uris = _load_carded_uris(r.get("p") for r in rows)
      # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
-@@ -8309,8 +9933,14 @@
+@@ -8309,8 +9938,14 @@
          # Birthdays surface, same render-time filter the People search / stale /
          # recent endpoints use. Ref #664. The Qdrant point / graph node is never
          # deleted -- only withheld from this listing.
@@ -12307,7 +12323,7 @@
          if uri and uri in self_uris:
              continue
          has_card = uri in carded_uris
-@@ -8334,27 +9964,312 @@
+@@ -8334,27 +9969,312 @@
              if 0 <= days_until <= days:
                  results.append({
                      "name": name,
@@ -12632,7 +12648,7 @@
      """Fetch recent emails via gws CLI. Returns subjects/snippets only (no body).
  
      Never spawns gws unless google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID).
-@@ -8453,95 +10368,45 @@
+@@ -8453,95 +10373,45 @@
      # change. Aliases share the same list reference – cheap, no copy.
      out["reconnect"] = out["stale_contacts"]
      out["follow_up"] = out["recent_meetings"]
@@ -12762,7 +12778,7 @@
  def api_meeting_upcoming(within_minutes=120, destination=None):
      """Return enriched pre-meeting briefs for events starting within
      ``within_minutes`` from now.
-@@ -8598,13 +10463,19 @@
+@@ -8598,13 +10468,19 @@
      # miss an event right at the boundary).
      days_lookahead = max(1, int((within_minutes + 1439) // 1440))
  
@@ -12786,7 +12802,7 @@
          )
      except Exception as exc:
          return {
-@@ -8639,6 +10510,9 @@
+@@ -8639,6 +10515,9 @@
              return None
  
      upcoming = []
@@ -12796,7 +12812,7 @@
      for b in all_briefs:
          dt = _parse_start(b)
          if dt is None:
-@@ -8649,15 +10523,29 @@
+@@ -8649,15 +10528,29 @@
              continue
          if now <= dt <= window_end:
              upcoming.append(b)
@@ -12827,7 +12843,7 @@
      """Historic timeline rows from the People Graph - one entry PER MEETING.
  
      The Timeline is mainly a HISTORIC view, so its primary source is the graph
-@@ -8685,9 +10573,9 @@
+@@ -8685,9 +10578,9 @@
      level_where = ''
      if outbound:
          level_select = (
@@ -12839,7 +12855,7 @@
          )
          # level_where is spliced into the outer .format() below, so the helper
          # SQL is brace-escaped here; the literal braces stay as they were.
-@@ -8701,19 +10589,29 @@
+@@ -8701,19 +10594,29 @@
      try:
          rows = _sparql_select(
              ('PREFIX pwg: <{ns}>\n'
@@ -12882,7 +12898,7 @@
              )
          )
      except Exception as exc:
-@@ -8738,17 +10636,30 @@
+@@ -8738,17 +10641,30 @@
          participants = [a for a in attendees_raw.split("|")
                          if a and not _is_nameless_name(a)]
          out.append({
@@ -12915,7 +12931,7 @@
      """Historic conversation rows for the Timeline, from Qdrant.
  
      Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
-@@ -8773,7 +10684,12 @@
+@@ -8773,7 +10689,12 @@
      rows, points, next_offset = [], [], None
      page = 256
      try:
@@ -12929,7 +12945,7 @@
              body = {
                  "limit": page,
                  "with_payload": True,
-@@ -8786,7 +10702,7 @@
+@@ -8786,7 +10707,7 @@
                  data=json.dumps(body).encode(),
                  headers={"Content-Type": "application/json"},
              )
@@ -12938,7 +12954,7 @@
                  result = json.loads(resp.read()).get("result", {}) or {}
              batch = result.get("points", []) or []
              points.extend(batch)
-@@ -8804,9 +10720,11 @@
+@@ -8804,9 +10725,11 @@
          # time (CM047/CM048 schema alignment). Accept any of them rather than
          # dropping a whole source on a field rename -- a missing date is the
          # only disqualifier, since the Timeline is ordered by it.
@@ -12952,7 +12968,7 @@
              val = payload.get(key)
              if val:
                  raw_date = str(val)
-@@ -8814,6 +10732,8 @@
+@@ -8814,6 +10737,8 @@
          date = raw_date[:10]
          if not date or date < cutoff:
              continue
@@ -12961,7 +12977,7 @@
          # The payload's own level, for the request's destination, always
          # (undeclared = unknown). owner_local sees L3/untagged labelled.
          if _pr.outbound_hidden(payload, destination=destination):
-@@ -8831,15 +10751,42 @@
+@@ -8831,15 +10756,42 @@
              # what-happened-when view; conversation content is L2+ and has its
              # own privacy-gated surfaces. A channel + counterpart is enough to
              # place the event without publishing what was said.
@@ -13006,7 +13022,7 @@
  def _timeline_photos(past_days=730, limit=200, destination=None):
      """Aggregated Photos rows for the Timeline: one row per (day, place).
  
-@@ -8926,7 +10873,10 @@
+@@ -8926,7 +10878,10 @@
      return out, None
  
  
@@ -13018,7 +13034,7 @@
      """Mainly-historic life timeline: past meetings/events + a short forward look.
  
      The Timeline is a HISTORIC view first. Its backbone is the People Graph
-@@ -8974,21 +10924,41 @@
+@@ -8974,21 +10929,41 @@
              items.append({
                  "kind": "calendar",
                  "date": e.get("start", ""),
@@ -13064,7 +13080,7 @@
      else:
          items.extend(past_rows)
  
-@@ -9000,24 +10970,39 @@
+@@ -9000,24 +10975,39 @@
      # Failure here is reported, never fatal: a broken conversation store must
      # degrade this section, not empty the whole Timeline of its meetings.
      conv_rows, conv_err = _timeline_conversations(
@@ -13111,7 +13127,7 @@
  
      # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
      # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
-@@ -9027,15 +11012,29 @@
+@@ -9027,15 +11017,29 @@
      entries = []
      for it in items:
          kind = it.get("kind") or ""
@@ -13146,7 +13162,7 @@
          # Attendee names come in two shapes:
          #   calendar items: list-of-dicts {name?, email?, role?}
          #   meeting items: a `participants` list-of-strings
-@@ -9050,24 +11049,29 @@
+@@ -9050,24 +11054,29 @@
                          attendee_names.append(nm)
                  elif isinstance(a, str):
                      attendee_names.append(a)
@@ -13183,7 +13199,7 @@
          "limit": limit,
          "count": len(items),
      }
-@@ -9271,21 +11275,49 @@
+@@ -9271,21 +11280,49 @@
              "reason": f"tidy engine unavailable: {exc}",
          }
  
@@ -13245,7 +13261,7 @@
          if engine is not None:
              try:
                  engine.close()
-@@ -9293,6 +11325,121 @@
+@@ -9293,6 +11330,121 @@
                  pass
  
  
@@ -13367,7 +13383,7 @@
  def api_ingest_ios(payload):
      """Accept a batch from the CM031 iOS companion app.
  
-@@ -9309,7 +11456,15 @@
+@@ -9309,7 +11461,15 @@
      (meetings, calendar) already keyed by date. The graph write is
      best-effort: a graph failure never fails the ingest (the JSONL spool
      is the durable record).
@@ -13383,7 +13399,7 @@
      import time
      import uuid
  
-@@ -9344,6 +11499,8 @@
+@@ -9344,6 +11504,8 @@
          except Exception as exc:  # noqa: BLE001 - never fail ingest on graph error
              health_errors.append(str(exc)[:120])
  
@@ -13392,7 +13408,7 @@
      try:
          os.makedirs(INGEST_DIR, exist_ok=True)
          batch_id = str(uuid.uuid4())
-@@ -9361,8 +11518,17 @@
+@@ -9361,8 +11523,17 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -13410,7 +13426,7 @@
          if health_written:
              result["health_observations"] = health_written
          if health_errors:
-@@ -9483,7 +11649,7 @@
+@@ -9483,7 +11654,7 @@
          headers={"Content-Type": "application/json"},
          method="PUT",
      )
@@ -13419,7 +13435,7 @@
  
  
  def _safari_qdrant_upsert(point_id, vector, payload):
-@@ -9508,7 +11674,7 @@
+@@ -9508,7 +11679,7 @@
          method="PUT",
      )
      try:
@@ -13428,7 +13444,7 @@
              return resp.status in (200, 202)
      except Exception:
          return False
-@@ -9550,7 +11716,15 @@
+@@ -9550,7 +11721,15 @@
      ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
      at a time: sensitive-domain filter, Ollama embed of
      (title + host + url), Qdrant upsert into ``safari_history``.
@@ -13444,7 +13460,7 @@
      import uuid as _uuid
      import time as _time
  
-@@ -9711,7 +11885,7 @@
+@@ -9711,7 +11890,7 @@
  def _strip_tracking_url(url):
      """Drop known tracking params before the url is stored or keyed.
      url_clean.py lives beside this file (byte-identical to
@@ -13453,7 +13469,7 @@
      here = os.path.dirname(os.path.abspath(__file__))
      if here not in sys.path:
          sys.path.insert(0, here)
-@@ -9730,9 +11904,34 @@
+@@ -9730,9 +11909,34 @@
      return browsing_enrich
  
  
@@ -13488,7 +13504,7 @@
      if job.get("kind") == bn.KIND_KNOWLEDGE:
          if not text.strip():
              return None
-@@ -9759,7 +11958,11 @@
+@@ -9759,7 +11963,11 @@
              visit_id=visit_id, result=result,
              user_tags=job.get("user_tags") or [], note=job.get("note") or "",
              failure_reason=job.get("failure_reason") or "",
@@ -13500,7 +13516,7 @@
          vector = _embed_text(point["content"][:6000])
          bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
          if not bn.qdrant_upsert(QDRANT_URL, bn.KNOWLEDGE_COLLECTION,
-@@ -9802,7 +12005,8 @@
+@@ -9802,7 +12010,8 @@
      with _ENRICH_QUEUE_LOCK:
          if _ENRICH_QUEUE is None:
              bn = _bn()
@@ -13510,7 +13526,7 @@
              _ENRICH_QUEUE.start()
          return _ENRICH_QUEUE
  
-@@ -9814,191 +12018,655 @@
+@@ -9814,191 +12023,655 @@
             "timestamp", "device", "tags": [...], "note": "..."}
  
      An explicit user action: the text skip list does not apply, the
@@ -14326,7 +14342,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -10111,7 +12779,7 @@
+@@ -10111,7 +12784,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -14335,7 +14351,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -10234,7 +12902,7 @@
+@@ -10234,7 +12907,7 @@
      except Exception:
          queue_depth = 0
  
@@ -14344,7 +14360,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -10363,18 +13031,52 @@
+@@ -10363,18 +13036,52 @@
  # ── Wiki hydration status endpoint (CM044 #624 Part B) ───────────────
  
  
@@ -14405,7 +14421,7 @@
      except Exception:
          return None
  
-@@ -10455,8 +13157,8 @@
+@@ -10455,8 +13162,8 @@
      never promoted to a failure, so in-progress work cannot raise
      needs_attention on its own."""
      dispatched = completed = failed = running = stalled = 0
@@ -14415,7 +14431,7 @@
      try:
          if PROCESSING_DIR.exists():
              for d in PROCESSING_DIR.iterdir():
-@@ -10567,6 +13269,23 @@
+@@ -10567,6 +13274,23 @@
          ai["done"], ai["total"] = done, total
          if total <= 0:
              ai["state"] = "pending"        # no fake spinner with total 0
@@ -14439,7 +14455,7 @@
          else:
              ai["state"] = "running"
              ai["eta_utc"] = comp.get("eta_utc")
-@@ -10611,8 +13330,20 @@
+@@ -10611,8 +13335,20 @@
      else:
          overall = "pending"
  
@@ -14460,7 +14476,7 @@
          "phases": phases,
          "generated_at": datetime.utcnow().isoformat() + "Z",
      }
-@@ -10649,7 +13380,7 @@
+@@ -10649,7 +13385,7 @@
      return pwg_privacy.provenance_verdict(raw)
  
  
@@ -14469,7 +14485,7 @@
      """Read the CM059 interest-profile artefact and return a flat, filtered,
      score-sorted list of interest records for the daemon's pwg_preferences
      tool.
-@@ -10688,14 +13419,40 @@
+@@ -10688,14 +13424,40 @@
      if not isinstance(interests, list):
          interests = []
  
@@ -14514,7 +14530,7 @@
              visible.append(it)
      interests = visible
  
-@@ -10739,14 +13496,64 @@
+@@ -10739,14 +13501,64 @@
              "Accept": "application/sparql-results+json",
          },
      )
@@ -14580,7 +14596,7 @@
      from the derived named graph, built through the CM019 producer builder
      (vendored verbatim in derived_preferences.py beside this file).
  
-@@ -10771,8 +13578,165 @@
+@@ -10771,8 +13583,165 @@
      reader = _dp.DerivedGraphReader(_sparql_select_unscoped, destination=destination)
      return _dp.build_derived_preferences_response(
          reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
@@ -14746,7 +14762,7 @@
  def _is_loopback_client(client_address):
      """True when the HTTP peer is this Mac's loopback (127.0.0.0/8 or ::1)."""
      import ipaddress
-@@ -10785,7 +13749,7 @@
+@@ -10785,7 +13754,7 @@
  
  class Handler(BaseHTTPRequestHandler):
      # Destination of the current request (Archie, 2026-11-17). Undeclared or
@@ -14755,7 +14771,7 @@
      _destination = pwg_privacy.DEFAULT_DESTINATION
  
      def log_message(self, format, *args):
-@@ -10810,6 +13774,10 @@
+@@ -10810,6 +13779,10 @@
          if dest == pwg_privacy.OWNER_LOCAL and not _is_loopback_client(self.client_address):
              dest = pwg_privacy.DEFAULT_DESTINATION
          self._destination = dest
@@ -14766,7 +14782,7 @@
  
      # ── Security guards (v1.0.10 lockdown) ───────────────────────────────
      def _send_guard_error(self, code, message):
-@@ -10922,6 +13890,7 @@
+@@ -10922,6 +13895,7 @@
              self.send_header("Access-Control-Allow-Origin", origin)
              self.send_header("Vary", "Origin")
  
@@ -14774,7 +14790,7 @@
      def do_OPTIONS(self):
          # Preflight support for the hydration route (browsers may send it
          # if a custom header ever creeps into the fetch). Other paths get
-@@ -10966,6 +13935,7 @@
+@@ -10966,6 +13940,7 @@
      def _is_post_only_path(cls, path):
          return path in cls._POST_ONLY_PATHS or bool(cls._FORGET_PATH_RE.match(path))
  
@@ -14782,7 +14798,7 @@
      def do_GET(self):
          parsed = urlparse(self.path)
          if parsed.path in self._VERSIONED_TO_LEGACY:
-@@ -11030,8 +14000,8 @@
+@@ -11030,8 +14005,8 @@
              if parsed.path == "/calendar/today":
                  days = 1
  
@@ -14793,7 +14809,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11040,12 +14010,23 @@
+@@ -11040,12 +14015,23 @@
          if parsed.path == "/people":
              params = parse_qs(parsed.query)
              sort = params.get("sort", [None])[0]
@@ -14818,7 +14834,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11207,19 +14188,33 @@
+@@ -11207,19 +14193,33 @@
                  self.wfile.write(json.dumps(err).encode())
                  return
              try:
@@ -14854,7 +14870,7 @@
          if parsed.path == "/api/v1/suggestions":
              try:
                  result = api_suggestions()
-@@ -11269,6 +14264,11 @@
+@@ -11269,6 +14269,11 @@
                  past_days, err = _safe_int(params, "past_days", 730)
              if not err:
                  limit, err = _safe_int(params, "limit", 200)
@@ -14866,7 +14882,7 @@
              if err:
                  self.send_response(400)
                  self.send_header("Content-Type", "application/json")
-@@ -11279,10 +14279,15 @@
+@@ -11279,10 +14284,15 @@
                  outbound = (params.get("outbound") or [""])[0].strip().lower() in (
                      "1", "true", "yes")
                  result = api_timeline(days=days, past_days=past_days,
@@ -14884,7 +14900,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -11387,14 +14392,6 @@
+@@ -11387,14 +14397,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -14899,7 +14915,7 @@
          if parsed.path == "/api/v1/memory":
              try:
                  result = api_memory_list(destination=self._destination)
-@@ -11537,7 +14534,8 @@
+@@ -11537,7 +14539,8 @@
              query = params.get("q", [None])[0]
              try:
                  result, status = decisions_list(
@@ -14909,7 +14925,7 @@
                  )
              except Exception as exc:
                  result, status = {
-@@ -11588,7 +14586,8 @@
+@@ -11588,7 +14591,8 @@
                  return
              query = params.get("q", [None])[0]
              try:
@@ -14919,7 +14935,7 @@
              except Exception as exc:
                  result, status = {
                      "topics": [], "count": 0, "degraded": True,
-@@ -11633,7 +14632,7 @@
+@@ -11633,7 +14637,7 @@
          # GET /api/v1/reply-debt?limit=N&threshold_hours=F&lookback_days=N&include_group=0|1
          # The daily-brief headline: "you owe a reply to N people". Read-only;
          # degrades to {count:0, debts:[], degraded:true} when the CM048
@@ -14928,7 +14944,7 @@
          # rather than going red. (CM048 reply-debt detector, JTBD#1.)
          if parsed.path == "/api/v1/reply-debt":
              params = parse_qs(parsed.query)
-@@ -11669,6 +14668,31 @@
+@@ -11669,6 +14673,31 @@
                      "reason": f"reply_debt_failed: {str(exc)[:200]}",
                  }, 200
              self.send_response(status)
@@ -14960,7 +14976,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11796,11 +14820,15 @@
+@@ -11796,11 +14825,15 @@
              domain = domain_vals[0].strip() if domain_vals else None
              polarity_vals = params.get("polarity") or []
              polarity = polarity_vals[0].strip() if polarity_vals else None
@@ -14977,7 +14993,7 @@
                      polarity=polarity or None,
                  )
              except Exception as exc:
-@@ -11810,7 +14838,25 @@
+@@ -11810,7 +14843,25 @@
                      "degraded": True,
                      "reason": str(exc)[:200],
                  }
@@ -15004,7 +15020,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11847,6 +14893,8 @@
+@@ -11847,6 +14898,8 @@
              "/email?q=is:unread": "Gmail query (default: unread)",
              "/api/v1/email/recent?hours=24&limit=20": "Recent emails (subject + snippet only)",
              "/api/v1/suggestions": "Composite: birthdays + stale contacts + recent meetings",
@@ -15013,7 +15029,7 @@
              "/api/v1/timeline?days=7": "Merged calendar + meetings timeline",
              "/api/v1/contacts/diff": "Tidy Contacts report (read-only hygiene findings)",
              "/api/v1/meeting/upcoming?within_minutes=120": "Enriched pre-meeting briefs for events starting within the window",
-@@ -11868,6 +14916,7 @@
+@@ -11868,6 +14921,7 @@
              "/health": "Health check (pass ?detailed=1 for dependency checks)",
          }}).encode())
  
@@ -15021,7 +15037,7 @@
      def do_POST(self):
          parsed = urlparse(self.path)
          self._declare_destination(parsed)
-@@ -11897,10 +14946,53 @@
+@@ -11897,10 +14951,53 @@
                  self.end_headers()
                  self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
                  return
@@ -15076,7 +15092,7 @@
              self.send_response(status)
              self.send_header("Content-Type", "application/json")
              self.end_headers()
-@@ -11951,6 +15043,21 @@
+@@ -11951,6 +15048,21 @@
              self.wfile.write(json.dumps({"error": f"Body read failed: {exc}"}).encode())
              return
  
@@ -15098,7 +15114,7 @@
          # Route: POST /api/v1/people/{slug}/suppress-suggestions
          # Owner-settable do-not-suggest flag ("mark as deceased" / "stop
          # suggesting"). Body: {"suppressed": bool, "reason": str}.
-@@ -12034,6 +15141,22 @@
+@@ -12034,6 +15146,22 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -15121,7 +15137,7 @@
          # Live browsing capture from the Safari / Chrome extension
          # (HR015 #180). Behind the Doctor proxy's paired-bearer wall
          # (proxy.py DEFAULT_PROXY_PATHS includes /api/safari/ingest).
-@@ -12097,28 +15220,6 @@
+@@ -12097,28 +15225,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -15150,7 +15166,7 @@
          # Memory tab correction: POST /api/v1/memory/correct/{fact_id}.
          # Body is {"newValue": "..."} or {"forget": true}. The fact_id
          # is the URI suffix (or the full URI) returned by
-@@ -12202,6 +15303,10 @@
+@@ -12202,6 +15308,10 @@
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      # Tag the historical privacy coverage gap before answering /people/*.
      _run_privacy_backfill_on_startup()
@@ -15161,7 +15177,7 @@
      # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
      # is never silent: without it, every non-public endpoint fails closed
      # (401). There is no environment escape hatch.
-@@ -12230,15 +15335,48 @@
+@@ -12230,15 +15340,48 @@
              file=sys.stderr,
              flush=True,
          )

@@ -47,8 +47,6 @@ on:
       - 'tests/test_the_front_page_catch_up_survives_a_late_ingest.sh'
       - 'tests/test_the_front_page_catch_up_waits_out_hydration.sh'
       - 'tests/test_writer_reader_vocabulary_contracts.py'
-      - 'tests/test_memory_about_you.py'
-      - 'tests/test_memory_list_l3_never_leaves_for_non_owner.py'
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
@@ -70,6 +68,7 @@ on:
       - 'tests/test_the_front_page_catch_up_waits_out_hydration.sh'
       - 'tests/test_writer_reader_vocabulary_contracts.py'
       - 'tests/test_memory_about_you.py'
+      - 'tests/test_memory_list_l3_never_leaves_for_non_owner.py'
       - '.github/workflows/writer-reader-vocabulary.yml'
 
 concurrency:

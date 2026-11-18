@@ -115,8 +115,14 @@ class EmployerOutboundL3(unittest.TestCase):
                 # CM051: the vendored Handler fails closed without a configured
                 # token (CM041's conftest sets one in the environment).
                 c = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=10)
-                c.request("GET", "/api/v1/employer" + query, headers={
-                    "X-Ostler-Service": "synthetic-test-token"})
+                # The destination is declared by header only (a query string is
+                # ignored by design). Move any ?destination= into the header.
+                import re as _re
+                m = _re.search(r"destination=([a-z_]+)", query)
+                headers = {"X-Ostler-Service": "synthetic-test-token"}
+                if m:
+                    headers["X-Ostler-Destination"] = m.group(1)
+                c.request("GET", "/api/v1/employer", headers=headers)
                 r = c.getresponse()
                 return r.status, r.getheader("X-Ostler-Served-For"), json.loads(r.read())
         finally:

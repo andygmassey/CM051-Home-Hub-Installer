@@ -91,6 +91,7 @@ ONBOX = {
     # (identifier only). Its timeline comes from _person_timeline_body, which is
     # OUTBOUND and filters L3, so the L3 rule is enforced there.
     (ICAL, "person_timeline_by_uri"): _ID,
+    (ICAL, "_persons_named"): "write path: resolves a mute target to a person URI for the instruction store; returns names and URIs only, no fact content, never an outbound response",
     (ICAL, "_hygiene_verdicts"): "hygiene overlay verdicts (fact ids), no content",
     (ICAL, "_assert_fact_person"): "write path (resolves the subject), not a read for output",
     (ICAL, "_memory_query_facts"):

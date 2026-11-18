@@ -5554,7 +5554,7 @@ def _memory_fact_id(uri: str) -> str:
     return uri
 
 
-def _memory_query_facts() -> list:
+def _memory_query_facts(destination=None) -> list:
     """SPARQL: every PersonFact about the configured user.
 
     Returns a list of raw fact dicts (uri, text, source, domain,
@@ -5650,6 +5650,10 @@ def _memory_query_facts() -> list:
     # forbids L3 on facts (see ostler_hygiene/model.py), and an L3 row
     # appearing here would be a new leak introduced by a fix. Withheld
     # explicitly rather than trusted not to exist.
+    # The CM048 arm drops L3 in the query for every destination except
+    # owner_local, which serves it labelled (the same rule as the owner arms).
+    l3_filter = ('' if destination == pwg_privacy.OWNER_LOCAL else
+                 '    FILTER (!BOUND(?privacy) || UCASE(STR(?privacy)) != "L3")\n')
     sparql = (
         'PREFIX pwg: <{ns}>\n'
         'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
@@ -5681,6 +5685,7 @@ def _memory_query_facts() -> list:
         '      OPTIONAL {{ ?fact <urn:ostler:signalStrength> ?signal }}\n'
         '    }}\n'
         '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
+        '{l3_filter}'
         '    BIND(?privacy AS ?fpriv)\n'
         '    {pf_owner}\n'
         # CM048 grades a fact qualitatively; the consumer wants a float and
@@ -5691,7 +5696,7 @@ def _memory_query_facts() -> list:
         '         IF(STR(?signal) = "medium", 0.6,\n'
         '         IF(STR(?signal) = "weak", 0.3, ?unmapped))) AS ?conf)\n'
         '  }}\n'
-        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID,
+        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID, l3_filter=l3_filter,
                     # The fact's own level and the owner node's (Archie
                     # 2026-11-17): api_memory_list gates every row through
                     # the shared table for the request's destination. The
@@ -6286,7 +6291,7 @@ def api_memory_list(destination=None):
             "reason": "user_id_not_configured",
         }
     try:
-        raw_facts = _memory_query_facts()
+        raw_facts = _memory_query_facts(destination)
     except Exception as exc:
         return {
             "facts": [],

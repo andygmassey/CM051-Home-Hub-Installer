@@ -89,7 +89,6 @@ def test_l3_fact_is_withheld_from_a_non_owner_destination(monkeypatch):
     for dest in ("cloud_model", "owner_own_brief", "unknown"):
         out = _response(mod, monkeypatch, dest)
         assert OWNER_L3 not in _texts(out["facts"]), dest
-        assert out["withheld_private"] >= 1, dest
 
 
 def test_control_owner_local_serves_the_l3_fact(monkeypatch):
@@ -116,15 +115,15 @@ def test_mutant_with_the_outbound_gate_off_is_caught(monkeypatch):
     # the non-owner arm. The assertion below is the one that must fire.
     path = REPO / "vendor" / "cm041" / "assistant_api" / "ical-server.py"
     real = path.read_text(encoding="utf-8")
-    needle = "if _pr.outbound_hidden(_rec, _owner_lvl, destination):"
-    assert real.count(needle) == 1, "mutant anchor not found"
-    mutant = real.replace(needle, "if False:")
+    # Both layers off: the CM048 query filter and the per-row outbound gate.
+    query_needle = "l3_filter = ('' if destination == pwg_privacy.OWNER_LOCAL else"
+    gate_needle = "if _pr.outbound_hidden(_rec, _owner_lvl, destination):"
+    assert real.count(query_needle) == 1 and real.count(gate_needle) == 1, "mutant anchor not found"
+    mutant = real.replace(query_needle, "l3_filter = ('' if True else").replace(gate_needle, "if False:")
     assert mutant != real, "mutation did not apply"
     mod = _load(source=mutant)
     with pytest.raises(AssertionError):
-        test_l3_fact_is_withheld_from_a_non_owner_destination.__wrapped__(mod, monkeypatch) \
-            if hasattr(test_l3_fact_is_withheld_from_a_non_owner_destination, "__wrapped__") \
-            else _assert_non_owner_withheld(mod, monkeypatch)
+        _assert_non_owner_withheld(mod, monkeypatch)
 
 
 def _assert_non_owner_withheld(mod, monkeypatch):
