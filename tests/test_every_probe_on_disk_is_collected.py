@@ -46,6 +46,10 @@ RUNNER = BASE / "run_box_walk.sh"
 
 # path relative to BASE -> why it is legitimately not collected
 EXEMPT: dict[str, str] = {
+    "lib/ical_pin.sh":
+        "a sourced library, not a probe: run_box_walk.sh sources it and calls ical_pin_export before phase 1, which derives EXPECTED_ICAL_SHA256 from the cut. It has no PROBE_NAME and no verdict.",
+    "lib/walk134_common.sh":
+        "a sourced library, not a probe: the four walk134 probes source it for walk134_judge_and_report and walk134_self_red. It has no PROBE_NAME and no verdict; the judgement lives in lib/walk134_judges.py, which is CI-run by walk134-thin-walk-probes.yml.",
     "lib/no_l3_preflight.sh":
         "a box-side collector, not a probe: probes/no_l3_in_tool_results.sh "
         "stages it to the box and runs it before any seed, and it prints PF_ "
