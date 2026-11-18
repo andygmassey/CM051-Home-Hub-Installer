@@ -27,6 +27,10 @@ on:
       - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - 'scripts/tests/test_people_declared_exclusion_probes.sh'
+      - 'scripts/box_walk_probes/lib/people_declared_exclusion.py'
+      - 'tests/test_people_declared_exclusion.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
       - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
@@ -60,6 +64,10 @@ on:
       - 'scripts/ttywalk.sh'
       - 'scripts/tests/test_people_count_agreement_probe.sh'
       - 'scripts/tests/test_people_stores_reconcile_probe.sh'
+      - 'scripts/tests/test_people_declared_exclusion_probes.sh'
+      - 'scripts/box_walk_probes/lib/people_declared_exclusion.py'
+      - 'tests/test_people_declared_exclusion.py'
+      - 'vendor/ostler_fda/pwg_ingest.py'
       - 'scripts/tests/test_probe_self_tests_never_reach_the_box.sh'
       - 'scripts/tests/test_walk_probes_l3_and_maps.sh'
       - 'scripts/tests/test_walk_probe_core_memory_prefetch.sh'
@@ -174,6 +182,21 @@ jobs:
       - name: people_stores_reconcile urllib credential + 401/KEYLESS adjudication
         if: always()
         run: /bin/bash scripts/tests/test_people_stores_reconcile_probe.sh
+
+      # 133: the probes RE-APPLY the shipped service-sender rule to every exclusion
+      # the product declares. A planted wrongly-declared person must FAIL, and the
+      # same arm must go red when the re-check is skipped (mutant mode).
+      - name: people declared exclusion re-check, both probes (planted URI red, mutant red)
+        if: always()
+        run: /bin/bash scripts/tests/test_people_declared_exclusion_probes.sh
+
+      - name: people declared exclusion, product side (declaration persisted to state)
+        if: always()
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/pde-venv"
+          "${RUNNER_TEMP}/pde-venv/bin/python" -m pip install --quiet pytest httpx phonenumbers "nameparser>=2.1.0,<3.0" rapidfuzz pyyaml
+          out="$("${RUNNER_TEMP}/pde-venv/bin/python" -m pytest tests/test_people_declared_exclusion.py -rs -q 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
 
       # #2362: a self-test is fixtures only; it must not reach the box.
       - name: L3 prefetch (#2435) and wiki maps secret (#2528) probes, RED/GREEN/blind + mutants

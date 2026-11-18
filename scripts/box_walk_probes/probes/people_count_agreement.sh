@@ -22,6 +22,9 @@
 
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
+# THE DECLARED-EXCLUSION RE-CHECK (133): embedded in the visible-count payload.
+_PDE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/people_declared_exclusion.py"
+EXCL_LIB_PY="$(cat "$_PDE_LIB")"
 
 PROBE_NAME="people_count_agreement"
 PROBE_QUESTION="do Oxigraph and the Doctor API agree on the number of people?"
@@ -326,7 +329,7 @@ PEOPLE_RULES_DIR="${OSTLER_PEOPLE_RULES_DIR:-\$HOME/.ostler/services/shared}"
 QDRANT_URL="${OSTLER_QDRANT_URL:-http://127.0.0.1:6333}"
 QDRANT_COLLECTION="${OSTLER_QDRANT_PEOPLE_COLLECTION:-people}"
 read -r -d '' VISIBLE_PY <<'PYVISIBLE'
-import json, os, sys
+import json, os, re, sys
 OXI, QD, COLL, CONF, RULES = sys.argv[1:6]
 try:
     sys.path.insert(0, RULES)
@@ -386,6 +389,35 @@ try:
             vo += 1; countable_uris.add(u)
         elif stub: so += 1
         else: ho += 1
+    # THE DECLARED EXCLUSION, RE-CHECKED (133). Service senders the product
+    # declares it left out of the people index are countable in the GRAPH and
+    # absent from the DOCTOR, so they would read as a disagreement. Each declared
+    # URI is re-run through the SHIPPED service_sender_reason rule against this
+    # graph read; only CONFIRMED URIs are taken out of the graph count. A URI the
+    # rule does not confirm is a FAIL. Nothing is subtracted on a CANNOT-RUN.
+    _decl, _why = read_declaration(state_path())
+    try:
+        _rule = load_rule(rule_path())
+    except Exception as exc:
+        _rule, _why = None, "shipped rule could not be loaded (" + type(exc).__name__ + ")"
+    if _decl is None or _rule is None:
+        _excl = {"status": "cannot_run", "detail": _why, "verified": set(), "checked": 0,
+                 "excluded": 0, "mismatches": [], "share": None, "sampled": False}
+    else:
+        def _row(u):
+            n = nodes.get(u)
+            if n is None or n["m"] or not n["dn"]:
+                return None
+            return {"name": n["dn"], "phones": sorted(n["ph"]), "emails": sorted(n["em"])}
+        _excl = verify(_decl, _row, _rule, 1000)
+    _sub = len(_excl["verified"] & countable_uris)
+    # The confirmed senders leave the embed queue too: they are never meant to have a vector.
+    countable_uris = countable_uris - _excl["verified"]
+    _named = vo + ho
+    _share = "-" if (_excl["status"] == "cannot_run" or not _named) else "%.2f" % (100.0 * _excl["excluded"] / _named)
+    _ex_detail = re.sub(r"[^A-Za-z0-9_.=:-]", "_", "excluded=%d;checked=%d;verified=%d;share=%s;subtracted=%d;sampled=%s;detail=%s" % (
+        _excl["excluded"], _excl["checked"], len(_excl["verified"]), _share, _sub, int(_excl["sampled"]), _excl["detail"]))
+
     vq = hq = tq = 0; nxt = None; qd_uris = set(); with_uri = 0
     while True:
         body = {"limit": 1000, "with_payload": ["display_name", "given_name", "family_name", "emails", "phones", "icloud_uid", "person_uri"], "with_vector": False}
@@ -430,16 +462,40 @@ try:
     except Exception:
         pass
     import time as _t2
-    print("OK %d %d %d %d %d %d %d %d %s %s %s %d" % (vo, so, ho, len(nodes) - merged_nodes, vq, hq, tq, merged_nodes, aw, ist, iep, int(_t2.time())))
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %d %s %s" % (vo - _sub, so, ho, len(nodes) - merged_nodes, vq, hq, tq, merged_nodes, aw, ist, iep, int(_t2.time()), _excl["status"], _ex_detail))
 except urllib.error.HTTPError as exc:
     print("CANNOTRUN HTTP %d from %s" % (exc.code, exc.geturl() if hasattr(exc, "geturl") else "a store"))
 except Exception as exc:
     print("CANNOTRUN " + type(exc).__name__ + " " + str(exc)[:120])
 PYVISIBLE
 
+# _excl_gate_vis <status> <detail>: the declared exclusion, read before any count.
+_excl_gate_vis() {
+    case "$1" in
+        ok) : ;;
+        fail)
+            probe_examined 0 "people-count surfaces"
+            probe_fail "the people index DECLARES an exclusion that the shipped service-sender rule does not confirm: ${2}. A declared URI is re-checked against the graph, never trusted." ;;
+        *)
+            probe_examined 0 "people-count surfaces"
+            probe_cannot_run "the declared people exclusion could not be re-checked (status '${1:-absent}': ${2:-no detail}). The graph count was NOT adjusted for it, so the two counts are not comparable." ;;
+    esac
+}
+
+# self-test only: a 12-field fake line gets a passing exclusion pair appended.
+_fake_excl_vis() {
+    local _in
+    _in="$(cat)"
+    case "$_in" in
+        OK\ *) if [ "$(printf '%s' "$_in" | awk '{print NF}')" -lt 15 ]; then printf '%s ok excluded=0;checked=0;verified=0;share=-;subtracted=0;sampled=0;detail=fake' "$_in"; else printf '%s' "$_in"; fi ;;
+        *) printf '%s' "$_in" ;;
+    esac
+}
+
 read_visible() {
-    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_VISIBLE:-CANNOTRUN self-test-unset}"; return; fi
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ]; then printf '%s' "${FAKE_VISIBLE:-CANNOTRUN self-test-unset}" | _fake_excl_vis; return; fi
     box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' \"${PEOPLE_RULES_DIR}\" <<'PYVISIBLE'
+${EXCL_LIB_PY}
 ${VISIBLE_PY}
 PYVISIBLE"
 }
@@ -935,6 +991,7 @@ run_probe() {
     esac
     set -- ${vis#OK }
     vo="$1"; so="$2"; ho="$3"; no="$4"; vq="$5"; hq="$6"; tq="$7"; mo="${8:-0}"
+    _excl_gate_vis "${13:-}" "${14:-}"
     probe_note "customer-visible (people_rules.is_countable_person, imported; named and not merged away): oxigraph ${vo} of ${no} unmerged nodes (${mo} merged-away Person nodes excluded), qdrant ${vq} of ${tq} points; stubs=${so} (unnamed join anchors, allowed), hidden by the predicate: oxigraph ${ho}, qdrant ${hq}"
 
     # v1.0.121: the GRAPH side (counted here) against the DOCTOR's number,

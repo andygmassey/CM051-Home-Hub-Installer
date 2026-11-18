@@ -101,6 +101,11 @@
 
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
+# THE DECLARED-EXCLUSION RE-CHECK (133). The payload embeds this module so the
+# box re-applies the SHIPPED service_sender_reason to every URI the product
+# declares it left out. See lib/people_declared_exclusion.py.
+_PDE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/people_declared_exclusion.py"
+EXCL_LIB_PY="$(cat "$_PDE_LIB")"
 
 PROBE_NAME="people_stores_reconcile"
 PROBE_QUESTION="do the graph and the vector store hold the same SET of people?"
@@ -478,11 +483,46 @@ try:
                 b_orphan += 1
                 b_orphan_u.append(u)
 
+    # THE DECLARED EXCLUSION, RE-CHECKED (133). The product declares the
+    # notification and organisation senders it left out of the people index
+    # (state/people-index.json: excluded, by_reason, excluded_uris). A declaration
+    # is not evidence: every declared URI is run through the SHIPPED
+    # service_sender_reason rule against the graph, and a URI the rule does not
+    # confirm is a FAIL. Only CONFIRMED URIs are taken out of C. The rule itself
+    # is never adjusted here. Missing declaration, missing rule or a declared URI
+    # with no graph row is CANNOT-RUN, never a silent zero.
+    def _lookup_person(u):
+        dn = sparql("SELECT ?d WHERE { <" + u + "> <" + P + "displayName> ?d } LIMIT 1")
+        if not dn:
+            return None
+        ph, em = set(), set()
+        for b in sparql("SELECT ?t ?v WHERE { <" + u + "> <" + P + "hasIdentifier> ?i . "
+                        "?i <" + P + "identifierType> ?t ; <" + P + "identifierValue> ?v }"):
+            t = b["t"]["value"]; v = b["v"]["value"]
+            if t == "phone":
+                ph.add(v)
+            elif t == "email":
+                em.add(v)
+        return {"name": dn[0]["d"]["value"], "phones": sorted(ph), "emails": sorted(em)}
+    _excl_decl, _excl_why = read_declaration(state_path())
+    try:
+        _rule = load_rule(rule_path())
+    except Exception as exc:
+        _rule, _excl_why = None, "shipped rule could not be loaded (" + type(exc).__name__ + ")"
+    if _excl_decl is None or _rule is None:
+        _excl = {"status": "cannot_run", "detail": _excl_why, "verified": set(), "checked": 0,
+                 "excluded": 0, "mismatches": [], "share": None, "sampled": False}
+    else:
+        _excl = verify(_excl_decl, _lookup_person, _rule, 1000)
+
     # C: graph Person with no vector, split by whether a HUMAN NAME is known.
-    c_named = 0; c_unnamed = 0
+    c_named = 0; c_unnamed = 0; c_excluded = 0
     c_named_u = []
     c_detail = []
     for u in sorted(graph - vec):
+        if u in _excl["verified"]:
+            c_excluded += 1
+            continue
         label = ""; email = ""
         rows = sparql("SELECT ?l WHERE { <" + u + "> <" + SKOS + "> ?l }")
         if rows: label = rows[0]["l"]["value"].strip()
@@ -513,10 +553,14 @@ try:
     # measured" and falls back to the stricter single-reading verdict.
     # Fields 14 and 15 (instr119) are APPENDED, so every reader of 1..13 is
     # unchanged. Both are counts, states and timestamps only: no URI, no name.
-    print("OK %d %d %d %d %d %d %d %d %s %s %s %s %s %s" % (
+    _s_total = len(vec & graph) + c_named + c_excluded
+    _share = "-" if (_excl["status"] == "cannot_run" or not _s_total) else "%.2f" % (100.0 * _excl["excluded"] / _s_total)
+    _ex_detail = re.sub(r"[^A-Za-z0-9_.=:-]", "_", "excluded=%d;checked=%d;verified=%d;share=%s;subtracted=%d;sampled=%s;detail=%s" % (
+        _excl["excluded"], _excl["checked"], len(_excl["verified"]), _share, c_excluded, int(_excl["sampled"]), _excl["detail"]))
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %s %s %s %s %s" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
         b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u),
-        c_split(c_detail), hydrate_state()))
+        c_split(c_detail), hydrate_state(), _excl["status"], _ex_detail))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -589,6 +633,7 @@ read_result() {
         printf '%s' "${FAKE_RECONCILE:-CANNOTRUN self-test-unset}"; return
     fi
     box_run "python3 - '${OXIGRAPH_URL}' '${QDRANT_URL}' '${QDRANT_COLLECTION}' '${STORE_CONF_PATH}' <<'PYPAYLOAD'
+${EXCL_LIB_PY}
 ${RECONCILE_PY}
 PYPAYLOAD"
 }
@@ -636,7 +681,7 @@ _set_intersect() {
 _guard_reconcile_output() {
     local out="$1" _af _kl
     case "$out" in
-        OK\ *) : ;;
+        OK\ *) _excl_gate "$out" ;;
         AUTHFAIL\ *)
             _af="${out#AUTHFAIL }"
             probe_examined 0 "person records across two stores"
@@ -660,6 +705,29 @@ _guard_reconcile_output() {
             probe_cannot_run "the reconciliation returned NOTHING -- python3 missing on the box, or ssh dropped the payload. An empty answer is not a clean answer." ;;
         *)
             probe_cannot_run "unrecognised reconciliation output (first 120 chars): $(printf '%s' "$out" | head -c 120)" ;;
+    esac
+}
+
+# _excl_gate <OK line>: fields 16 (status) and 17 (detail) of the payload line.
+# ok passes on; fail is a FAIL; anything else, including a line with no such
+# fields, is CANNOT-RUN. A declared exclusion the shipped rule does not confirm
+# is a product defect; an absent declaration is nothing measured.
+_excl_gate() {
+    local _st _dt
+    _st="$(printf '%s' "$1" | awk '{print $16}')"
+    _dt="$(printf '%s' "$1" | awk '{print $17}')"
+    # Self-test only: the older fake lines carry no exclusion fields and must keep
+    # their meaning, so they are not gated. The real payload always prints them,
+    # and a line without them is CANNOT-RUN there (the test script proves that).
+    if [ "${SELF_TEST_LOCAL:-0}" -eq 1 ] && [ -z "$_st" ]; then return 0; fi
+    case "$_st" in
+        ok) : ;;
+        fail)
+            probe_examined 0 "person records across two stores"
+            probe_fail "the people index DECLARES an exclusion that the shipped service-sender rule does not confirm: ${_dt}. A declared URI is re-checked against the graph, never trusted, and this one is not a service sender by the rule." ;;
+        *)
+            probe_examined 0 "person records across two stores"
+            probe_cannot_run "the declared people exclusion could not be re-checked (status '${_st:-absent}': ${_dt:-no detail}). The residual is NOT adjusted for it, so nothing is compared." ;;
     esac
 }
 
