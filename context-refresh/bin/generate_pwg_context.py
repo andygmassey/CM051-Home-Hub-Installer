@@ -491,6 +491,206 @@ def _today() -> datetime:
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
 
+# ── Declared destination, by model route (Archie ruling, 2026-11-18) ───────
+#
+# Every gated reader read is declared with X-Ostler-Destination, never left
+# undeclared (undeclared reads as the strictest row and the digest goes empty).
+# CONTEXT.md is injected into the system prompt of whichever model answers, so
+# the declaration follows the route the model takes:
+#   every configured model is on this Mac  -> owner_own_brief
+#   any cloud model reachable, or unknown  -> cloud_model
+# Unknown means: no readable config, no fallback, a model with no loopback
+# base_url, a ":cloud" model, a model route, or a named fallback that is not a
+# loopback model. Fail closed to cloud_model.
+DESTINATION_HEADER = "X-Ostler-Destination"
+DEST_ON_BOX = "owner_own_brief"
+DEST_CLOUD = "cloud_model"
+# Loopback and on-box rules mirror ostler-ai/ostler-assistant PR #753 (head 32c8782d):
+# hub_belt.rs ON_BOX_PROVIDERS / is_on_box_provider / is_cloud_model_name / url_is_loopback,
+# and tools/mod.rs config_reaches_cloud. Keep them in step with oa.
+_ON_BOX_PROVIDERS = ("ollama", "llamacpp", "llama.cpp", "lmstudio", "lm-studio", "vllm", "sglang", "osaurus")
+_PROVIDER_URL_ENV = "ZEROCLAW_PROVIDER_URL"
+_DESTINATION_CACHE: list[str] = []
+
+
+def _parse_toml(text: str) -> dict:
+    """Parse the assistant config. tomllib when present (3.11+); otherwise a
+    minimal reader for the tables the route needs. A value it cannot read is
+    kept as its raw text, so a list or a table that is not understood makes
+    the route fail closed rather than read as on-box."""
+    try:
+        import tomllib  # type: ignore[import-not-found]
+        return tomllib.loads(text)
+    except ImportError:
+        pass
+    root: dict = {}
+    cur = root
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[[") and line.endswith("]]"):
+            # Array of tables: record that the name exists, as a list.
+            parts = line[2:-2].strip().split(".")
+            node = root
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node.setdefault(parts[-1], []).append({})
+            cur = node[parts[-1]][-1]
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            node = root
+            for part in line[1:-1].strip().split("."):
+                node = node.setdefault(part.strip().strip('"'), {})
+            cur = node
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            value = value.strip()
+            if value[:1] in ('"', "'") and value[-1:] == value[:1] and len(value) >= 2:
+                cur[key.strip().strip('"')] = value[1:-1]
+            else:
+                cur[key.strip().strip('"')] = value   # raw: list, number, bool
+    return root
+
+
+def _url_is_loopback(url: str) -> bool:
+    """True only when the URL's host IS loopback. 0.0.0.0 is a bind address,
+    not loopback, so it is not. Forms the HTTP client accepts (127.1,
+    2130706433) count; a DNS name that merely starts with 127. does not."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+    url = url.strip()
+    if "://" not in url:
+        url = "http://" + url
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host)).is_loopback
+    except (OSError, ValueError):
+        return False
+
+
+def _is_on_box_provider(name: object, api_url: object) -> bool:
+    """oa is_on_box_provider. Ollama honours ZEROCLAW_PROVIDER_URL ahead of the
+    configured URL, even when it is set empty (oa does the same). Non-string
+    input is not on-box: fail closed."""
+    import os
+    if not isinstance(name, str) or name.strip() not in _ON_BOX_PROVIDERS:
+        return False
+    name = name.strip()
+    env_url = os.environ.get(_PROVIDER_URL_ENV) if name == "ollama" else None
+    url = env_url if env_url is not None else api_url
+    if url is None:
+        return True
+    if not isinstance(url, str):
+        return False
+    url = url.strip()
+    if not url:
+        return True
+    return _url_is_loopback(url)
+
+
+def _is_cloud_model_name(model: object) -> bool:
+    """oa is_cloud_model_name: the tag is `cloud` or ends `-cloud`, or the whole
+    name ends `-cloud`. A non-string model is unknown, so it is cloud."""
+    if not isinstance(model, str):
+        return True
+    m = model.strip().lower()
+    tag = m.rsplit(":", 1)[-1]
+    return tag == "cloud" or tag.endswith("-cloud") or m.endswith("-cloud")
+
+
+def route_destination(config_text: str | None) -> str:
+    """The destination the digest declares, given the assistant config text.
+    Pure except for reading the ZEROCLAW_PROVIDER_URL env. None means the
+    config could not be read. Every unknown shape fails closed to cloud."""
+    if config_text is None:
+        return DEST_CLOUD
+    try:
+        cfg = _parse_toml(config_text)
+    except Exception:  # noqa: BLE001 - any parse failure is an unknown route
+        return DEST_CLOUD
+    providers = cfg.get("providers")
+    if not isinstance(providers, dict):
+        return DEST_CLOUD
+    # Kept stricter than oa on purpose: a model route can name any model.
+    if providers.get("model_routes"):
+        return DEST_CLOUD
+    models = providers.get("models", {})
+    if models is None:
+        models = {}
+    if not isinstance(models, dict):
+        return DEST_CLOUD
+    fallback = providers.get("fallback")
+    if fallback is None or not isinstance(fallback, str):
+        return DEST_CLOUD
+    fb_entry = models.get(fallback)
+    if fb_entry is not None and not isinstance(fb_entry, dict):
+        return DEST_CLOUD
+    if not _is_on_box_provider(fallback, (fb_entry or {}).get("base_url")):
+        return DEST_CLOUD
+    for key, entry in models.items():
+        if not isinstance(entry, dict):
+            return DEST_CLOUD
+        url = entry.get("base_url")
+        if not _is_on_box_provider(key, url):
+            return DEST_CLOUD
+        if entry.get("name") is not None and not _is_on_box_provider(entry.get("name"), url):
+            return DEST_CLOUD
+        if entry.get("model") is not None and _is_cloud_model_name(entry.get("model")):
+            return DEST_CLOUD
+    reliability = cfg.get("reliability")
+    if reliability is not None:
+        if not isinstance(reliability, dict):
+            return DEST_CLOUD
+        named = reliability.get("fallback_providers", [])
+        if named is None:
+            named = []
+        if not isinstance(named, list):
+            return DEST_CLOUD
+        for item in named:
+            if not _is_on_box_provider(item, None):
+                return DEST_CLOUD
+    agents = cfg.get("agents")
+    if agents is not None:
+        if not isinstance(agents, dict):
+            return DEST_CLOUD
+        for agent in agents.values():
+            if not isinstance(agent, dict):
+                return DEST_CLOUD
+            if _is_cloud_model_name(agent.get("model")):
+                return DEST_CLOUD
+            if not _is_on_box_provider(agent.get("provider"), None):
+                return DEST_CLOUD
+    return DEST_ON_BOX
+
+
+def declared_destination() -> str:
+    """The destination for this run, computed once from the assistant config."""
+    if not _DESTINATION_CACHE:
+        path = _assistant_config_path()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            text = None
+        dest = route_destination(text)
+        _DESTINATION_CACHE.append(dest)
+        _note_read(f"destination {dest} (route from {_tilde(path)})")
+    return _DESTINATION_CACHE[0]
+
+
 def _get_json(path: str) -> dict | None:
     """GET a JSON endpoint on the local ical-server.
 
@@ -502,7 +702,7 @@ def _get_json(path: str) -> dict | None:
     "returns None" is not the same thing as "there is nothing there".
     """
     url = f"{BASE_URL}{path}"
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", DESTINATION_HEADER: declared_destination()}
     token = service_token()
     if token:
         # Both accepted forms, matching upstream. The ical-server's

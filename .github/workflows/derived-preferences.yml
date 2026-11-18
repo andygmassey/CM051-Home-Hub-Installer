@@ -83,6 +83,7 @@ on:
       - 'vendor/cm019_preferences/services/ingest/src/parsers/food_evidence.py'
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_derive_patterns.py'
+      - 'tests/test_vendored_max_privacy_fails_closed.py'
       - 'tests/test_vendored_enrich_representative_first.py'
       - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
@@ -248,6 +249,11 @@ jobs:
         run: |
           python3 -m pip install --quiet 'pyoxigraph>=0.5.11,<0.6' 'pyyaml>=6.0' 'rdflib>=7.0.0' 'pyshacl>=0.25.0'
           python3 tests/test_vendored_derive_patterns.py
+      - name: Owner-private (L0) evidence never derives a node the Hub serves
+        # Shipped derive engine, real Aggregator. Red on the base: owner-L0 plus L2
+        # derives L2. Exit 2 (cannot-run) fails the step, never reads as a pass.
+        if: always()
+        run: python3 tests/test_vendored_max_privacy_fails_closed.py
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a
