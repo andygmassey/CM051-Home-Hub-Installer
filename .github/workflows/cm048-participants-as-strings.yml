@@ -72,6 +72,10 @@ on:
       - 'vendor/cm048_pipeline/prompts/**'
       - 'tests/test_cm048_handle_resolver.py'
       - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_minor_registry_vendored.py'
+      - 'vendor/cm048_pipeline/src/minors.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
   pull_request:
     paths:
@@ -138,6 +142,10 @@ on:
       - 'vendor/cm048_pipeline/prompts/**'
       - 'tests/test_cm048_handle_resolver.py'
       - 'vendor/cm048_pipeline/src/handle_resolver.py'
+      - 'tests/test_cm048_minor_registry_vendored.py'
+      - 'vendor/cm048_pipeline/src/minors.py'
+      - 'vendor/cm048_pipeline/src/reminders_push.py'
+      - 'vendor/cm041/assistant_api/ical-server.py'
       - '.github/workflows/cm048-participants-as-strings.yml'
 
 concurrency:
@@ -434,6 +442,16 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_cm048_handle_resolver.py -v
+      - name: The owner's under-18 registry stops facts and Reminders pushes in the vendored CM048 (CM048 #98, adapted)
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_cm048_minor_registry_vendored.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 21 ]; then
+            echo "REFUSING: expected at least 21 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest tests/test_cm048_minor_registry_vendored.py -v
       - name: An iPhone capture's unnamed speaker ("Speaker 1") reaches speaker naming; "S1" does not (CM031 #303)
         if: always()
         run: |
