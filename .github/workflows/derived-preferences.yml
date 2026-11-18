@@ -88,6 +88,7 @@ on:
       - 'tests/test_vendored_thematic_withholds_unlevelled_and_health.py'
       - 'tests/test_vendored_enrich_seed_lookups.py'
       - 'tests/test_vendored_enrich_venue_names.py'
+      - 'tests/test_vendored_enrich_contact_loader.py'
       - 'tests/test_cm019_enrich_privacy_gate_vendored.py'
       - 'vendor/cm019_preferences/services/enrich/src/enricher.py'
       - 'vendor/cm019_preferences/services/common/pwg_privacy.py'
@@ -277,6 +278,7 @@ jobs:
           python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
           python3 tests/test_vendored_enrich_seed_lookups.py
           python3 tests/test_vendored_enrich_venue_names.py
+          python3 tests/test_vendored_enrich_contact_loader.py
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a

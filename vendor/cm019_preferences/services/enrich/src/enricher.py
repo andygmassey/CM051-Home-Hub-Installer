@@ -38,6 +38,12 @@ from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, 
 
 logger = logging.getLogger(__name__)
 
+# Owner contact names from the local people store (CM041 contact syncer writes these).
+_CONTACT_NAMES_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
+SELECT DISTINCT ?name WHERE { ?p a pwg:Person ; pwg:displayName ?name . }
+"""
+
 # Every httpx client in this module that talks to the LOCAL stores (Qdrant,
 # Oxigraph) passes trust_env=False. With the default, an ambient
 # HTTP(S)_PROXY and no matching NO_PROXY sends loopback requests to the
@@ -379,9 +385,10 @@ class EnrichmentService:
         # Items refused by the per-item privacy gate in enrich_preference,
         # by reason code. Counts only.
         self.privacy_refusals: Dict[str, int] = {}
-        # Owner contact names. A venue whose name contains one is never looked up
-        # (Archie 2026-11-18). Set by the caller; the tree has no contacts feed yet.
-        self.contact_names: frozenset = frozenset()
+        # Owner contact names, read once per run from the local people store (see
+        # _venue_contact_names). None means "could not be read": every venue is refused.
+        self._contacts_loaded = False
+        self._contact_names_value = None
 
     @property
     def _foursquare(self) -> FoursquareClient:
@@ -541,6 +548,44 @@ class EnrichmentService:
         except Exception as e:
             logger.error(f"Error querying Qdrant: {e}")
             return [], None
+
+    async def _venue_contact_names(self):
+        """Owner contact names from the local people store, or None when they cannot be read.
+
+        The people store is the Oxigraph graph the CM041 contact syncer writes: every
+        contact is a ``pwg:Person`` with a ``pwg:displayName`` (contact_syncer/syncer.py
+        ~L1300-1316, ``<person> a pwg:Person ; pwg:displayName``; namespace
+        ``https://schema.ostler.ai/ontology#``). Read once per run, on loopback, with
+        trust_env off, like every other store read in this module.
+
+        Fail closed: an unreadable store returns None, and the caller refuses every venue
+        look-up. Other topics are unaffected. Only the failure CLASS is logged, never a name.
+        """
+        if self._contacts_loaded:
+            return self._contact_names_value
+        self._contacts_loaded = True
+        try:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{settings.oxigraph_url}/query",
+                    content=_CONTACT_NAMES_QUERY,
+                    headers={
+                        "Content-Type": "application/sparql-query",
+                        "Accept": "application/sparql-results+json",
+                    },
+                )
+            if response.status_code != 200:
+                raise RuntimeError(f"people store answered HTTP {response.status_code}")
+            bindings = response.json()["results"]["bindings"]
+            names = frozenset(b["name"]["value"].strip().lower()
+                              for b in bindings if b.get("name", {}).get("value", "").strip())
+            logger.info("owner contact names loaded: %d", len(names))
+            self._contact_names_value = names
+        except Exception as exc:  # noqa: BLE001 - fail closed, class only
+            logger.warning("owner contact names unavailable (%s): venue look-ups refused",
+                           type(exc).__name__)
+            self._contact_names_value = None
+        return self._contact_names_value
 
     async def _check_already_enriched(self, preference_id: str) -> bool:
         """
@@ -705,7 +750,12 @@ INSERT DATA {{
         # used the record; the request below does not.
         venue_clients = {"osm_cuisine", "wikidata_place", "foursquare", "google_places"}
         if category in VENUE_CATEGORIES or client_name in venue_clients:
-            reason = venue_name_refusal(subject, category, self.contact_names)
+            names = await self._venue_contact_names()
+            if names is None:
+                self.privacy_refusals["venue_contacts_unavailable"] = (
+                    self.privacy_refusals.get("venue_contacts_unavailable", 0) + 1)
+                return None
+            reason = venue_name_refusal(subject, category, names)
             if reason is not None:
                 self.privacy_refusals[reason] = self.privacy_refusals.get(reason, 0) + 1
                 return None

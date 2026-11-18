@@ -12,6 +12,7 @@ replaced by a recorder, so no request leaves the process. Assertions:
   D  no subject from L2, L3, unlevelled, unstamped L0, legacy 0/1/3/5
   E  no owner-record hint (author, year, artist, url, area) reaches any client
   F  positive control: a restaurant name is looked up with the name only
+  (the owner's contact names come from the people-store loader, served by a mock)
 
 Prints counts by level, by category, and the list of look-ups. Synthetic values only.
 Exit 0 pass, 1 an assertion failed, 2 cannot-run.
@@ -36,7 +37,7 @@ except Exception as exc:  # noqa: BLE001 - cannot-run, reported with its reason
 
 STAMP = {"privacyScale": "canonical-2026-11"}
 CAT_EXCLUDED = {"health", "dietary", "person", "location", "finance", "minors"}
-CONTACT_NAMES = frozenset({"seedperson"})
+SEED_CONTACT = "seedperson"  # served by the people-store mock below; the loader reads it
 # Owner-record values that must never reach a client (E).
 HINTS = ["seed author", "seed artist", "1999", "seed-url.example.test", "seed street",
          "seed-album", "seed-video"]
@@ -110,20 +111,47 @@ def _init(self, rec):
     # Same attributes the real __init__ sets, every client replaced by the recorder.
     self.privacy_refusals = {}
     self._enriched_ids = set()
-    self.contact_names = CONTACT_NAMES
+    self._contacts_loaded = False
+    self._contact_names_value = None
     for name in ("_openlibrary", "_tmdb", "_musicbrainz", "_wikidata", "_podcast_index",
                  "_url_fetcher", "_brand", "_domain_mapper"):
         setattr(self, name, rec)
 
 
+def store_handler(request):
+    import httpx
+    body = request.content.decode("utf-8", "replace")
+    if "pwg:displayName" in body:
+        rows = [{"name": {"type": "literal", "value": SEED_CONTACT}}]
+        return httpx.Response(200, json={"head": {"vars": ["name"]},
+                                         "results": {"bindings": rows}})
+    return httpx.Response(200, json={"boolean": False})
+
+
+_RealAsyncClient = None
+
+
+class _StoreClient:
+    """An httpx.AsyncClient whose transport is the people-store mock."""
+
+    def __new__(cls, *a, **kw):
+        import httpx
+        kw["transport"] = httpx.MockTransport(store_handler)
+        return _RealAsyncClient(*a, **kw)
+
+
 async def run(seed):
+    global _RealAsyncClient
+    import httpx
+    _RealAsyncClient = httpx.AsyncClient
     sink = []
     rec = Recorder(sink)
     with mock.patch.object(Enricher, "_consent_or_log", staticmethod(lambda ep: True)), \
          mock.patch.object(Enricher, "__init__", lambda self: _init(self, rec)), \
          mock.patch.object(Enricher, "_osm_cuisine", property(lambda self: rec), create=True), \
          mock.patch.object(Enricher, "_foursquare", property(lambda self: rec), create=True), \
-         mock.patch.object(Enricher, "_google_places", property(lambda self: rec), create=True):
+         mock.patch.object(Enricher, "_google_places", property(lambda self: rec), create=True), \
+         mock.patch.object(httpx, "AsyncClient", _StoreClient):
         e = Enricher()
         for item in seed:
             try:
