@@ -442,7 +442,7 @@ install.sh meeting-brief sender declares owner_own_brief	CM051	fff9a82bbd1487c29
 cm052_ai_conversations re-pinned to CM052 32122a69 (does NOT carry CM052 #27 table)	CM051	b1329170e1e89f8d6b53840661d02d25b4bbccd4	no	cm052_vendored_at_32122a69	TBD	CM051 #3601
 CM052 [source_default] table + default_level reader vendored (UNWIRED in 134, Archie)	CM051	54a013b3324b79c8431dd6452ee00cce0b6fd286	no	cm052_source_defaults_table_vendored	TBD	CM051 #3603
 7-day digest declares X-Ostler-Destination by model route	CM051	121005d24f3372aa2fddbc6383353997b798e7f8	no	digest_declares_destination_by_route	TBD	CM051 #3604
-Included Pro copy says 3 months, not 30 days (all locales)	CM051	7af446091e8b1b39089ad1023e6a1c631c90f34d	no	included_pro_copy_3_months	TBD	CM051 #3605
+Installer copy: the included Pro period says 3 months, not 30 days (all locales)	CM051	7af446091e8b1b39089ad1023e6a1c631c90f34d	no	included_pro_copy_3_months	TBD	CM051 #3605
 Enrichment look-ups send only L0/L1 subjects; L2 and health never; themes withhold unlevelled and health	CM051	4683a815f7038d12b824965535ac9e4a16ffe31d	no	enrich_gate_others_destination	TBD	CM051 #3607
 Public-data enrichment on by default, opt-out at install	CM051	f7226ac1b96ad88036db8ffac83aac5ede31eccd	no	enrichment_default_on_with_optout	TBD	CM051 #3608
 oa #753 every Hub read declares its destination (needs the 134 hub tag built from oa main)	ostler-assistant	2aa5469c883191ad098d9a2040d21992a6d86ce2	no	oa_753_hub_reads_declare_destination	TBD	oa #753
