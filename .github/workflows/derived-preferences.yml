@@ -86,6 +86,7 @@ on:
       - 'tests/test_vendored_max_privacy_fails_closed.py'
       - 'tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py'
       - 'tests/test_vendored_thematic_withholds_unlevelled_and_health.py'
+      - 'tests/test_vendored_enrich_seed_lookups.py'
       - 'vendor/cm019_preferences/services/common/pwg_privacy.py'
       - 'vendor/cm019_preferences/services/common/privacy_scale.py'
       - 'vendor/cm019_preferences/services/common/privacy_scale_canonical.tsv'
@@ -267,6 +268,11 @@ jobs:
         run: |
           python3 tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py
           python3 tests/test_vendored_thematic_withholds_unlevelled_and_health.py
+      - name: Enrichment still produces look-ups on a synthetic seed, and sends only L0/L1 subjects (CB134)
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
+          python3 tests/test_vendored_enrich_seed_lookups.py
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a

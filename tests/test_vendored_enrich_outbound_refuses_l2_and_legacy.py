@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Online enrichment never sends an L2 subject, or a legacy 2/4/6 one, to ``others``.
+"""The enrichment look-up gate sends only L0/L1 subjects, and no excluded category.
 
-The vendored enrich privacy gate decides, per item, whether the item's subject may
-leave the Mac in an online look-up (a third party: destination ``others``). Before
-this fix it allowed canonical L2 (privacy_level "L2") and legacy compartment
-integers 2, 4 and 6 (compartment_level alone) through.
+Ruling dated 18 Nov 2026 (verbatim, also in the UNRECORDED divergence record): "L0/L1 only,
+never L2 (Recommended)". Legacy numerics follow PWG services/ingest/src/parsers/
+base.py: legacy 2, 4 and 6 may map to L0/L1; legacy 0, 1, 3 and 5 are refused.
+Health and the other excluded categories are refused whatever the level.
 
 Drives the REAL vendored ``privacy_gate.outbound_refusal`` (the function the
-enricher calls per item), not a copy. Synthetic values only.
+enricher calls per item). Synthetic values only. Exit 0 pass, 1 an arm fails,
+2 cannot-run.
 
-  arm 0  canonical L3 is refused at others
-  arm 1  canonical L2 is refused at others (Andy 2026-11-18: L2 never leaves the Mac)
-  arm 1b canonical L1 is refused at others today (CB135-ENRICHMENT-L1-DESTINATION)
-  arm 2  legacy compartment 2 alone is refused at others           (leak on main)
-  arm 3  legacy compartment 4 alone is refused at others           (leak on main)
-  arm 4  legacy compartment 6 alone is refused at others           (leak on main)
-  arm 5  control: a stamped canonical L0 is allowed to others      (must stay allowed)
-
-Exit: 0 all arms pass, 1 an arm fails, 2 cannot-run (the vendored gate did not import).
+  arm 0   canonical L3 refused
+  arm 1   canonical L2 refused                              (leak on main: allowed)
+  arm 2   canonical L1 allowed                              (CB135 row; refused on main)
+  arm 3   stamped canonical L0 allowed                      (control)
+  arm 4   unstamped L0 refused (legacy-ambiguous)
+  arm 5   legacy 2 / 4 / 6 alone allowed
+  arm 6   legacy 0 / 1 / 3 / 5 alone refused
+  arm 7   unlevelled refused
+  arm 8   stamped L0 in a health / person / dietary / minor category refused
 """
 from __future__ import annotations
 
@@ -35,41 +36,45 @@ except Exception as exc:  # noqa: BLE001 - cannot-run, reported with its reason
     print(f"CANNOT-RUN: vendored privacy_gate did not import: {exc!r}")
     sys.exit(2)
 
-# The shared scale stamp (services/common/privacy_scale_canonical.tsv [scale_stamp]).
-STAMP_FIELD = "privacyScale"
-STAMP_VALUE = "canonical-2026-11"
+STAMP = {"privacyScale": "canonical-2026-11"}
+C = {"category": "book"}  # a category the enricher dispatches
 
-ARMS = [
-    ("arm0 canonical L3 refused at others",
-     {"privacy_level": "L3", STAMP_FIELD: STAMP_VALUE}, False),
-    ("arm1 canonical L2 refused at others",
-     {"privacy_level": "L2", STAMP_FIELD: STAMP_VALUE}, False),
-    # CB135-ENRICHMENT-L1-DESTINATION: Andy's rule lets L1 subjects be looked up,
-    # but the shared scale table (privacy_scale_canonical.tsv, pinned across 5 repos)
-    # has no enrichment destination yet, so ``others`` refuses L1 (redacted only).
-    # 135 adds the dedicated enrichment row; until then this arm asserts today's refusal.
-    ("arm1b canonical L1 refused at others (CB135-ENRICHMENT-L1-DESTINATION)",
-     {"privacy_level": "L1", STAMP_FIELD: STAMP_VALUE}, False),
-    ("arm2 legacy compartment 2 refused at others",
-     {"compartment_level": 2}, False),
-    ("arm3 legacy compartment 4 refused at others",
-     {"compartment_level": 4}, False),
-    ("arm4 legacy compartment 6 refused at others",
-     {"compartment_level": 6}, False),
-    ("arm5 control: stamped canonical L0 allowed to others",
-     {"privacy_level": "L0", STAMP_FIELD: STAMP_VALUE}, True),
+
+def rec(**kw):
+    out = dict(C)
+    out.update(kw)
+    return out
+
+
+CASES = [
+    ("arm0 canonical L3 refused", rec(privacy_level="L3", **STAMP), False),
+    ("arm1 canonical L2 refused", rec(privacy_level="L2", **STAMP), False),
+    ("arm2 canonical L1 allowed", rec(privacy_level="L1", **STAMP), True),
+    ("arm3 control: stamped L0 allowed", rec(privacy_level="L0", **STAMP), True),
+    ("arm4 unstamped L0 refused", rec(privacy_level="L0"), False),
+    ("arm5a legacy 2 alone allowed", rec(compartment_level=2), True),
+    ("arm5b legacy 4 alone allowed", rec(compartment_level=4), True),
+    ("arm5c legacy 6 alone allowed", rec(compartment_level=6), True),
+    ("arm6a legacy 0 refused (health floor)", rec(compartment_level=0), False),
+    ("arm6b legacy 1 refused (personal location, base.py:58)", rec(compartment_level=1), False),
+    ("arm6c legacy 3 refused", rec(compartment_level=3), False),
+    ("arm6d legacy 5 refused", rec(compartment_level=5), False),
+    ("arm7 unlevelled refused", rec(), False),
+    ("arm8a stamped L0 health category refused", rec(category="health", privacy_level="L0", **STAMP), False),
+    ("arm8b stamped L0 person category refused", rec(category="person", privacy_level="L0", **STAMP), False),
+    ("arm8c stamped L0 dietary category refused", rec(category="dietary", privacy_level="L0", **STAMP), False),
+    ("arm8d stamped L0 about a minor refused", rec(privacy_level="L0", about_minor=True, **STAMP), False),
 ]
 
 
 def main() -> int:
     failures = 0
-    for name, record, want_allowed in ARMS:
+    for name, record, want_allowed in CASES:
         reason = outbound_refusal(record)
-        allowed = reason is None
-        ok = allowed == want_allowed
+        ok = (reason is None) == want_allowed
         failures += 0 if ok else 1
         print(f"{'PASS' if ok else 'FAIL'} {name}: refusal={reason!r}")
-    print(f"TOTAL {len(ARMS)} arms, {failures} FAIL")
+    print(f"TOTAL {len(CASES)} arms, {failures} FAIL")
     return 0 if failures == 0 else 1
 
 

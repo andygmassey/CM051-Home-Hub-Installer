@@ -1122,6 +1122,7 @@ test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-pre
 test_vendored_employer_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_enrich_outbound_refuses_l2_and_legacy.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_seed_lookups.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_gws_never_spawned_without_consent.py	WIRED	.github/workflows/forget-reaches-every-graph.yml

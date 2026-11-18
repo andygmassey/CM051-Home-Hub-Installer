@@ -18,7 +18,7 @@ does with a `with_payload` list: it returns ONLY the listed payload keys.
   arm 1  the reader's scroll asked Qdrant for privacy_level, compartment_level, user_id
   arm 2  an L3 point (string level) scrolled by the reader: refused as level_L3
   arm 3  an L3 point (legacy compartment 3 only): refused as level_legacy_3
-  arm 4  CONTROL: an L2 point scrolled by the reader: allowed (None)
+  arm 4  an L2 point scrolled by the reader: refused as level_L2 (CB134)
 
 Mutation: drop the three fields from SCROLL_FIELDS and arms 1 to 4 go red
 (every point comes back level_unknown). Synthetic cast only (Jane Doe, John Smith, Sam Jones).
@@ -148,7 +148,10 @@ def main() -> int:
         r2 = privacy_gate.outbound_refusal(by_id.get(2, {}))
         check(r2 == "level_legacy_3", "legacy compartment 3 point is refused as level_legacy_3 (got %r)" % r2)
         r3 = privacy_gate.outbound_refusal(by_id.get(3, {}))
-        check(r3 is None, "CONTROL: L2 point scrolled by the reader is allowed (got %r)" % r3)
+        # 18 Nov 2026 (CB134 ruling): L2 never goes to others. This arm was
+        # the allowed-control before; it now asserts the refusal. The positive
+        # control (stamped L0 allowed) lives in test_vendored_enrich_outbound_refuses_l2_and_legacy.py.
+        check(r3 == "level_L2", "L2 point scrolled by the reader is refused as level_L2 (got %r)" % r3)
     finally:
         srv.shutdown()
     print(f"{PASS} passed, {FAIL} failed")

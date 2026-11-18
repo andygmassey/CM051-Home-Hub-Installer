@@ -137,42 +137,90 @@ def _is_about_minor(preference: Dict[str, Any]) -> bool:
     return any(f is not None and f is not False for f in flags)
 
 
-def outbound_refusal(preference: Dict[str, Any]) -> Optional[str]:
-    """Return None when the item may be sent to a public host, else why not.
+# ---------------------------------------------------------------------------
+# CM051 DIVERGENCE (CB134, 18 Nov 2026). Recorded in
+# vendor/divergences/cm019_preferences_usage_journal.UNRECORDED.md.
+#
+# The enrichment look-up gate is NOT the upstream rule above. Ruling of 18 Nov 2026
+# (verbatim, see the divergence record): "L0/L1 only, never L2 (Recommended)"
+# and "I cannot launch without the data enrichment. End of." So a look-up may
+# send the subject string of an L0 or L1 item; an L2, L3, unlevelled, unknown,
+# or unstamped-L0 (legacy-ambiguous) item is refused. The shared scale table is
+# NOT changed for this: 135 adds the dedicated enrichment destination row
+# (CB135-ENRICHMENT-L1-DESTINATION).
+#
+# Legacy numeric compartments, mapped by PWG services/ingest/src/parsers/base.py
+# (SENSITIVE_LEVEL and FINANCIAL_LEVEL = 1 mean personal location, third-party
+# people and spend, so legacy 1 is NOT publishable; lines 58-59, 70-71, 74):
+# legacy 2, 4 and 6 may map to L0/L1; legacy 0, 1, 3 and 5 are refused.
+# Health (legacy 0, HEALTH_LEVEL, base.py line 71) is refused whatever its number.
+#
+# Category exclusions apply whatever the level (Archie 18 Nov 2026): person
+# names, locations, addresses, finance, health, dietary and anything about a
+# minor are never looked up.
+# ---------------------------------------------------------------------------
 
-    The reason is a short code ("level_L3", "level_unknown", "minor", ...),
-    safe to count and log. It never contains the item's subject or id.
+ENRICH_CANONICAL_ALLOWED = frozenset({"L0", "L1"})
+ENRICH_LEGACY_ALLOWED = frozenset({"2", "4", "6"})
+REASON_CATEGORY = "category_excluded"
+_EXCLUDED_CATEGORIES = frozenset({
+    "person", "people", "contact", "contacts", "name", "names",
+    "location", "locations", "address", "addresses", "home",
+    "finance", "financial", "money", "spend", "spending",
+    "health", "health_record", "medical", "dietary", "diet",
+    "minor", "minors", "child", "children",
+})
+
+
+def _excluded_category(preference: Dict[str, Any]) -> bool:
+    try:  # package context (enricher)
+        from .derive.sensitive import never_read_categories
+    except ImportError:  # top-level import (tests put enrich/src on sys.path)
+        from derive.sensitive import never_read_categories
+    category = str(preference.get("category") or "").strip().lower()
+    if not category:
+        return False
+    return category in _EXCLUDED_CATEGORIES or category in set(never_read_categories())
+
+
+def _enrich_legacy_reason(value: Any) -> Optional[str]:
+    token = _legacy_token(value)
+    if token is None:
+        return REASON_UNKNOWN_LEVEL
+    if token in ENRICH_LEGACY_ALLOWED:
+        return None
+    return "level_legacy_" + token
+
+
+def outbound_refusal(preference: Dict[str, Any]) -> Optional[str]:
+    """CM051 enrichment look-up gate (see the divergence note above).
+
+    None when the subject may be sent to a look-up, else a reason code (counts
+    only, never the subject). Order: not a dict, minor, excluded category,
+    then the level.
     """
     if not isinstance(preference, dict):
         return REASON_UNKNOWN_LEVEL
     if _is_about_minor(preference):
         return REASON_MINOR
-    if preference.get("privacy_level") is None:
-        # No canonical level. A legacy compartment alone is LEGACY-AMBIGUOUS and
-        # the scale reads it as L3 (legacy and missing = L3): never outbound,
-        # whatever its number. Only a recognised legacy value gets a reason code.
-        legacy = preference.get("compartment_level")
-        token = _legacy_token(legacy)
-        if token is None or token not in _LEGACY_ALLOWED:
+    if _excluded_category(preference):
+        return REASON_CATEGORY
+    level = preference.get("privacy_level")
+    legacy = preference.get("compartment_level")
+    if level is None:
+        # Unlevelled, or legacy-only: the legacy number decides, nothing else.
+        if legacy is None:
             return REASON_UNKNOWN_LEVEL
-        return "level_legacy_" + token
-    present = [
-        preference[k] for k in ("privacy_level", "compartment_level") if k in preference
-    ]
-    if not present:
+        return _enrich_legacy_reason(legacy)
+    if isinstance(level, bool) or not isinstance(level, str):
         return REASON_UNKNOWN_LEVEL
-    for key in ("privacy_level", "compartment_level"):
-        if key not in preference:
-            continue
-        value = preference[key]
-        if key == "privacy_level" and isinstance(value, str) and pwg_privacy.parse_privacy_level(value):
-            # The record the helper reads: the level and its scale stamp.
-            reason = _canonical_reason({
-                "privacy_level": value,
-                pwg_privacy.CANONICAL_SCALE_KEY: preference.get(pwg_privacy.CANONICAL_SCALE_KEY),
-            })
-        else:
-            reason = _level_reason(value)
+    token = level.strip().upper()
+    if token not in ENRICH_CANONICAL_ALLOWED:
+        return "level_" + token if token in {"L2", "L3"} else REASON_UNKNOWN_LEVEL
+    if token == "L0" and preference.get(PRIVACY_SCALE_KEY) != pwg_privacy.CANONICAL_SCALE_VALUE:
+        return "level_legacy_L0"  # an unstamped L0 is legacy-ambiguous (old PWG L0 = owner-private)
+    if legacy is not None:
+        reason = _enrich_legacy_reason(legacy)
         if reason is not None:
             return reason
     return None

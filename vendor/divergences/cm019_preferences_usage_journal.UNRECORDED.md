@@ -481,16 +481,35 @@ Proof: `tests/test_vendored_max_privacy_fails_closed.py` (wired in `.github/work
 
 When #528 merges, the upstream SHA here must be the merge commit and the bytes must still match it.
 
-## 2026-11-18: enrich leaks (personal-world-graph #540 merged as 35302c9d; CB134)
+## 18 Nov 2026: enrich leaks and the enrichment look-up gate (personal-world-graph #540 merged as 35302c9d; CB134)
 
-Tree `cm019_preferences`. Pin NOT moved (d9797d88): the tree is still a shipping subset, and this section records only the files below.
+Tree `cm019_preferences`. Pin NOT moved (d9797d88): the tree is still a shipping subset; this section records only the files below.
 
-- `services/enrich/src/privacy_gate.py`, `services/enrich/src/derive/readers.py`, `services/enrich/src/derive/thematic.py`: whole-file copies of personal-world-graph `35302c9d`. Byte-identical to that commit; this tree had no local divergence in them.
-- `services/common/pwg_privacy.py`, `services/common/privacy_scale.py`, `services/common/privacy_scale_canonical.tsv`: new in this tree, copied byte-identical from `35302c9d`. Required by the three files above (readers and gate import the helper; the helper loads the TSV next to it). The cm041 tree carries an OLDER `pwg_privacy.py` that differs from upstream; that tree is not touched here.
-- `services/enrich/src/enricher.py`: NOT copied. The vendored file carries CM051-only divergence (eligibility gate, budget, no-match counting). Only the two upstream hunks from `35302c9d` are applied: the `PRIVACY_SCALE_KEY` import from `privacy_gate`, and `PRIVACY_SCALE_KEY` added to the scroll `with_payload` list.
+Source of the ruling, verbatim: Aesop session, Claude Code, HKT afternoon of 2026-11-18.
+Speaker: the owner.
+Addressee: the coordinating agent.
+- "that's fine, right? (Unless user opted out at install time) The enrichment is really key to inteligence data generation" (on whether L2 lookups are fine)
+- Multiple-choice ruling that followed: "L0/L1 only, never L2 (Recommended)"
+- "I cannot launch without the data enrichment. End of."
 
-Why: the enrichment gate allowed canonical L2 and legacy compartment 2/4/6 to `others` (third-party look-ups), and the thematic reader admitted unlevelled records and health written at legacy 0.
+Files:
+- `services/enrich/src/derive/readers.py`, `services/enrich/src/derive/thematic.py`, `services/common/pwg_privacy.py`, `services/common/privacy_scale.py`, `services/common/privacy_scale_canonical.tsv`: byte-identical to personal-world-graph `35302c9d`. The helper and TSV are required by readers and thematic. The cm041 tree carries an OLDER `pwg_privacy.py`; not touched here.
+- `services/enrich/src/enricher.py`: NOT copied (CM051 divergence: eligibility gate, budget, no-match counting). Only the two upstream hunks from `35302c9d` (`PRIVACY_SCALE_KEY` import and its scroll `with_payload` entry).
+- `services/enrich/src/privacy_gate.py`: upstream `35302c9d` above a CM051 DIVERGENCE. The upstream `outbound_refusal` decides a destination `others` (third party) and refuses L1. CM051 replaces `outbound_refusal` with the ENRICHMENT look-up rule. The shared scale table is NOT changed (pinned across 5 repos); 135 adds the dedicated enrichment row (CB135-ENRICHMENT-L1-DESTINATION).
 
-Proof: `tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py` (7 arms) and `tests/test_vendored_thematic_withholds_unlevelled_and_health.py` (5 arms), both wired in `.github/workflows/derived-preferences.yml`. On CM051 origin/main: outbound 5 of 5 FAIL on the leak arms and the L0 control; thematic 3 FAIL (unlevelled, legacy-0 health, stamped L1 with legacy 0). On the branch: both green. Mutants (gate allowing everything; legacy branch allowing; thematic legacy-0 block removed; unlevelled admitted) each go red.
+The enrichment look-up rule (`outbound_refusal`):
+- L0 and L1 subjects: allowed, when an L0 carries the scale stamp. Unstamped L0 is legacy-ambiguous and refused.
+- L2, L3, unlevelled, unknown: refused.
+- Legacy numeric compartments, mapped by PWG `services/ingest/src/parsers/base.py`: legacy 1 is `SENSITIVE_LEVEL` and legacy 1 is `FINANCIAL_LEVEL` (lines 58-59: personal location, third-party people, spend), so it reads as L2 and is refused; legacy 0 is `HEALTH_LEVEL` (line 71) and is refused; 3 and 5 refused (base.py lines 67-69: 5 is L5Commercial, never a privacy floor). Legacy 2, 4 and 6 may map to L0/L1 and are allowed.
+- Category exclusions apply whatever the level: health, dietary, person, contacts, location, address, finance, minors (and `never_read_categories`). Refused.
+- Subject only: the gate decides on the subject; `enrich_preference` still passes the existing per-client hints (author, year, extra url/artist/cuisine) for the categories that use them. Not stripped here; see the report.
 
-Known gap, not fixed here: the L1 subject. Andy's rule allows L0 and L1 subjects in look-ups; the shared scale table refuses L1 at `others` (redacted only). Arm 1b asserts today's refusal. CB135-ENRICHMENT-L1-DESTINATION adds the dedicated enrichment destination row to the shared table; flip arm 1b then.
+Proof, all wired in `.github/workflows/derived-preferences.yml`:
+- `tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py`: 17 arms of the gate.
+- `tests/test_vendored_enrich_seed_lookups.py`: the REAL `EnrichmentService.enrich_preference` over a synthetic 26-item seed, network clients replaced by recorders. Look-ups sent, subject-level and category counts printed.
+- `tests/test_vendored_thematic_withholds_unlevelled_and_health.py`: 5 arms of the thematic reader.
+- `tests/test_vendored_derive_scroll_carries_privacy_level.py`: its L2 control now asserts refusal (`level_L2`).
+
+Red on CM051 origin/main: outbound arms 1, 2, 3 FAIL (L2 allowed; L1 and stamped L0 refused); seed test B and D FAIL (L2 subjects sent); thematic arms 1-3 FAIL. Green on the branch. Mutants red: allow L2; allow legacy 1; drop the category exclusion (arm test only; see the seed-test note in the report).
+
+Known gaps, stated: (1) L1 at the shared `others` row stays refused there; this gate allows L1 by CM051 divergence until 135. (2) `place`, `venue` and `restaurant` categories are looked up as venue names, unchanged from the existing dispatch table; Archie to rule on whether a venue is a "location".
