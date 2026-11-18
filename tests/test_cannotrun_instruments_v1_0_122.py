@@ -401,11 +401,18 @@ class DoctorUnits(unittest.TestCase):
 
 
 class PeopleRowCountsEveryWriter(unittest.TestCase):
-    def test_in_sums_both_writers_of_the_people_collection(self):
+    # The people IN was a SUM of two overlapping hydrate sources (people + contacts), which
+    # double-counted identities. It is now the distinct live identities (CM051 #3555, the
+    # people/identities row). This test pins THAT, and forbids the summed overlap returning.
+    def test_in_is_distinct_identities_not_a_sum_of_overlapping_sources(self):
         exp = json.load(open(ROOT / "scripts/box_walk_probes/fixtures/data_conservation/expected.json"))
-        for prof in exp["profiles"].values():
-            row = [r for r in prof["rows"] if r.get("id") == "people/all"][0]
-            self.assertEqual(row["facts"]["in"], ["hyd.people.item_count", "hyd.contacts.item_count"])
+        for name, prof in exp["profiles"].items():
+            rows = [r for r in prof["rows"] if r.get("id") == "people/identities"]
+            self.assertEqual(len(rows), 1, name)
+            self.assertEqual(rows[0]["facts"]["in"], "g.person.identities", name)
+            for r in prof["rows"]:
+                self.assertNotEqual(r.get("facts", {}).get("in"),
+                                    ["hyd.people.item_count", "hyd.contacts.item_count"], (name, r.get("id")))
 
 
 class IsShown(unittest.TestCase):

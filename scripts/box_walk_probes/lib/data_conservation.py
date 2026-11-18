@@ -750,6 +750,101 @@ def collect_state(facts, meta):
             facts["w.pages.%s" % sub] = sum(1 for x in os.listdir(dp) if x.endswith(".md") and x != "index.md")
 
 
+PEOPLE_COUNTS_SCHEMA = 1
+PEOPLE_COUNTS_SKIP = ("empty_profile", "org_as_person", "junk_single_token")
+PEOPLE_COUNTS_MERGE = ("graph_merged_into", "fold_people")
+# Vector lag is BOUNDED: a Qdrant people count still short of the graph after this
+# wait is CANNOT-RUN (q.people.total is WITHHELD), never PASS.
+PEOPLE_LAG_WAIT_S = int(os.environ.get("OSTLER_PEOPLE_LAG_WAIT_S", "120"))
+
+
+def collect_people_counts(facts, meta):
+    """The PRODUCT's per-reason counts (CM044 compiler/people_counts.py), written next
+    to the wiki. The probe reads them and never infers a skip or a merge. Absent,
+    unreadable or wrong-schema gives no facts, so the rows are NOT-MEASURED."""
+    path = os.path.join(WIKI_DIR, "People", "_people_counts.json")
+    if not os.path.isfile(path):
+        meta["people_counts"] = "absent"
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        meta["people_counts"] = "unreadable"
+        return
+    if not isinstance(d, dict) or d.get("schema") != PEOPLE_COUNTS_SCHEMA:
+        meta["people_counts"] = "schema"
+        return
+    meta["people_counts"] = "ok"
+    if isinstance(d.get("loaded"), int):
+        facts["cnt.loaded"] = d["loaded"]
+    if isinstance(d.get("rendered"), int):
+        facts["cnt.rendered"] = d["rendered"]
+    for r in PEOPLE_COUNTS_SKIP:
+        v = (d.get("skipped") or {}).get(r)
+        if isinstance(v, int):
+            facts["cnt.skip.%s" % r] = v
+    for m in PEOPLE_COUNTS_MERGE:
+        v = (d.get("merged") or {}).get(m)
+        if isinstance(v, int):
+            facts["cnt.merged.%s" % m] = v
+
+
+def collect_people_graph(facts, meta, hdr):
+    """Persons with a displayName (the loader's own requirement), and mergedInto
+    triples whose target is a Person."""
+    n = _sparql("SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <%sPerson> ; <%sdisplayName> ?dn }" % (P_NS, P_NS), hdr)
+    if n:
+        facts["g.person.named"] = int(n[0]["n"]["value"])
+    # (e) IN = DISTINCT live identities: named Persons that are NOT merged away.
+    # Overlapping hydrate sources are not summed; a merged-away node is one identity, not two.
+    i = _sparql("SELECT (COUNT(DISTINCT ?p) AS ?n) WHERE { ?p a <%sPerson> ; <%sdisplayName> ?dn . "
+                "FILTER NOT EXISTS { ?p <%smergedInto> ?t } }" % (P_NS, P_NS, P_NS), hdr)
+    if i:
+        facts["g.person.identities"] = int(i[0]["n"]["value"])
+    t = _sparql("SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <%smergedInto> ?t . ?t a <%sPerson> }" % (P_NS, P_NS), hdr)
+    if t:
+        facts["g.mergedinto.person_targets"] = int(t[0]["n"]["value"])
+    # The non-Person targets (measured: all pwg:RetiredPerson), declared apart by the product.
+    u = _sparql("SELECT (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s <%smergedInto> ?t . FILTER NOT EXISTS { ?t a <%sPerson> } }" % (P_NS, P_NS), hdr)
+    if u:
+        facts["g.mergedinto.non_person_targets"] = int(u[0]["n"]["value"])
+
+
+def _qdrant_points(coll, hdr):
+    code, js = _http("%s/collections/%s" % (QDRANT, coll), headers=hdr)
+    if code == 404:
+        return 0
+    if code != 200 or not js:
+        return None
+    return int(js["result"]["points_count"])
+
+
+def collect_people_vectors(facts, meta, hdr):
+    """Bounded vector-lag wait. Converged = Qdrant people count reaches the graph
+    named-Person count. Still short after PEOPLE_LAG_WAIT_S: q.people.total is withheld,
+    so people/vectors is NOT-MEASURED (CANNOT-RUN), never PASS."""
+    want = facts.get("g.person.named")
+    have = _qdrant_points("people", hdr)
+    if want is None or have is None:
+        facts.pop("q.people.total", None)
+        meta["people_vectors"] = "unmeasured"
+        return
+    import time
+    deadline = time.time() + PEOPLE_LAG_WAIT_S
+    while have < want and time.time() < deadline:
+        time.sleep(min(15.0, max(1.0, deadline - time.time())))
+        have = _qdrant_points("people", hdr)
+        if have is None:
+            break
+    if have is None or have < want:
+        facts.pop("q.people.total", None)
+        meta["people_vectors"] = "lag: %s of %d after %ds wait" % (have, want, PEOPLE_LAG_WAIT_S)
+        return
+    facts["q.people.total"] = have
+    meta["people_vectors"] = "converged"
+
+
 def collect_doctor(facts, meta, hdr):
     """SHOWN at the Doctor: GET /api/v1/sources (item_count, last_run_count)."""
     code, js = _http("http://127.0.0.1:8089/api/v1/sources", headers=hdr, timeout=15)
@@ -879,6 +974,9 @@ def collect():
     collect_logs(facts, meta)
     collect_qdrant(facts, meta, hdr, corpus)
     collect_oxigraph(facts, meta, hdr)
+    collect_people_graph(facts, meta, hdr)
+    collect_people_counts(facts, meta)
+    collect_people_vectors(facts, meta, hdr)
     collect_wiki(facts, meta)
     collect_state(facts, meta)
     collect_ingest_logs(facts, meta)
@@ -917,6 +1015,74 @@ def _mini_facts():
             "log.apple": 70, "q.p.a": 70, "w.shown.p.a": 70,
             "log.cal": 12, "q.c": 12, "w.shown.c": 10,
             "log.m": 50, "q.m": 47, "w.shown.m": 47}
+
+
+def _people_selftest(fails):
+    """The people rows, SHIPPED in expected.json, run against facts that the
+    product's counts file would produce. Control must be clean; each mutant must
+    produce its named failure; a missing vector count must be NOT-MEASURED."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    shipped = json.load(open(os.path.join(here, "..", "fixtures", "data_conservation", "expected.json"),
+                             encoding="utf-8"))
+    rows = [r for r in shipped["profiles"]["chain"]["rows"] if str(r.get("id", "")).startswith("people/")]
+    if sorted(r["id"] for r in rows) != ["people/declared-merges", "people/identities", "people/non-person-merges", "people/shown", "people/vectors"]:
+        fails.append("shipped chain profile does not carry the four people rows: %s" % [r.get("id") for r in rows])
+        return
+    base = {
+        "g.person.named": 100, "g.person.identities": 100, "cnt.merged.fold_people": 5,
+        "cnt.merged.graph_merged_into": 3, "g.mergedinto.person_targets": 3,
+        "cnt.merged.graph_merged_into_non_person": 5, "g.mergedinto.non_person_targets": 5,
+        "cnt.loaded": 95,
+        "cnt.skip.empty_profile": 3, "cnt.skip.org_as_person": 2, "cnt.skip.junk_single_token": 0,
+        "w.pages.People": 90, "q.people.total": 100,
+    }
+
+    def run(facts):
+        res, _ = adjudicate({"rows": rows}, facts)
+        return {r["id"]: r["verdict"] for r in res}
+
+    v = run(dict(base))
+    bad = {k: x for k, x in v.items() if x in ("LOST", "INFLATED", "NOT-MEASURED")}
+    if bad:
+        fails.append("people CONTROL not clean: %s" % bad)
+
+    # (a) a skip happened and was NOT counted: rendered pages fall short of loaded less the counted skips.
+    f = dict(base); f["cnt.skip.empty_profile"] = 0; f["cnt.skip.org_as_person"] = 0
+    v = run(f)
+    if v.get("people/shown") != "LOST":
+        fails.append("MUTANT (a) hidden skip did not FAIL people/shown: %s" % v)
+    # (b) a declared merge with no pwg:mergedInto triple pointing at a Person.
+    f = dict(base); f["g.mergedinto.person_targets"] = 2
+    v = run(f)
+    if v.get("people/declared-merges") != "LOST":
+        fails.append("MUTANT (b) declared merge with no triple did not FAIL people/declared-merges: %s" % v)
+    # (c) a planted loss: 5 identities vanish between the graph and the renderer, none declared.
+    f = dict(base); f["cnt.loaded"] = 90
+    v = run(f)
+    if v.get("people/identities") != "LOST":
+        fails.append("MUTANT (c) planted loss did not FAIL people/identities: %s" % v)
+    # (d) vector lag: the Qdrant count is withheld after the bounded wait -> NOT-MEASURED, never PASS.
+    f = dict(base); del f["q.people.total"]
+    v = run(f)
+    if v.get("people/vectors") != "NOT-MEASURED":
+        fails.append("vector lag did not give NOT-MEASURED (CANNOT-RUN): %s" % v)
+    # (f) a declared non-Person merge with no triple behind it (the store holds 4 of 5).
+    f = dict(base); f["g.mergedinto.non_person_targets"] = 4
+    v = run(f)
+    if v.get("people/non-person-merges") != "LOST":
+        fails.append("MUTANT (f) declared non-Person merge with no triple did not FAIL: %s" % v)
+    # (g) IN counts DISTINCT live identities. Mutant: merged-away nodes counted as a
+    #     second identity (101 where 100 are live). The 5 folded records must not reappear
+    #     as IN: 101 - 5 folded = 96 expected from 95 loaded, so the row must be LOST.
+    f = dict(base); f["g.person.identities"] = 101
+    v = run(f)
+    if v.get("people/identities") != "LOST":
+        fails.append("MUTANT (g) merged-away counted as a second identity did not FAIL people/identities: %s" % v)
+    # (e) the counts file absent: no product facts, so identities/shown are NOT-MEASURED.
+    f = {k: x for k, x in base.items() if not k.startswith("cnt.")}
+    v = run(f)
+    if v.get("people/shown") != "NOT-MEASURED" or v.get("people/identities") != "NOT-MEASURED":
+        fails.append("absent counts file did not give NOT-MEASURED: %s" % v)
 
 
 def selftest():
@@ -1098,6 +1264,7 @@ def selftest():
     if overall(r11, c11)[1] != 78:
         fails.append("all IN zero (and stored zero) did not CANNOT-RUN")
 
+    _people_selftest(fails)
     for f_ in fails:
         print("SELFTEST FAIL: " + f_)
     if not fails:

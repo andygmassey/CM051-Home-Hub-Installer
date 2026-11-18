@@ -19,19 +19,78 @@
      "cross_run": "IN is the install summary line (install.log people_added) and STORED is the hydrate marker item_count, written by a different run. No same-run pair exists on the box, so this row is CANNOT-RUN until the install writes one run id to both."
     },
     {
-     "category": "person",
-     "facts": {
-      "graph": {
-       "key": "x.class.Person",
-       "zero_if": "x.class.total"
+      "id": "people/identities",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "g.person.identities",
+        "stored": "cnt.loaded"
       },
-      "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
-      "shown": "w.shown.people.source_sum",
-      "stored": "q.people.total"
-     },
-     "id": "people/all",
-     "source": "people",
-     "unit": "people"
+      "exclusions": [
+        {
+          "stage": "stored",
+          "fact": "cnt.merged.fold_people",
+          "reason": "folded into a surviving record (CM044 person_fold), counted by the product"
+        }
+      ]
+    },
+    {
+      "id": "people/declared-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into",
+        "stored": "g.mergedinto.person_targets"
+      }
+    },
+    {
+      "id": "people/non-person-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into_non_person",
+        "stored": "g.mergedinto.non_person_targets"
+      }
+    },
+    {
+      "id": "people/shown",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "cnt.loaded",
+        "shown": "w.pages.People"
+      },
+      "exclusions": [
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.empty_profile",
+          "reason": "skipped by the product: empty_profile"
+        },
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.org_as_person",
+          "reason": "skipped by the product: org_as_person"
+        },
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.junk_single_token",
+          "reason": "skipped by the product: junk_single_token"
+        }
+      ]
+    },
+    {
+      "id": "people/vectors",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "g.person.named",
+        "stored": "q.people.total"
+      }
     },
     {
      "category": "messages",
@@ -90,19 +149,78 @@
      "cross_run": "IN is the install summary line (install.log people_added) and STORED is the hydrate marker item_count, written by a different run. No same-run pair exists on the box, so this row is CANNOT-RUN until the install writes one run id to both."
     },
     {
-     "category": "person",
-     "facts": {
-      "graph": {
-       "key": "x.class.Person",
-       "zero_if": "x.class.total"
+      "id": "people/identities",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "g.person.identities",
+        "stored": "cnt.loaded"
       },
-      "in": ["hyd.people.item_count", "hyd.contacts.item_count"],
-      "shown": "w.shown.people.source_sum",
-      "stored": "q.people.total"
-     },
-     "id": "people/all",
-     "source": "people",
-     "unit": "people"
+      "exclusions": [
+        {
+          "stage": "stored",
+          "fact": "cnt.merged.fold_people",
+          "reason": "folded into a surviving record (CM044 person_fold), counted by the product"
+        }
+      ]
+    },
+    {
+      "id": "people/declared-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into",
+        "stored": "g.mergedinto.person_targets"
+      }
+    },
+    {
+      "id": "people/non-person-merges",
+      "source": "people",
+      "category": "person",
+      "unit": "merges",
+      "facts": {
+        "in": "cnt.merged.graph_merged_into_non_person",
+        "stored": "g.mergedinto.non_person_targets"
+      }
+    },
+    {
+      "id": "people/shown",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "cnt.loaded",
+        "shown": "w.pages.People"
+      },
+      "exclusions": [
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.empty_profile",
+          "reason": "skipped by the product: empty_profile"
+        },
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.org_as_person",
+          "reason": "skipped by the product: org_as_person"
+        },
+        {
+          "stage": "shown",
+          "fact": "cnt.skip.junk_single_token",
+          "reason": "skipped by the product: junk_single_token"
+        }
+      ]
+    },
+    {
+      "id": "people/vectors",
+      "source": "people",
+      "category": "person",
+      "unit": "people",
+      "facts": {
+        "in": "g.person.named",
+        "stored": "q.people.total"
+      }
     },
     {
      "category": "messages",
