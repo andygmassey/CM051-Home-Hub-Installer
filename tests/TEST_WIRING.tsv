@@ -1156,6 +1156,7 @@ test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
+test_walk134_thin_walk_probes.sh	WIRED	.github/workflows/walk134-thin-walk-probes.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_driver_cancel_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml

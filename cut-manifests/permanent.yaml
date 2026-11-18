@@ -1754,3 +1754,51 @@ entries:
     proof:
       kind: box_walk_probe
       probe: "core_memory_holds_no_prefetch_block"
+
+  # ==========================================================================
+  # v1.0.134 thin-walk must-check items (CUT_BLOCKERS.md, 2026-11-18). Each is a
+  # walk probe the cut runs against the box. Judged by lib/walk134_judges.py; a
+  # CANNOT-RUN is not a PASS and blocks like a FAIL.
+  # ==========================================================================
+  - id: box-walk-enrichment-reaches-clients
+    title: after an enrich batch, creators were looked up and the contact loader reported
+    incident: >-
+      134 must-check: enrichment default ON on a fresh install must reach its
+      creators. The enrich log prints "creators looked up: M" and "creators
+      dropped: contact store unreadable: N" per batch. CANNOT-RUN until the
+      enricher logs a per-client look-up count: the log has no per-client line
+      for music, books, films, podcasts, places, food or interests today.
+    proof:
+      kind: box_walk_probe
+      probe: "enrichment_reaches_clients"
+
+  - id: box-walk-enrichment-decline-survives-upgrade
+    title: a Hub that declined public look-ups still reads declined after the upgrade
+    incident: >-
+      134 must-check (Archie, #3608). The recorded decision lives in config/.env
+      and the enrichment LaunchAgent must be absent when it reads declined. The
+      probe reads the state an upgrade leaves; the replay is a unit test.
+    proof:
+      kind: box_walk_probe
+      probe: "enrichment_decline_survives_upgrade"
+
+  - id: box-walk-derived-themes-still-learning
+    title: the derived themes surface answers "still learning", never an error, with no levelled records
+    incident: >-
+      134 must-check (PWG #543, CB135-DERIVED-THEMES-EMPTY). GET
+      /api/v1/preferences/derived on a box with no levelled records must answer
+      200 with items [] and a Still learning state.
+    proof:
+      kind: box_walk_probe
+      probe: "derived_themes_still_learning"
+
+  - id: box-walk-proxy-reads-are-owner-own-brief
+    title: a Doctor-proxied read claiming owner_local is served owner_own_brief with no L3 row
+    incident: >-
+      134 must-check (CM041 #296). Port 8089 is tailscale-served, so a tailnet
+      caller reaches the proxy as loopback. A header or query claim of owner_local
+      must never bring L3 off the box. The owner_local loopback control must show
+      the L3 row, or the absence is CANNOT-RUN.
+    proof:
+      kind: box_walk_probe
+      probe: "proxy_reads_are_owner_own_brief"

@@ -1,0 +1,68 @@
+# CM051 v1.0.134 thin-walk probes: enrichment_reaches_clients,
+# enrichment_decline_survives_upgrade, derived_themes_still_learning,
+# proxy_reads_are_owner_own_brief, and the ical-server pin passthrough.
+# The judge module and each probe's self-test run here, with negative controls
+# that must go red. Synthetic fixtures only; no box is contacted.
+name: walk134-thin-walk-probes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/box_walk_probes/probes/enrichment_reaches_clients.sh'
+      - 'scripts/box_walk_probes/probes/enrichment_decline_survives_upgrade.sh'
+      - 'scripts/box_walk_probes/probes/derived_themes_still_learning.sh'
+      - 'scripts/box_walk_probes/probes/proxy_reads_are_owner_own_brief.sh'
+      - 'scripts/box_walk_probes/lib/walk134_judges.py'
+      - 'scripts/box_walk_probes/lib/walk134_common.sh'
+      - 'scripts/box_walk_probes/lib/ical_pin.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'cut-manifests/permanent.yaml'
+      - 'tests/test_walk134_thin_walk_probes.sh'
+      - '.github/workflows/walk134-thin-walk-probes.yml'
+  pull_request:
+    paths:
+      - 'scripts/box_walk_probes/probes/enrichment_reaches_clients.sh'
+      - 'scripts/box_walk_probes/probes/enrichment_decline_survives_upgrade.sh'
+      - 'scripts/box_walk_probes/probes/derived_themes_still_learning.sh'
+      - 'scripts/box_walk_probes/probes/proxy_reads_are_owner_own_brief.sh'
+      - 'scripts/box_walk_probes/lib/walk134_judges.py'
+      - 'scripts/box_walk_probes/lib/walk134_common.sh'
+      - 'scripts/box_walk_probes/lib/ical_pin.sh'
+      - 'scripts/box_walk_probes/run_box_walk.sh'
+      - 'scripts/post_walk_qa.sh'
+      - 'cut-manifests/permanent.yaml'
+      - 'tests/test_walk134_thin_walk_probes.sh'
+      - '.github/workflows/walk134-thin-walk-probes.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  walk134-thin-walk-probes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: The judge module passes its own cases and its negative controls go red
+        run: |
+          set +e
+          python3 scripts/box_walk_probes/lib/walk134_judges.py --self-test > judges.out 2>&1; rc=$?
+          cat judges.out
+          test "$rc" -eq 1
+          grep -q 'negative controls behaved' judges.out
+      - name: Each probe's self-test goes red, and an unreachable box is CANNOT-RUN
+        run: |
+          set +e
+          bash tests/test_walk134_thin_walk_probes.sh
+      - name: Every probe is bash 3.2 syntax and declared in the permanent manifest
+        run: |
+          for f in enrichment_reaches_clients enrichment_decline_survives_upgrade derived_themes_still_learning proxy_reads_are_owner_own_brief; do
+            bash -n "scripts/box_walk_probes/probes/${f}.sh"
+            grep -q "probe: \"${f}\"" cut-manifests/permanent.yaml
+          done

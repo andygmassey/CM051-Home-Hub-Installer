@@ -364,6 +364,8 @@ fi
 _swap_saved_host="${OSTLER_BOX_HOST-}"
 OSTLER_BOX_HOST="$BOX" swap_curve_start "${PROBE_LOG%.log}.evidence"
 OSTLER_BOX_HOST="$_swap_saved_host"
+# The cut version names the ical-server pin (lib/ical_pin.sh reads cut/<version>).
+export OSTLER_CUT_VERSION="${CUT_VERSION}"
 OSTLER_BOX_HOST="$BOX" OSTLER_WALK_REMOTE_HOST="$BOX" "${REPO_ROOT}/scripts/box_walk_probes/run_box_walk.sh" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1 | tee -a "$PROBE_LOG"
 probe_rc="${PIPESTATUS[0]}"
 
