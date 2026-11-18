@@ -201,3 +201,29 @@ The guard above is upstream as `andygmassey/CM048-PWG-Conversation-Processing` P
 DRAFT, with the explicit instruction not to merge it before the 132 tag (freshness).
 When #121 is in the pinned CM048 SHA, retire this divergence and the guard in
 `vendor/cm048_pipeline/src/channel_adapter.py`.
+
+## 2026-11-18: owner's under-18 registry gate, ADAPTED from CM048 #98 (cm048_pipeline, v1.0.134)
+
+Tree `cm048_pipeline`. Upstream CM048 #98 (merge 05affaf1) makes step 07 write no fact about
+a minor and stops Reminders pushes for a conversation with one. It reads a `pwg:MinorFlag`
+record in Oxigraph. That record is written only by CM041 #226 (OPEN, unmerged). The setter
+that SHIPS in this tree (`vendor/cm041/assistant_api/ical-server.py` `api_people_set_minor`)
+writes `~/.ostler/minors.json` (OSTLER_MINORS_FILE overrides) and a suppression record with
+reason `minor`, and writes no MinorFlag (0 occurrences in CM051 and on CM041 main). A verbatim
+graft would query an empty set and flag nobody.
+
+DIVERGENCE FROM #98: `src/minors.py` `load()` reads the shipped registry file instead of the
+store (argument kept and ignored so every #98 call site is unchanged). Everything else is
+#98's behaviour: `ingest.py` (`_drop_minor_facts`, step 07 Qdrant and Oxigraph), `processor.py`
+(`_step_bundle` flag, step 08 corroboration skip), `reminders_push.py` (`decide_push`,
+`minor_participant`), `conversation_writer.py`. Fail closed, tightened from #98: a registry
+that exists but cannot be read raises MinorCheckUnavailable, so the run writes no facts and
+pushes no todos, with one loud ERROR line (no name, slug or identifier). An absent file
+flags nobody. Matching is by registry name, identifier (phone, email, handle) and slug; a
+handle joined later through people join is NOT in the file until the owner re-marks.
+
+RETIRE when CM041 #226 and the CM048 MinorFlag reader are both in the pin and the registry
+file and the store converge on one source (CUT_BLOCKERS CB135).
+Proof: `tests/test_cm048_minor_registry_vendored.py` (17), drives the real setter. RED on
+origin/main (collection error: no minors module). Mutants killed: step 07 drop removed (1
+fail), push gate off (4), bundle flag forced False (2), fail-closed removed (5).

@@ -98,6 +98,11 @@ SKIP_REASON_L3 = "l3"
 SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
+# Minor flag (Andy, 2026-10-19): a conversation with a person the owner
+# marked as a minor never auto-pushes a todo; one whose minor check could
+# not run does not push either (fail closed). Todos stay in todos.md.
+SKIP_REASON_MINOR = "minor_participant"
+SKIP_REASON_MINOR_UNCHECKED = "minor_check_unavailable"
 SKIP_REASON_NO_SPECIFIC_ACTION = "no_specific_action"
 # The title cannot be shortened to MAX_TITLE_CHARS at a word boundary (one
 # unbroken run of characters longer than the limit). Distinct from
@@ -849,11 +854,16 @@ def decide_push(
     demo_mode: bool,
     user_id: str,
     summary_path: Path,
+    minor_participant: Optional[bool] = False,
     name_resolver: Optional[NameResolver] = None,
     now: Optional[datetime] = None,
     max_age_days_override: Optional[int] = None,
 ) -> PushDecision:
     """Run the writer-side gate for one todo.
+
+    ``minor_participant``: True when a participant is a person the owner
+    marked as a minor, None when that could not be checked. Either way the
+    todo is not pushed.
 
     Demo mode is checked OUTSIDE this function (callers don't even
     open the SQLite DB when demo mode is on). This function assumes
@@ -865,6 +875,16 @@ def decide_push(
         return PushDecision(
             eligible=False,
             skip_reason=SKIP_REASON_EMPTY_TEXT,
+            push_title="",
+            push_notes="",
+            push_deadline=None,
+        )
+
+    if minor_participant is not False:
+        return PushDecision(
+            eligible=False,
+            skip_reason=(SKIP_REASON_MINOR if minor_participant
+                         else SKIP_REASON_MINOR_UNCHECKED),
             push_title="",
             push_notes="",
             push_deadline=None,
@@ -1274,6 +1294,7 @@ def apply_push_status_to_todos(
     demo_mode: bool = False,
     user_id: str = _DEFAULT_USER_ID,
     db_path: Optional[Path] = None,
+    minor_participant: Optional[bool] = False,
 ) -> tuple:
     """Walk the bundle's todos through the push gate and return a
     new (immutable) tuple with statuses updated to reflect the
@@ -1376,6 +1397,7 @@ def apply_push_status_to_todos(
                 demo_mode=False,
                 user_id=user_id,
                 summary_path=summary_path,
+                minor_participant=minor_participant,
             )
             if not decision.eligible:
                 _upsert_skipped(
@@ -1502,6 +1524,7 @@ __all__ = [
     "STATUS_PERMISSION_DENIED",
     "SKIP_REASON_L3", "SKIP_REASON_UNKNOWN_LEVEL",
     "SKIP_REASON_OWNER_OTHER", "SKIP_REASON_EMPTY_TEXT",
+    "SKIP_REASON_MINOR", "SKIP_REASON_MINOR_UNCHECKED",
     "SKIP_REASON_SUPERSEDED", "SKIP_REASON_TITLE_TOO_LONG",
     "apply_push_status_to_todos",
     "decide_push",
