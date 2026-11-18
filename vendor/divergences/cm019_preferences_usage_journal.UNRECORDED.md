@@ -512,4 +512,20 @@ Proof, all wired in `.github/workflows/derived-preferences.yml`:
 
 Red on CM051 origin/main: outbound arms 1, 2, 3 FAIL (L2 allowed; L1 and stamped L0 refused); seed test B and D FAIL (L2 subjects sent); thematic arms 1-3 FAIL. Green on the branch. Mutants red: allow L2; allow legacy 1; drop the category exclusion (arm test only; see the seed-test note in the report).
 
-Known gaps, stated: (1) L1 at the shared `others` row stays refused there; this gate allows L1 by CM051 divergence until 135. (2) `place`, `venue` and `restaurant` categories are looked up as venue names, unchanged from the existing dispatch table; Archie to rule on whether a venue is a "location".
+Hints (Archie condition 2: the look-up carries the topic string only). Every hint the enrich path used to send, its record source, and what happens now:
+- `author` (openlibrary), from the record's `author` field: DROPPED.
+- `year` (tmdb, wikidata_film), from the record's `year` field: DROPPED.
+- `extra.artist`, `extra.song`, `extra.album` (musicbrainz), from the record's `extra` (Apple Music library state): DROPPED. The subject alone is looked up.
+- `extra.url`, `url`, `extra.domain` (url_fetcher), from the owner's bookmark record: DROPPED, and the bookmark category is not looked up (refusal `url_owner_data`) until a topic-public URL is proven.
+- `extra.area` (osm_cuisine), a location: DROPPED.
+- `extra.restaurant` (osm_cuisine): replaced by the subject name (a venue name is a permitted look-up).
+- `extra.video_id` (youtube): from the record's `extra`: DROPPED (no youtube key on a stock install).
+- Routing only (never sent): `extra.restaurant` and `extra.cuisine` choose the osm route; `category` chooses the client.
+
+Venue rule (Archie 2026-11-18, `privacy_gate.venue_name_refusal`, CM051 divergence): a venue NAME may be looked up as the name only. Refused: (a) address-shaped names (digits, commas, symbols) and location labels (home, work, office, near, address, postcode); (b) Art. 9-type venues (clinic, hospital, GP, pharmacy, therapist, dentist, church, mosque, temple, synagogue, party, campaign, sexual-health, rehab, law, lawyer, solicitor); (c) a name containing a contact name from `EnrichmentService.contact_names`. Reason codes `venue_not_a_name`, `venue_art9`, `venue_contains_contact_name`.
+
+NOT WIRED, stated plainly: `contact_names` defaults to an empty set. This tree has no owner-contacts feed, so exclusion (c) is enforced only when a caller sets the set. The seed test sets a synthetic one. A production caller must supply the owner's contact names before rule (c) protects a real install.
+
+L1 end to end: L1 IS looked up in the shipped path. The enrich path calls only this gate (`privacy_gate.outbound_refusal`, from `enrich_preference` and both batch sites). The shared scale table's `others` row (`pwg_privacy.outbound_ok`) is not called anywhere in the enrich tree; it is called only by the thematic reader for `owner_own_brief`. The seed test shows L1 looked up for music and interest (2 of 2), and the batch-path gate test (arm 5, `privacy_level` L1) reaches the wire exactly once.
+
+Known gaps, stated: (1) `place`, `venue` and `restaurant` are looked up as venue names only, under the rule above. (2) `contact_names` is not wired to a feed (see NOT WIRED).

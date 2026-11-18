@@ -16,7 +16,8 @@ import httpx
 from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
-from .privacy_gate import outbound_refusal, PRIVACY_SCALE_KEY, REASON_UNKNOWN_LEVEL
+from .privacy_gate import (outbound_refusal, PRIVACY_SCALE_KEY, REASON_UNKNOWN_LEVEL,
+                           VENUE_CATEGORIES, venue_name_refusal)
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -378,6 +379,9 @@ class EnrichmentService:
         # Items refused by the per-item privacy gate in enrich_preference,
         # by reason code. Counts only.
         self.privacy_refusals: Dict[str, int] = {}
+        # Owner contact names. A venue whose name contains one is never looked up
+        # (Archie 2026-11-18). Set by the caller; the tree has no contacts feed yet.
+        self.contact_names: frozenset = frozenset()
 
     @property
     def _foursquare(self) -> FoursquareClient:
@@ -695,6 +699,23 @@ INSERT DATA {{
             if _extra.get("restaurant") and not _extra.get("cuisine"):
                 client_name = "osm_cuisine"
 
+        # CB134 (Archie condition 2): a look-up carries the topic string only.
+        # Hints read from the owner's record (author, year, extra.artist/song/album,
+        # extra.url, url, extra.area, extra.video_id) are NOT sent. Routing above
+        # used the record; the request below does not.
+        venue_clients = {"osm_cuisine", "wikidata_place", "foursquare", "google_places"}
+        if category in VENUE_CATEGORIES or client_name in venue_clients:
+            reason = venue_name_refusal(subject, category, self.contact_names)
+            if reason is not None:
+                self.privacy_refusals[reason] = self.privacy_refusals.get(reason, 0) + 1
+                return None
+        if client_name == "url_fetcher":
+            # A bookmark's URL is the owner's browsing record, not the topic's
+            # public URL. No look-up until a topic-public URL is proven.
+            self.privacy_refusals["url_owner_data"] = self.privacy_refusals.get("url_owner_data", 0) + 1
+            return None
+        preference = {"id": pref_id, "subject": subject, "category": category}
+
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
@@ -890,9 +911,8 @@ INSERT DATA {{
             return await self._google_places.enrich_venue(pref_id, subject)
 
         elif client_name == "osm_cuisine":
-            extra = preference.get("extra", {}) or {}
-            restaurant = extra.get("restaurant")
-            return await self._osm_cuisine.enrich_venue(pref_id, restaurant, extra.get("area") or "")
+            # The venue NAME is the topic string; the record's area is a location, never sent.
+            return await self._osm_cuisine.enrich_venue(pref_id, subject, "")
 
         elif client_name == "events":
             return await self._events.enrich_event(pref_id, subject)

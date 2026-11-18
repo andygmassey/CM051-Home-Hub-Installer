@@ -228,3 +228,68 @@ def outbound_refusal(preference: Dict[str, Any]) -> Optional[str]:
 
 def outbound_allowed(preference: Dict[str, Any]) -> bool:
     return outbound_refusal(preference) is None
+
+
+# ---------------------------------------------------------------------------
+# CM051 DIVERGENCE (CB134, Archie's venue ruling, 18 Nov 2026): a business or
+# venue NAME may be looked up as the name only. Never an address, coordinates,
+# postcode, dates, visit counts, or "home" / "work" / "near me" labels. Never
+# looked up, whatever the level: (a) Art. 9-type venues (clinic, hospital, GP,
+# pharmacy, therapist, dentist, places of worship, political venues,
+# sexual-health venues, law firms, rehab); (b) a venue name that contains a
+# person name from the owner's contacts.
+# ---------------------------------------------------------------------------
+
+VENUE_CATEGORIES = frozenset({"place", "venue", "restaurant"})
+REASON_VENUE_SHAPE = "venue_not_a_name"
+REASON_VENUE_ART9 = "venue_art9"
+REASON_VENUE_CONTACT = "venue_contains_contact_name"
+
+_VENUE_LOCATION_WORDS = frozenset({"home", "work", "office", "near", "address", "postcode"})
+_ART9_VENUE_WORDS = frozenset({
+    "clinic", "clinics", "hospital", "hospitals", "gp", "surgery", "pharmacy", "chemist",
+    "therapist", "therapy", "counselling", "counseling", "psychiatrist", "psychologist",
+    "dentist", "dental", "church", "chapel", "mosque", "temple", "synagogue", "gurdwara",
+    "cathedral", "party", "campaign", "sexual", "sexhealth", "clinic", "rehab",
+    "lawyer", "lawyers", "solicitor", "solicitors", "law",
+})
+
+
+def _tokens(text: str):
+    import re
+    return [t for t in re.split(r"[^a-z0-9]+", text.lower()) if t]
+
+
+def _venue_shape_refusal(name: str) -> Optional[str]:
+    import re
+    if re.search(r"\d", name) or any(ch in name for ch in ",@/#"):
+        return REASON_VENUE_SHAPE          # digits, commas or symbols: an address, a date or a count
+    if any(t in _VENUE_LOCATION_WORDS for t in _tokens(name)):
+        return REASON_VENUE_SHAPE          # a location label, not a name
+    return None
+
+
+def _venue_art9_refusal(name: str) -> Optional[str]:
+    if any(t in _ART9_VENUE_WORDS for t in _tokens(name)):
+        return REASON_VENUE_ART9
+    return None
+
+
+def _venue_contact_refusal(name: str, contact_names=frozenset()) -> Optional[str]:
+    toks = set(_tokens(name))
+    for person in contact_names:
+        if set(_tokens(person)) and set(_tokens(person)) <= toks:
+            return REASON_VENUE_CONTACT
+    return None
+
+
+def venue_name_refusal(subject: str, category: str, contact_names=frozenset()) -> Optional[str]:
+    """None when this venue subject may be looked up as a name, else a reason code."""
+    if str(category or "").strip().lower() not in VENUE_CATEGORIES:
+        return None
+    name = str(subject or "")
+    if not name.strip():
+        return REASON_VENUE_SHAPE
+    return (_venue_shape_refusal(name)
+            or _venue_art9_refusal(name)
+            or _venue_contact_refusal(name, contact_names))
