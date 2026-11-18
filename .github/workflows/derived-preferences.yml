@@ -89,6 +89,9 @@ on:
       - 'tests/test_vendored_enrich_seed_lookups.py'
       - 'tests/test_vendored_enrich_venue_names.py'
       - 'tests/test_vendored_enrich_contact_loader.py'
+      - 'tests/test_vendored_enrich_person_names.py'
+      - 'tests/redteam_enrich/**'
+      - 'vendor/cm019_preferences/services/enrich/src/derive/sensitive.py'
       - 'tests/test_cm019_enrich_privacy_gate_vendored.py'
       - 'vendor/cm019_preferences/services/enrich/src/enricher.py'
       - 'vendor/cm019_preferences/services/common/pwg_privacy.py'
@@ -279,6 +282,12 @@ jobs:
           python3 tests/test_vendored_enrich_seed_lookups.py
           python3 tests/test_vendored_enrich_venue_names.py
           python3 tests/test_vendored_enrich_contact_loader.py
+          python3 tests/test_vendored_enrich_person_names.py
+      - name: Red-team regression suite for the enrichment gate (CB134, report 2026-11-18)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pytest-asyncio 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
+          python3 -m pytest -q -p no:cacheprovider tests/redteam_enrich
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a

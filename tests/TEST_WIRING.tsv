@@ -1122,6 +1122,7 @@ test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-pre
 test_vendored_employer_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_enrich_contact_loader.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_outbound_refuses_l2_and_legacy.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_person_names.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_seed_lookups.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_venue_names.py	WIRED	.github/workflows/derived-preferences.yml

@@ -39,8 +39,10 @@ STAMP = {"privacyScale": "canonical-2026-11"}
 CAT_EXCLUDED = {"health", "dietary", "person", "location", "finance", "minors"}
 SEED_CONTACT = "seedperson"  # served by the people-store mock below; the loader reads it
 # Owner-record values that must never reach a client (E).
-HINTS = ["seed author", "seed artist", "1999", "seed-url.example.test", "seed street",
-         "seed-album", "seed-video"]
+# Owner-record values that must never reach a client. "seed author" and
+# "seed artist" are STRUCTURED creator fields (Archie 2026-11-18: allowed, and they
+# are the creator query), so they are not in this list.
+HINTS = ["1999", "seed-url.example.test", "seed street", "seed-album", "seed-video"]
 
 # (level label, category, subject, extra record fields). Subjects are seed-subject-NN
 # unless the category is a venue, where the subject must be a plain name.

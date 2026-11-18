@@ -17,7 +17,34 @@ from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
 from .privacy_gate import (outbound_refusal, PRIVACY_SCALE_KEY, REASON_UNKNOWN_LEVEL,
-                           VENUE_CATEGORIES, venue_name_refusal)
+                           VENUE_CATEGORIES, venue_name_refusal, contact_match, person_shaped)
+
+# Categories whose look-up can carry a creator name (artist, author, track record).
+CREATOR_CATEGORIES = frozenset({"artist", "music", "track", "album", "book", "books"})
+# Free-text topic categories: a person's name typed as an interest is refused.
+INTEREST_CATEGORIES = frozenset({"interest", "topic", "search_interest", "instagram_creator"})
+
+
+def _structured_creator(preference, category):
+    """The creator name from a STRUCTURED field of a media record, or None.
+    Track/album: extra.artist. Book: the author field (or extra.author). Anything
+    else, including a free-text subject, is not a structured creator."""
+    import json
+    extra = preference.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            extra = None
+    extra = extra if isinstance(extra, dict) else {}
+    if category in ("music", "track", "album"):
+        value = extra.get("artist")
+    elif category in ("book", "books"):
+        value = preference.get("author") or extra.get("author")
+    else:
+        value = None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -31,7 +58,7 @@ from .clients.events import EventClient
 from .clients.domain_topics import DomainTopicMapper
 from .clients.youtube import YouTubeClient
 from .clients.places import PlacesClient
-from .derive.sensitive import never_read_categories
+from .derive.sensitive import never_read_categories, health_or_finance_content
 from .derive.thematic import HIERARCHY_GRAPH, WD_ENTITY, leaf_is_sensitive
 from .clients.osm_cuisine import OsmCuisineClient
 from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, EntityResult
@@ -39,6 +66,9 @@ from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, 
 logger = logging.getLogger(__name__)
 
 # Owner contact names from the local people store (CM041 contact syncer writes these).
+# Owner marker for a topic-node row whose preference IRI cannot be checked (T03).
+UNREADABLE_OWNER = "\x00unreadable"
+
 _CONTACT_NAMES_QUERY = """
 PREFIX pwg: <https://schema.ostler.ai/ontology#>
 SELECT DISTINCT ?name WHERE { ?p a pwg:Person ; pwg:displayName ?name . }
@@ -222,6 +252,11 @@ def is_enrichment_miss(result) -> bool:
 
 
 class EnrichmentService:
+    # Class-level defaults so a subclass or harness that skips __init__ still fails
+    # closed (not AttributeError): the contact loader then reads the store once.
+    _contacts_loaded = False
+    _contact_names_value = None
+
     """
     Main enrichment orchestrator.
 
@@ -354,6 +389,9 @@ class EnrichmentService:
             for category, client_name in cls.CATEGORY_CLIENTS.items()
             if not cls._credential_present(client_name)
         }
+
+    def _refuse(self, reason: str) -> None:
+        self.privacy_refusals[reason] = self.privacy_refusals.get(reason, 0) + 1
 
     def __init__(self):
         """Initialize the enrichment service."""
@@ -744,6 +782,35 @@ INSERT DATA {{
             if _extra.get("restaurant") and not _extra.get("cuisine"):
                 client_name = "osm_cuisine"
 
+        # CB134 red-team: the content gate runs on the TOPIC STRING for every look-up
+        # path. Health, medicine, finance and legal terms are never sent.
+        if health_or_finance_content(subject):
+            self._refuse("sensitive_content")
+            return None
+
+        # Person names (Archie 2026-11-18). A creator name goes out only from the
+        # STRUCTURED creator field of a media record, never from a free-text label.
+        creator = _structured_creator(preference, category)
+        names = (await self._venue_contact_names()
+                 if (category in CREATOR_CATEGORIES or category in INTEREST_CATEGORIES or creator)
+                 else frozenset())
+        if category in CREATOR_CATEGORIES:
+            if creator is not None and names is None:
+                creator = None  # contacts unreadable: no creator name goes out, title only
+            if creator is not None and names is not None and contact_match(creator, names):
+                self._refuse("creator_is_contact")
+                return None
+            if category == "artist":
+                self._refuse("creator_free_text")  # the subject IS a creator name, free text
+                return None
+            if category in ("music", "track", "album") and creator is None and " - " in subject:
+                self._refuse("creator_free_text")  # "Artist - Track" carries a creator in free text
+                return None
+        if category in INTEREST_CATEGORIES:
+            if person_shaped(subject) or (names is not None and contact_match(subject, names)):
+                self._refuse("person_label")
+                return None
+
         # CB134 (Archie condition 2): a look-up carries the topic string only.
         # Hints read from the owner's record (author, year, extra.artist/song/album,
         # extra.url, url, extra.area, extra.video_id) are NOT sent. Routing above
@@ -764,7 +831,9 @@ INSERT DATA {{
             # public URL. No look-up until a topic-public URL is proven.
             self.privacy_refusals["url_owner_data"] = self.privacy_refusals.get("url_owner_data", 0) + 1
             return None
-        preference = {"id": pref_id, "subject": subject, "category": category}
+        preference = {"id": pref_id, "subject": subject, "category": category,
+                      "author": creator if category in ("book", "books") else None,
+                      "creator": creator}
 
         # Route to client
         if client_name == "openlibrary":
@@ -798,6 +867,10 @@ INSERT DATA {{
             # Use lower confidence threshold for movies (titles often have prefixes/suffixes)
             min_conf = 0.3 if media_type == "movie" else 0.5
             return await self._tmdb.enrich(pref_id, search_title, year, media_type, min_confidence=min_conf)
+
+        elif client_name == "musicbrainz" and preference.get("creator"):
+            # The structured creator is the query: name and media type only.
+            return await self._musicbrainz.enrich(pref_id, preference["creator"], "artist")
 
         elif client_name == "musicbrainz":
             # Extract metadata from extra if available (Apple Music provides this)
@@ -1515,7 +1588,7 @@ INSERT DATA {{
             banned = set(never_read_categories())
             for p in points:
                 pid = str(p.get("id"))
-                if pid in out:
+                if pid in out and pid != UNREADABLE_OWNER:
                     payload = p.get("payload") or {}
                     reason = outbound_refusal(payload)
                     if reason is None and str(payload.get("category") or "").strip().lower() in banned:
@@ -1551,7 +1624,8 @@ INSERT DATA {{
         for label in list(topics):
             if leaf_is_sensitive(label):
                 withhold(label, REASON_SENSITIVE_LABEL)
-        all_ids = sorted({pid for lab in topics for pid in owners.get(lab, ())})
+        all_ids = sorted({pid for lab in topics for pid in owners.get(lab, ())
+                          if pid != UNREADABLE_OWNER})
         refusals = await self._topic_owner_refusals(client, all_ids) if all_ids else {}
         if refusals is None:
             stats["privacy_check_failed"] = True
@@ -1559,11 +1633,14 @@ INSERT DATA {{
             topics.clear()
             return False
         for label in list(topics):
+            # Strictest owner wins: the label goes out only when EVERY preference on
+            # its node may go out. An unreadable owner counts as refused (T02, T03).
             reasons = [refusals.get(pid, REASON_UNKNOWN_LEVEL)
                        for pid in sorted(owners.get(label, ()))]
-            if any(r is None for r in reasons):
+            if reasons and all(r is None for r in reasons):
                 continue
-            withhold(label, reasons[0] if reasons else REASON_NO_OWNER)
+            withhold(label, next((r for r in reasons if r is not None),
+                                 REASON_NO_OWNER))
         return True
 
     async def normalize_topics_with_wikidata(
@@ -1634,9 +1711,9 @@ INSERT DATA {{
                     pref = binding.get("pref", {}).get("value", "")
                     if label and topic_uri:
                         topics_to_normalize[label] = topic_uri
-                        if pref.startswith("urn:ostler:preference:"):
-                            owners.setdefault(label, set()).add(
-                                pref[len("urn:ostler:preference:"):])
+                        owners.setdefault(label, set()).add(
+                            pref[len("urn:ostler:preference:"):]
+                            if pref.startswith("urn:ostler:preference:") else UNREADABLE_OWNER)
 
                 # Per-item gate, AFTER consent (see _gate_topic_labels): P9
                 # sensitive labels and P10 minors never reach wikidata.org.
@@ -1763,8 +1840,9 @@ INSERT DATA {{
                     if not label or not qid:
                         continue
                     label_qids.setdefault(label, set()).add(qid)
-                    if pref.startswith("urn:ostler:preference:"):
-                        owners.setdefault(label, set()).add(pref[len("urn:ostler:preference:"):])
+                    owners.setdefault(label, set()).add(
+                        pref[len("urn:ostler:preference:"):]
+                        if pref.startswith("urn:ostler:preference:") else UNREADABLE_OWNER)
                 if not await self._gate_topic_labels(client, label_qids, owners, stats):
                     stats["status"] = "failed:privacy_unreadable"
                     return stats

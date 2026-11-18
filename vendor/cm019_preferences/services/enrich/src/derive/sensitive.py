@@ -203,3 +203,44 @@ def derived_value_is_sensitive(dimension: str, value: str) -> bool:
     if dimension in _exact_dimensions():
         return is_sensitive_exact(value)
     return is_sensitive(value)
+
+
+# ---------------------------------------------------------------------------
+# CM051 DIVERGENCE (CB134 red-team, 2026-11-18). Content gate for LOOK-UPS.
+#
+# The vocabulary above (sensitive_terms.yaml) does not name medicines, and it
+# does not name finance or legal matters. A subject that is a medicine name, or
+# a finance/legal term, was looked up under a non-health category. These two
+# short lists close that gap for the look-up and theme paths. They are a
+# deny-list: an incomplete list, stated as such.
+# ---------------------------------------------------------------------------
+MEDICATION_TERMS = frozenset({
+    "metformin", "insulin", "atorvastatin", "simvastatin", "rosuvastatin", "statin",
+    "sertraline", "fluoxetine", "citalopram", "escitalopram", "paroxetine", "venlafaxine",
+    "prozac", "zoloft", "lexapro", "levothyroxine", "warfarin", "salbutamol", "ventolin",
+    "inhaler", "adalimumab", "methotrexate", "tamoxifen", "prednisolone", "xanax",
+    "valium", "diazepam", "lorazepam", "morphine", "oxycodone", "methadone",
+    "buprenorphine", "naltrexone", "antidepressant", "antidepressants", "antipsychotic",
+    "contraceptive", "contraception", "hrt",
+})
+FINANCE_LEGAL_TERMS = frozenset({
+    "mortgage", "mortgages", "loan", "loans", "debt", "debts", "bankruptcy", "bankrupt",
+    "credit card debt", "tax return", "lawsuit", "divorce", "custody", "probate",
+    "solicitor", "solicitors", "lawyer", "lawyers", "tribunal", "injunction",
+})
+
+
+def health_or_finance_content(text: str) -> bool:
+    """True when the text is a health, medicine, finance or legal term by content.
+    Uses the full vocabulary (is_sensitive, is_abstention_value) plus the two
+    lists above. Whole-word match on the lists."""
+    import re
+    if not text:
+        return False
+    if is_sensitive(text) or is_abstention_value(text):
+        return True
+    low = _prepared(text)
+    for term in MEDICATION_TERMS | FINANCE_LEGAL_TERMS:
+        if re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", low):
+            return True
+    return False

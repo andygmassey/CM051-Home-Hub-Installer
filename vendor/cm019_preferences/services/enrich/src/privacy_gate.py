@@ -128,13 +128,39 @@ def _legacy_token(value: Any) -> Optional[str]:
     return None
 
 
+MINOR_FLAG_KEYS = ("about_minor", "child", "minor", "is_minor")
+_NOT_MINOR_TEXT = frozenset({"", "false", "0", "no", "none"})
+
+
+def _flag_says_minor(value: Any) -> bool:
+    """Any value other than None, False, 0 or a false-word is "minor" (fail closed):
+    "yes", "TRUE", 2 and True all read as minor (CB134 red-team M08-M10, A22)."""
+    if value is None or value is False:
+        return False
+    if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+        return False
+    if isinstance(value, str) and value.strip().lower() in _NOT_MINOR_TEXT:
+        return False
+    return True
+
+
 def _is_about_minor(preference: Dict[str, Any]) -> bool:
+    """True when ANY minor flag, at the top level or inside ``extra``, says minor.
+    ``extra`` may be a JSON string: it is parsed, and an unparseable one fails closed."""
+    import json
+    if any(_flag_says_minor(preference.get(k)) for k in MINOR_FLAG_KEYS):
+        return True
     extra = preference.get("extra")
-    flags = [preference.get("about_minor")]
-    if isinstance(extra, dict):
-        flags.append(extra.get("about_minor"))
-    # Fail closed: any present value other than None/False means "minor".
-    return any(f is not None and f is not False for f in flags)
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            return True  # cannot read the record's flags: fail closed
+    if extra is None:
+        return False
+    if not isinstance(extra, dict):
+        return True
+    return any(_flag_says_minor(extra.get(k)) for k in MINOR_FLAG_KEYS)
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +283,35 @@ _ART9_VENUE_WORDS = frozenset({
 
 def _tokens(text: str):
     import re
-    return [t for t in re.split(r"[^a-z0-9]+", text.lower()) if t]
+    import unicodedata
+    folded = unicodedata.normalize("NFKD", str(text))
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return [t for t in re.split(r"[^a-z0-9]+", folded.lower()) if t]
+
+
+def contact_match(name: str, contact_names) -> bool:
+    """True when every token of some owner contact name appears in ``name``.
+    Case, diacritics, whitespace, punctuation and "Last, First" order are all
+    ignored, because the comparison is on the token set."""
+    toks = set(_tokens(name))
+    for person in contact_names or ():
+        want = set(_tokens(person))
+        if want and want <= toks:
+            return True
+    return False
+
+
+def person_shaped(label: str) -> bool:
+    """A free-text label that reads as a person's name: two or three alphabetic
+    words, each capitalised, no digits. A heuristic: it over-refuses two- and
+    three-word proper nouns, and it is the cost of the interest rule."""
+    words = str(label or "").split()
+    if not 2 <= len(words) <= 3:
+        return False
+    for w in words:
+        if not w.isalpha() or not w[0].isupper():
+            return False
+    return True
 
 
 def _venue_shape_refusal(name: str) -> Optional[str]:

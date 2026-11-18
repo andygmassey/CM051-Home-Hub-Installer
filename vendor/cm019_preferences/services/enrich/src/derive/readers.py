@@ -193,6 +193,38 @@ def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> L
     return [] if strict else [text]
 
 
+def _about_minor_record(pl: dict) -> bool:
+    """Fail-closed minor flag, the same rule as privacy_gate._is_about_minor (CB134
+    red-team M08-M10, A22, A23): any flag other than None, False, 0 or a false-word
+    means minor, at the top level or inside extra (a JSON-string extra is parsed)."""
+    import json
+    not_minor_text = {"", "false", "0", "no", "none"}
+
+    def says(v):
+        if v is None or v is False:
+            return False
+        if isinstance(v, int) and not isinstance(v, bool) and v == 0:
+            return False
+        if isinstance(v, str) and v.strip().lower() in not_minor_text:
+            return False
+        return True
+
+    keys = ("about_minor", "child", "minor", "is_minor")
+    if any(says(pl.get(k)) for k in keys):
+        return True
+    extra = pl.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            return True
+    if extra is None:
+        return False
+    if not isinstance(extra, dict):
+        return True
+    return any(says(extra.get(k)) for k in keys)
+
+
 def _not_minor(points):
     """Drop evidence ABOUT a minor (a person node or chat flagged by its producer
     with extra.about_minor), and evidence stored under a never-read category
@@ -203,7 +235,7 @@ def _not_minor(points):
     for p in points:
         pl = p.get("payload") or {}
         extra = pl.get("extra") or {}
-        if isinstance(extra, dict) and extra.get("about_minor") in (True, "true", "True", 1, "1"):
+        if _about_minor_record(pl):
             continue
         if str(pl.get("category") or "").strip().lower() in banned:
             continue

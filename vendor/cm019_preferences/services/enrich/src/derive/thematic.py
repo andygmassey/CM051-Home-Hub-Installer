@@ -86,7 +86,13 @@ THEME_DESTINATION = "owner_own_brief"
 # (L0Personal, the most private numeric level, canonical L3; see
 # services/ingest/src/parsers/base.py HEALTH_LEVEL), so 0 is blocked too:
 # without it, moving health off 5 would let it feed a surfaced theme.
-_LEGACY_BLOCKED = frozenset({"0", "l0personal", "5", "l5commercial"})
+# Legacy 1 is SENSITIVE_LEVEL and FINANCIAL_LEVEL in base.py (personal location,
+# third-party people, spend), so it never feeds a theme beside a canonical L1
+# (CB134 red-team M01, M02).
+_LEGACY_BLOCKED = frozenset({"0", "l0personal", "1", "l1family", "l1private",
+                             "5", "l5commercial"})
+# Health by category, or by content on the subject, never feeds a theme (M12).
+_HEALTH_CATEGORIES = frozenset({"health", "health_record", "medical", "dietary", "diet"})
 
 
 def _topic_triple(var_pref: str, var_topic: str, graph_var: str) -> str:
@@ -175,7 +181,12 @@ def leaf_is_sensitive(label: str) -> bool:
 def privacy_of(payload: dict) -> Optional[str]:
     """The canonical level to carry onto evidence, None when the point must not
     feed a surfaced theme: unlevelled or legacy-only (read as L3), L3, a value
-    we cannot read, or the legacy highest-privacy 5."""
+    we cannot read, the legacy highest-privacy 5, or health by category or content."""
+    from .sensitive import health_or_finance_content
+    if str(payload.get("category") or "").strip().lower() in _HEALTH_CATEGORIES:
+        return None
+    if health_or_finance_content(str(payload.get("subject") or "")):
+        return None
     raw = payload.get("privacy_level")
     if raw is not None and str(raw).strip():
         record = {

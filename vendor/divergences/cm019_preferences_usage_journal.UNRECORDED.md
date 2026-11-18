@@ -529,3 +529,24 @@ Contact names (exclusion c), WIRED: `EnrichmentService._venue_contact_names` rea
 L1 end to end: L1 IS looked up in the shipped path. The enrich path calls only this gate (`privacy_gate.outbound_refusal`, from `enrich_preference` and both batch sites). The shared scale table's `others` row (`pwg_privacy.outbound_ok`) is not called anywhere in the enrich tree; it is called only by the thematic reader for `owner_own_brief`. The seed test shows L1 looked up for music and interest (2 of 2), and the batch-path gate test (arm 5, `privacy_level` L1) reaches the wire exactly once.
 
 Known gaps, stated: (1) `place`, `venue` and `restaurant` are looked up as venue names only, under the rule above. (2) `contact_names` is not wired to a feed (see NOT WIRED).
+
+## 2026-11-18: red-team fixes and the person-name ruling (CB134, #3607)
+
+Source of the ruling, verbatim: Archie, 2026-11-18, person names: a creator name may be looked up ONLY from the structured creator field of a media record (artist on a track, author on a book, and similar), never from a free-text interest or person label. Refused: a name that matches an owner contact (case, diacritics, whitespace and "Last, First" order ignored); a record about a minor; a media record that is health, finance or legal by content. The query carries the name and the media type only.
+
+Red-team report: `~/walkdriver/REDTEAM_134_ENRICH_2026-11-18.md`. Its suite is copied into the repo at `tests/redteam_enrich/` (46 tests) and wired in `.github/workflows/derived-preferences.yml`.
+
+Fixes, one line each:
+- Health and sensitive CONTENT on the topic string, every look-up path: `derive/sensitive.health_or_finance_content` (the full vocabulary plus a medicine and finance/legal list). Red-team A11, A12.
+- Shared topic node: a label goes out only when EVERY preference on its node may go out (strictest owner); a preference IRI outside `urn:ostler:preference:` is counted as an unreadable owner and refused. Red-team T02, T03.
+- Themes: legacy 1 refused beside canonical L1 (base.py lines 58-59); health by category or content withheld. Red-team M01, M02, M12.
+- Minor flag, one rule everywhere: any value other than None, False, 0 or a false-word means minor, at the top level or in `extra`; a JSON-string `extra` is parsed; an unparseable one fails closed. Keys: about_minor, child, minor, is_minor. Red-team M08-M10, A22, A23.
+- Locations: `place` addresses and `extra.area` are not sent (already fixed at e3ec67aa and 5d9af5f2; red-team A16, A17 pass).
+- Person names: structured creator only (`_structured_creator`: `extra.artist` for music, track, album; `author` for book). Contact match on the creator refuses the look-up. An interest label that reads as a person's name is refused (`person_shaped`: two or three capitalised alphabetic words, a heuristic). An artist-category subject is refused (`creator_free_text`). A music subject with " - " and no structured creator is refused (`creator_free_text`). The look-up for a structured artist is `musicbrainz.enrich(artist, "artist")`.
+
+Known limits, stated:
+- Contact names come from the people-store loader. When the store is unreadable, no creator name goes out (title only). In the red-team harness the store is not mocked, so the loader fails closed there. Red-team A15 (author name sent to openlibrary) therefore passes BECAUSE the contact store is unreadable, not because the ruling is implemented; the ruling allows an author name that matches no contact. Archie to confirm the expectation.
+- `person_shaped` over-refuses two- and three-word proper nouns typed as interests (for example a band or a film title). It is the cost of the interest rule.
+- The medicine and finance/legal lists are deny-lists. They are incomplete.
+- Music subjects with " - " and no structured artist are no longer looked up. This is a regression on the subject-parsed path, by design of the ruling.
+- The `artist` category is no longer looked up from its subject.
