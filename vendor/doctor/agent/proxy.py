@@ -139,14 +139,40 @@ def _validator_base_url() -> str:
     ).rstrip("/")
 
 
+# PRIVACY DESTINATION (CM041 #296, Archie 2026-11-17). The ical-server serves
+# owner_local (L3 and untagged, labelled private) only to a loopback peer. This
+# proxy's peer is tailnet devices arriving as 127.0.0.1 (tailscale serve, raw
+# TCP on 8089), so a forwarded request would reach the ical-server FROM
+# loopback. Until the owner-scoped bearer lands, every proxied request is the
+# owner's own channel: any inbound destination header or query parameter is
+# STRIPPED and owner_own_brief is set here. A tailnet caller can never claim
+# owner_local through this proxy.
+DESTINATION_HEADER = "x-ostler-destination"
+DESTINATION_QUERY_PARAM = "destination"
+PROXIED_DESTINATION = "owner_own_brief"
+
+
+def _strip_destination_query(query: str) -> str:
+    """Drop every ``destination=`` pair from a raw query string, keep the rest
+    byte-for-byte (order and encoding untouched)."""
+    if not query:
+        return query
+    kept = [part for part in query.split("&")
+            if part.split("=", 1)[0] != DESTINATION_QUERY_PARAM]
+    return "&".join(kept)
+
+
 def _filter_request_headers(headers) -> dict[str, str]:
     """Drop hop-by-hop headers. Preserve everything else, including
     Authorization, which is the whole point of this proxy."""
-    return {
+    out = {
         key: value
         for key, value in headers.items()
         if key.lower() not in _HOP_BY_HOP_HEADERS
+        and key.lower() != DESTINATION_HEADER
     }
+    out[DESTINATION_HEADER] = PROXIED_DESTINATION
+    return out
 
 
 def _filter_response_headers(headers) -> dict[str, str]:
@@ -500,7 +526,7 @@ async def proxy_request(
     # Forward the concrete request path, not the registered template.
     # FastAPI puts the substituted path on request.url.path.
     upstream_url = upstream_base + request.url.path
-    query = request.url.query
+    query = _strip_destination_query(request.url.query)
     if query:
         upstream_url = f"{upstream_url}?{query}"
 

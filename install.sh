@@ -27988,7 +27988,7 @@ if [[ -z "${SERVICE_TOKEN}" ]]; then
     cannot_deliver 75 "CANNOT-RUN no service token (PWG_SERVICE_TOKEN or ${OSTLER_DIR}/secrets/service_token); the Hub would answer 401"
 fi
 RESPONSE=$(curl -sS -m 8 -f \
-    -H "Authorization: Bearer ${SERVICE_TOKEN}" \
+    -H "Authorization: Bearer ${SERVICE_TOKEN}" -H "X-Ostler-Destination: owner_own_brief" \
     "${HUB_HOST}/api/v1/meeting/upcoming?within_minutes=${WITHIN_MINUTES}" \
     2>>"${LOG_FILE}") || {
     cannot_deliver 75 "CANNOT-RUN hub fetch failed (${HUB_HOST}); no brief can be composed this tick"

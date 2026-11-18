@@ -192,5 +192,44 @@ NAIVE="$(send_header ja '[]' '20261114T100000' 'Asia/Hong_Kong')"
 case "$NAIVE" in *"10:00"*) ;; *) echo "FAIL [header-time-naive]: a naive local 10:00 must stay 10:00: $NAIVE" >&2; exit 1 ;; esac
 echo "PASS: owner-language header (ja: $JA_WITH; en-US: $US_ALONE; Z 01:00 on HK clock: $HK_Z)"
 
+# ── Privacy destination (CM041 #296, Archie 2026-11-17) ──────────
+# The brief is the owner's OWN brief: the Hub fetch must declare
+# X-Ostler-Destination: owner_own_brief, or the Hub reads it as "unknown"
+# (the strictest row) and drops every L1/L2 fact. Runs the REAL generated
+# sender script with a stub curl that records its argv, a synthetic
+# assistant config, and quiet hours disabled. RED on the pre-change sender.
+DST_W="$(mktemp -d)"
+trap 'rm -rf "$HDR_W" "$DST_W"' EXIT
+/usr/bin/python3 - "$INSTALL_SCRIPT" "$DST_W/sender.sh" <<'PYX'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read().split("\n")
+i = next(k for k, l in enumerate(s) if 'ostler-meeting-brief-sender" <<' in l and "BRIEFEOF" in l)
+j = next(k for k in range(i + 1, len(s)) if s[k] == "BRIEFEOF")
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(s[i + 1:j]) + "\n")
+PYX
+mkdir -p "$DST_W/fakehomedir/.ostler/.venv/bin" "$DST_W/fakehomedir/.ostler/logs" "$DST_W/fakehomedir/.ostler/state" "$DST_W/bin"
+PY311="$(command -v python3.11 || command -v python3)"
+ln -s "$PY311" "$DST_W/fakehomedir/.ostler/.venv/bin/python3"
+printf '[[cron.jobs]]\nid = "morning-brief"\n[cron.jobs.delivery]\nmode = "announce"\nchannel = "imessage"\nto = "synthetic-recipient"\n' > "$DST_W/fakehomedir/.ostler/brief.toml"
+cat > "$DST_W/bin/curl" <<'CURLX'
+#!/bin/bash
+printf '%s\n' "$@" >> "$CURL_ARGV"
+exit 0
+CURLX
+chmod +x "$DST_W/bin/curl"
+CURL_ARGV="$DST_W/argv.txt" HOME="$DST_W/fakehomedir" PATH="$DST_W/bin:$PATH" \
+    PWG_SERVICE_TOKEN="synthetic-token" OSTLER_BRIEF_CONFIG="$DST_W/fakehomedir/.ostler/brief.toml" \
+    OSTLER_BRIEF_QUIET_START=24 OSTLER_BRIEF_QUIET_END=0 \
+    /bin/bash "$DST_W/sender.sh" >/dev/null 2>&1 || true
+if ! grep -q 'meeting/upcoming' "$DST_W/argv.txt" 2>/dev/null; then
+    echo "CANNOT-RUN [brief-destination]: the sender never reached the Hub fetch" >&2
+    exit 2
+fi
+if ! grep -qx 'X-Ostler-Destination: owner_own_brief' "$DST_W/argv.txt"; then
+    echo "FAIL [brief-destination]: the Hub fetch does not declare X-Ostler-Destination: owner_own_brief" >&2
+    exit 1
+fi
+echo "PASS: the brief's Hub fetch declares X-Ostler-Destination: owner_own_brief"
+
 echo ""
 echo "All meeting-brief-sender wiring checks passed."
