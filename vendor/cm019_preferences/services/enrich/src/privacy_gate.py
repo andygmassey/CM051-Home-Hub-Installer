@@ -1,39 +1,37 @@
-"""Per-item privacy gate for outbound public lookups.
+"""Per-item privacy gate for outbound public lookups (CM051 enrichment divergence).
 
 consent.py answers "did the owner allow online look-ups at all?". This module
-answers the second question, per item: "may THIS item leave the Mac?". Both
-must say yes. The consent gate stays exactly as it is; this one runs after it.
+answers the second question, per item: "may THIS item's subject leave the Mac in a
+look-up?". Both must say yes. The consent gate is unchanged; this one runs after it.
 
-An item is refused, and no request is made for it, when ANY of these holds:
+THIS FILE IS A CM051 DIVERGENCE from personal-world-graph 35302c9d. The upstream
+``outbound_refusal`` decided a third-party destination (``others``) and allowed only
+L0 with the scale stamp. Owner ruling, 2026-11-18: "L0/L1 only, never L2". So the
+enrichment look-up gate below is what the enrich path calls:
 
-  * its canonical level may not go to ``others`` (privacy design PR 3);
-  * its privacy level is missing or unrecognised (fail closed);
-  * it is about a minor (``extra.about_minor``, stamped at ingest from the
-    owner's minors registry).
+  * ALLOWED: a stamped canonical L0 or L1 item, and legacy compartments 2, 4 and 6
+    (mapped to L0/L1 per services/ingest/src/parsers/base.py). The look-up sends the
+    TOPIC STRING only (the enricher strips every other record field).
+  * REFUSED: canonical L2 and L3; an unstamped L0 (legacy-ambiguous); unlevelled or
+    unknown levels; legacy 0, 1, 3 and 5; a minor (any minor flag, top level or in
+    ``extra``, JSON-string ``extra`` parsed, unparseable fails closed).
+  * REFUSED by category, whatever the level: person, contact, location, address,
+    finance, health, dietary and never-read categories.
+  * Venue names (``venue_name_refusal``): by name only. Never an address, digits,
+    commas or a location label. Never an Art. 9-type venue. Never a venue containing
+    an owner contact name.
+  * Person names (``contact_match``, ``person_shaped``): a creator is looked up only
+    from a structured creator field (enricher.py ``_structured_creator``); an owner
+    contact is never looked up.
 
-WHICH LEVELS MAY GO OUT. An online look-up hands the item's subject to a third
-party, so its destination is ``others``. The decision for a canonical string
-level is made ONLY by the vendored canonical helper
-(services/common/pwg_privacy.py, sha-pinned; ``outbound_ok``): on the canonical
-scale (L0 public ... L3 owner-only) only L0 may go to others; L1 only in a
-redacted form no look-up produces, so it is refused; L2 and L3 never. An L0
-WITHOUT the scale stamp is LEGACY (old PWG L0 meant owner-private) and is
-refused through ``legacy_l0_guard`` until the relabel. No level logic lives in
-this file for canonical strings.
+The shared scale table (services/common/privacy_scale_canonical.tsv) and its helper
+(services/common/pwg_privacy.py) are byte-identical to upstream. They still refuse L1
+at ``others``; the enrichment decision is made HERE, not there, until the dedicated
+enrichment row lands (CB135-ENRICHMENT-L1-DESTINATION).
 
-Producers write two shapes, and both are read:
-
-  * ``privacy_level``: the canonical string (L0..L3).
-  * ``compartment_level``: the legacy integer, written by every ingest parser
-    via ParsedPreference.to_payload (services/ingest/src/parsers/base.py).
-
-Legacy integers allowed out: 2 (L2Trusted), 4 (L4Public), 6 (L6Broadcast).
-Refused: 0 (L0Personal), 1 (L1Family), 3 (L3Community) and 5. Five is refused
-even though privacy_model maps L5Commercial to L2, because the Apple notes and
-health producers write 5 meaning "HIGHEST PRIVACY" (services/ingest/src/parsers/
-apple.py). Two producers disagree on what 5 means, so it is read the safe way.
-
-When both fields are present, BOTH must allow; either one refusing refuses.
+Producers write two shapes, and both are read: ``privacy_level`` (the canonical
+string, L0..L3) and ``compartment_level`` (the legacy integer, written by every ingest
+parser via ParsedPreference.to_payload).
 
 Logging is counts only: the gate returns a reason code, never the subject.
 """
