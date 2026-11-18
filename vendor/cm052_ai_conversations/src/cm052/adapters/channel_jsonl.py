@@ -6,7 +6,7 @@ subdirectory. Files are written by ZeroClaw's channel bridges
 conversation identity. Lines carry only ``role`` + ``content`` – no
 per-message timestamps, no message ids.
 
-Filename grammar (per Andy's spec, verified against production
+Filename grammar (per the owner's spec, verified against production
 archives):
 
 ::

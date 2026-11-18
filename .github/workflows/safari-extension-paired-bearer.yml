@@ -43,6 +43,7 @@ on:
       - 'vendor/doctor/agent/proxy.py'
       - 'tests/test_safari_extension_paired_bearer_write.sh'
       - 'tests/test_safari_extension_bearer_reaches_doctor.py'
+      - 'tests/test_doctor_proxy_pins_the_privacy_destination.py'
       - '.github/workflows/safari-extension-paired-bearer.yml'
   push:
     branches: [main]
@@ -83,3 +84,6 @@ jobs:
         run: python3 -m pip install --quiet fastapi httpx
       - name: The Doctor admits the exact bearer install.sh now pairs, and rejects a wrong one
         run: python3 tests/test_safari_extension_bearer_reaches_doctor.py -v
+      - name: The Doctor proxy pins the privacy destination (a tailnet caller cannot claim owner_local)
+        if: success() || failure()
+        run: python3 tests/test_doctor_proxy_pins_the_privacy_destination.py -v
