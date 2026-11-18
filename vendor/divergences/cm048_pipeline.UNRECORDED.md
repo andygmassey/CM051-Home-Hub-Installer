@@ -224,6 +224,13 @@ handle joined later through people join is NOT in the file until the owner re-ma
 
 RETIRE when CM041 #226 and the CM048 MinorFlag reader are both in the pin and the registry
 file and the store converge on one source (CUT_BLOCKERS CB135).
-Proof: `tests/test_cm048_minor_registry_vendored.py` (17), drives the real setter. RED on
+Proof: `tests/test_cm048_minor_registry_vendored.py` (21), drives the real setter. RED on
 origin/main (collection error: no minors module). Mutants killed: step 07 drop removed (1
 fail), push gate off (4), bundle flag forced False (2), fail-closed removed (5).
+
+Handle capture (measured 2026-11-18): `api_people_set_minor` records EVERY identifier the people
+store held for the person at flag time (`_personal_identifiers_for`: all phones and emails,
+card UID, other handle types), except an identifier a differently-named person also holds and a
+fixed landline, by design (so a shared family line never excludes a relative). Test arms: a
+conversation on the second and third handle is blocked. NOT covered: a handle joined after flag
+time (live join resolution, CB135-MINORS-ONE-STORE).

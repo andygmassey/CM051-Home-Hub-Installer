@@ -71,6 +71,7 @@ NS = "https://schema.ostler.ai/ontology#"
 SAM, SAM_URI = "Sam Doe", NS + "person_samexample01"
 SAM_PHONE = "+44" + "7700" + "900123"  # reserved range, composed
 SAM_EMAIL = "sam.example" + "@" + "example.test"
+SAM_IG = "sam_example_fixture"
 JANE = "Jane Smith"
 JANE_EMAIL = "jane.smith" + "@" + "example.test"
 
@@ -91,7 +92,8 @@ class _GraphStub:
     """The slice of the graph api_people_set_minor reads and writes."""
 
     def __init__(self):
-        self.ids = [("phone", SAM_PHONE), ("email", SAM_EMAIL)]
+        self.ids = [("phone", SAM_PHONE), ("email", SAM_EMAIL),
+                    ("instagram_username", SAM_IG)]
         self.suppressions = {}
 
     def select(self, q):
@@ -384,3 +386,43 @@ def test_mutant_gate_off_is_caught(registry, settings, monkeypatch, tmp_path):
     _write_all(tmp_path, settings)
     assert MINOR_TEXTS[0] in _text(posts), "mutant: the gate is off, the fact lands"
     assert _run_bundle_step(settings, META, tmp_path, "mut")[0][0] == "pending"
+
+
+# -- every handle the store held at flag time is captured --------------------
+
+SECOND_AND_THIRD = [
+    ("email", {"role": "other", "email": SAM_EMAIL}, SAM_EMAIL),
+    ("instagram", {"role": "other", "identifiers": {"instagram": SAM_IG}}, SAM_IG),
+]
+
+
+def test_the_setter_recorded_every_handle_the_store_held(registry):
+    data = json.loads(registry.read_text())
+    assert set(data["minors"][0]["identifiers"]) >= {SAM_PHONE, SAM_EMAIL, SAM_IG}
+
+
+@pytest.mark.parametrize("label,entry,handle", SECOND_AND_THIRD,
+                         ids=[x[0] for x in SECOND_AND_THIRD])
+def test_a_conversation_on_the_second_or_third_handle_is_blocked(
+        registry, settings, monkeypatch, tmp_path, label, entry, handle):
+    """The owner flagged Sam by name; Sam's chat arrives on a DIFFERENT handle
+    from the one the setter ran on. No name in the chat, handle only."""
+    meta = {"channel": "im", "participants": [{"role": "user", "display": "Test User"}, entry]}
+    facts = [{"text": "Sam is learning the cello", "subject": handle, "privacy_level": "L1"},
+             {"text": "Test User is planning a trip", "subject": "user", "privacy_level": "L1"}]
+    posts = _capture_sinks(monkeypatch)
+    ingest.write_all(state_dir=_state(tmp_path, meta, facts), conversation_id="wa-1",
+                     classification=_classification(), settings=settings,
+                     dry_run=False, metadata=meta)
+    everything = _text(posts)
+    assert "Sam is learning the cello" not in everything
+    assert "Test User is planning a trip" in everything, "control: the owner's fact lands"
+    rows = _run_bundle_step(settings, meta, tmp_path, "h-" + label)
+    assert rows == [("skipped", reminders_push.SKIP_REASON_MINOR)]
+
+
+def test_a_handle_not_in_the_file_is_not_blocked_documented_gap(registry, settings, tmp_path):
+    """NOT INSTRUMENTED live: a handle joined AFTER flag time is not in the
+    registry, so it is not matched (CB135-MINORS-ONE-STORE live resolution)."""
+    late = {"role": "other", "identifiers": {"telegram_username": "sam_late_alias_fixture"}}
+    assert not minors.participant_is_minor(late, minors.load())
