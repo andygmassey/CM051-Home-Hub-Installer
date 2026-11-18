@@ -7532,7 +7532,7 @@
  _PLAINTEXT_WARNED = False
  
  # Record the security posture for Doctor / external introspection.
-@@ -113,38 +138,109 @@
+@@ -113,9 +138,46 @@
      record_posture(
          "ical-server",
          "disabled",
@@ -7543,9 +7543,9 @@
 +        # different facts, and Doctor must not print them identically.
 +        reason=_DB_KEY.reason,
          backend="plaintext",
-     )
- 
- 
++    )
++
++
 +class DbKeyMissingError(RuntimeError):
 +    """A database that must be encrypted was asked for with no key."""
 +
@@ -7574,13 +7574,13 @@
 +        f"refusing to open {db_path} without a database key "
 +        f"(no database key: {_DB_KEY.reason}).{detail} "
 +        "Recover the key with `ostler-unlock --install-key-file`."
-+    )
+     )
 +    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
 +    raise DbKeyMissingError(msg)
-+
-+
+ 
+ 
  def _warn_plaintext_once(db_path: str) -> None:
-     """Print a one-shot stderr warning when the coach DB falls through
+@@ -123,28 +185,62 @@
      to plaintext SQLite. Loud is the right level here: silent plaintext
      is the bug we are fixing.
  
@@ -7737,44 +7737,22 @@
 -         WhatsApp JID), or
 -      3. a bare identifier: every character is in ``[0-9 + - ( ) . space]``
 -         AND it contains at least 6 digits (a phone number / numeric handle).
--
--    Rows are hidden at render time (the People list); the Qdrant point /
--    graph node is never deleted. Composes after the exact-identifier merge
--    (#168/#280): only residual nameless rows are filtered, no double-count.
--    """
--    if not display_name:
--        return True
--    s = display_name.strip()
--    if not s:
--        return True
--    low = s.lower()
--    if "@s.whatsapp.net" in low or "@lid" in low:
--        return True
--    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
--            sum(c.isdigit() for c in s) >= 6:
--        return True
--    return False
 +    🔴 WHY IT EXISTS. Measured on a v1.0.100 box the moment the front page's
 +    signal band started rendering:
  
+-    Rows are hidden at render time (the People list); the Qdrant point /
+-    graph node is never deleted. Composes after the exact-identifier merge
+-    (#168/#280): only residual nameless rows are filtered, no double-count.
 +        "You and #PayPal have gone quiet. No contact for 17 months.
 +         A short message keeps the thread alive."
 +        "<an address the operator owns>'s birthday is in two days"
 +        "<the operator's own name>'s birthday is in two days"
- 
--def _looks_like_bare_email_or_phone(display_name):
--    """True when ``display_name`` IS the identifier (an email address, or a
--    bare-digit phone/handle), not a resolved human name.
++
 +    PayPal is a notification sender. The second is an address, not a person.
 +    The third is the customer being reminded of his own birthday. All three
 +    pass _is_nameless_name, which catches WhatsApp JIDs and bare numeric
 +    handles and correctly says nothing about any of these.
- 
--    Walk #6, bug 2: distinct from ``_is_nameless_name`` above, which hides a
--    row outright. This one answers a narrower question -- "is the stored
--    name itself just an identifier?" -- asked only when a BETTER name
--    (given_name/family_name) is available on the SAME record, so the row
--    is never hidden, only re-labelled. See the call site in ``people_list``.
++
 +    Non-suggestable when:
 +      1. it starts with "#" -- an SMS shortcode / business sender, and there is
 +         no relationship to maintain,
@@ -7785,21 +7763,66 @@
 +    Nothing is deleted and nothing is hidden from the People list, search or
 +    the graph. These rows are withheld from SUGGESTIONS only.
      """
-     s = (display_name or "").strip()
+-    if not display_name:
+-        return True
+-    s = display_name.strip()
++    s = (display_name or "").strip()
      if not s:
--        return False
--    if "@" in s:
+         return True
+-    low = s.lower()
+-    if "@s.whatsapp.net" in low or "@lid" in low:
++    if s.startswith("#"):
          return True
 -    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
 -            sum(c.isdigit() for c in s) >= 6:
-+    if s.startswith("#"):
-         return True
 +    if "@" in s and " " not in s:
-+        return True
+         return True
 +    un = (user_name or "").strip()
 +    if un and s.casefold() == un.casefold():
 +        return True
      return False
+ 
+ 
+-def _looks_like_bare_email_or_phone(display_name):
+-    """True when ``display_name`` IS the identifier (an email address, or a
+-    bare-digit phone/handle), not a resolved human name.
+-
+-    Walk #6, bug 2: distinct from ``_is_nameless_name`` above, which hides a
+-    row outright. This one answers a narrower question -- "is the stored
+-    name itself just an identifier?" -- asked only when a BETTER name
+-    (given_name/family_name) is available on the SAME record, so the row
+-    is never hidden, only re-labelled. See the call site in ``people_list``.
+-    """
+-    s = (display_name or "").strip()
+-    if not s:
+-        return False
+-    if "@" in s:
+-        return True
+-    if all(c in _NAMELESS_BARE_ID_CHARS for c in s) and \
+-            sum(c.isdigit() for c in s) >= 6:
+-        return True
+-    return False
++# Senders that are services, not people. A "gone quiet" card about Skype
++# (a notification and VoIP service, since discontinued) was shown on the
++# v1.0.105 console walk; PayPal before it. Two independent signals, either
++# one enough: the display name is a known service brand, or EVERY address the
++# contact has is a role/automation mailbox. A denylist alone only knows the
++# brands it has seen, which is why the address signal exists.
++_SERVICE_SENDER_NAMES = frozenset({
++    "skype", "paypal", "linkedin", "facebook", "meta", "instagram", "twitter",
++    "x", "google", "gmail", "apple", "icloud", "amazon", "microsoft",
++    "outlook", "teams", "zoom", "slack", "dropbox", "github", "uber",
++    "airbnb", "netflix", "spotify", "whatsapp", "telegram", "ebay",
++    "booking.com", "deliveroo", "revolut", "wise", "stripe", "docusign",
++    "calendly", "eventbrite", "mailchimp", "substack", "medium", "notion",
++})
++_SERVICE_MAILBOX_LOCALPARTS = frozenset({
++    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
++    "notification", "notifications", "notify", "alerts", "alert", "mailer",
++    "mailer-daemon", "postmaster", "news", "newsletter", "info", "support",
++    "help", "hello", "team", "service", "services", "billing", "accounts",
++    "account", "security", "updates", "marketing", "bounce", "automated",
++})
  
  
 -# Walk #6, bug 1 (round 1) + round 4 (Archie's second screen-read, 7 more
@@ -7823,29 +7846,9 @@
 -    "notification", "notifications", "alert", "alerts", "advice",
 -    "marketplace", "reward", "rewards", "gift", "gifts", "update",
 -    "updates", "delivery", "deliveries",
-+# Senders that are services, not people. A "gone quiet" card about Skype
-+# (a notification and VoIP service, since discontinued) was shown on the
-+# v1.0.105 console walk; PayPal before it. Two independent signals, either
-+# one enough: the display name is a known service brand, or EVERY address the
-+# contact has is a role/automation mailbox. A denylist alone only knows the
-+# brands it has seen, which is why the address signal exists.
-+_SERVICE_SENDER_NAMES = frozenset({
-+    "skype", "paypal", "linkedin", "facebook", "meta", "instagram", "twitter",
-+    "x", "google", "gmail", "apple", "icloud", "amazon", "microsoft",
-+    "outlook", "teams", "zoom", "slack", "dropbox", "github", "uber",
-+    "airbnb", "netflix", "spotify", "whatsapp", "telegram", "ebay",
-+    "booking.com", "deliveroo", "revolut", "wise", "stripe", "docusign",
-+    "calendly", "eventbrite", "mailchimp", "substack", "medium", "notion",
- })
+-})
 -_SERVICE_NAME_PHRASE_RE = re.compile(
 -    r"\b(" + "|".join(sorted(_SERVICE_NAME_SUFFIX_WORDS)) + r")\b", re.I)
-+_SERVICE_MAILBOX_LOCALPARTS = frozenset({
-+    "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
-+    "notification", "notifications", "notify", "alerts", "alert", "mailer",
-+    "mailer-daemon", "postmaster", "news", "newsletter", "info", "support",
-+    "help", "hello", "team", "service", "services", "billing", "accounts",
-+    "account", "security", "updates", "marketing", "bounce", "automated",
-+})
  
 -# Round 4: marketplace BRAND tokens, matched ANYWHERE in a display name or
 -# email address -- not a vocabulary NOUN (notification/alert/...), a
@@ -7886,8 +7889,6 @@
 -    carry an email-shaped display name with no human name parts (an
 -    email-only contact the customer saved by hand) and this check has no
 -    way to tell that apart from a service mailbox by shape alone.
-+
-+
 +def _is_service_sender(display_name, emails=None):
 +    """True when a contact is a service/notification sender, not a person.
 +
@@ -7972,8 +7973,6 @@
 -        return False
 -    last = words[-1].strip(".,;:()[]").lower()
 -    if last in _BUSINESS_LAST_WORDS:
--        return True
--    if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
 +
 +
 +
@@ -7993,6 +7992,8 @@
 +    ap = _digits_tail(os.environ.get("ASSISTANT_PHONE") or "")
 +    if ae and any((e or "").strip().lower() == ae for e in emails):
          return True
+-    if last in _BUSINESS_RETAIL_LAST_WORDS and len(words) >= 3:
+-        return True
 -    text = " ".join(words)
 -    if _is_organisation_name(text):
 -        return True
@@ -8087,9 +8088,9 @@
 -    if _is_business_shaped_name(name):
 -        return True
 -    return False
+ 
+ 
 +
- 
- 
 +
 +
 +
@@ -8297,7 +8298,7 @@
  
  
  MEMORY_LIMIT = int(os.environ.get("MEMORY_LIMIT", "50"))
-@@ -1068,6 +1199,152 @@
+@@ -1068,7 +1199,153 @@
  # TODO(hub-portability): replace with a ZeroClaw HTTP endpoint once it
  # exposes one. Tracked alongside Step 3 in HUB_PORTABILITY_PLAN.md.
  QUEUE_DEPTH_FILE = SYNC_STATE_DIR / "queue_depth"
@@ -8391,7 +8392,7 @@
 +    "PT",  # Portugal
 +    "SE",  # Sweden
 +})
-+
+ 
 +# The persisted device region. Read as JSON rather than by importing
 +# ostler_security, because this file runs as a SCRIPT under the Hub venv and
 +# an import that is merely usually available is not a dependency this
@@ -8447,9 +8448,10 @@
 +def _recording_requires_all_parties(iso):
 +    """True only when we KNOW the country requires every party to agree."""
 +    return iso is not None and iso in RECORDING_ALL_PARTY_ISO
- 
++
  try:
      from zoneinfo import ZoneInfo
+     _LOCAL_TZ = ZoneInfo(TIMEZONE)
 @@ -1076,6 +1353,20 @@
      _LOCAL_TZ = None
  
@@ -8471,10 +8473,12 @@
  def _safe_int(params, key, default):
      """Parse a query param as int, returning (value, error_dict_or_None).
  
-@@ -1100,6 +1391,77 @@
+@@ -1098,6 +1389,77 @@
+         return float(raw), None
+     except (ValueError, TypeError):
          return default, {"error": f"Invalid float value for '{key}': {raw!r}"}
- 
- 
++
++
 +# ── Optional pagination for the two big list endpoints ───────────────────
 +# /api/v1/preferences (tens of thousands of rows) and /api/v1/people. ADDITIVE:
 +# a request with none of `cursor` / `fields` (and, for people, `limit`) gets
@@ -8544,11 +8548,9 @@
 +        page = [{k: it[k] for k in fields if isinstance(it, dict) and k in it}
 +                for it in page]
 +    return page, {"next_cursor": next_cursor, "page_size": len(page)}, None
-+
-+
- def _to_iso8601(raw):
-     """Convert one of the date-ish strings we emit into ISO-8601.
  
+ 
+ def _to_iso8601(raw):
 @@ -1113,20 +1475,88 @@
      """
      if not raw:
@@ -8611,8 +8613,8 @@
      except ValueError:
 -        return s
 +        return ""
-+
-+
+ 
+ 
 +def _graph_all_day(value):
 +    """pwg:meetingAllDay as True / False, or None when the graph has no flag
 +    (a meeting ingested before the flag existed)."""
@@ -8622,8 +8624,8 @@
 +    if v in ("false", "0"):
 +        return False
 +    return None
- 
- 
++
++
 +def _timeline_row_time(raw, all_day=None):
 +    """``(timestamp, all_day)`` for one Timeline row, from the calendar's own
 +    start value and all-day flag (I22).
@@ -8693,8 +8695,8 @@
      payload = json.loads(resp.read())
      _record_embed_usage(payload, EMBED_MODEL)
      return payload["embeddings"][0]
- 
- 
++
++
 +# ----------------------------------------------------------------------
 +# Graph scope (v1018-D012b). ONE implementation, shared -- see
 +# identity_resolver/compartment.py for the full rationale.
@@ -8837,7 +8839,7 @@
 +        clauses.append(
 +            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
 +            + about + " <{uri}> ; ?fp ?fo }};")
-+
+ 
 +    clauses += [
 +        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
 +        "DELETE {{ ?s ?p <{uri}> }} WHERE {{ ?s ?p <{uri}> }};",
@@ -8852,7 +8854,7 @@
 +            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
 +        )
 +    return "\n".join(clauses).format(uri=esc_uri)
-+
+ 
 +
  def _sparql_select(sparql):
 -    """Run a SPARQL SELECT on Oxigraph, return list of binding dicts."""
@@ -8993,10 +8995,11 @@
          msg = f"coach database {COACH_DB} could not be read: {exc}"
          print(f"ERROR: {msg}", file=sys.stderr, flush=True)
          raise CoachDbError(msg) from exc
-@@ -1945,6 +2560,82 @@
+@@ -1944,7 +2559,83 @@
+ 
  
  # ── Conversation processing (CM048 tier 1) ───────────────────────────
- 
++
 +# Placed here, BEFORE _conversation_process_background, rather than
 +# between it and api_conversation_process: several tests (e.g.
 +# tests/test_vendored_conversation_process_failure_reason.py,
@@ -9012,7 +9015,7 @@
 +    re.IGNORECASE,
 +)
 +_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-+
+ 
 +
 +def _is_safe_meeting_id(meeting_id):
 +    """True when meeting_id is a UUID or a plain slug with no path
@@ -9371,31 +9374,25 @@
  
      # Generate conversation_id. metadata.meeting_id is the per-session
      # UUID the iOS/Watch capture app sends with every recording; when
-@@ -2566,136 +3260,19 @@
+@@ -2579,137 +3273,139 @@
+     }, 202
  
-     # Spawn background processing
-     thread = threading.Thread(
--        target=_conversation_process_tracked,
--        args=(conversation_id, transcript, metadata),
--        daemon=True,
--    )
--    thread.start()
--
--    return {
--        "job_id": conversation_id,
--        "status": "accepted",
--        "state_url": f"/api/v1/conversation/status/{conversation_id}",
--    }, 202
--
--
+ 
 -def _audit_person_removal(uri, component, reason):
 -    """Record a Person removal in the append-only deletion audit (walk #15).
--
++def _queue_wiki_recompile(slug):
++    """Drop a marker so the daily wiki-recompile LaunchAgent picks up the
++    deletion on its next run.
+ 
 -    Loaded by path from this file's own directory (person_audit.py ships
 -    beside ical-server.py; the directory is copied whole). Never raises: an
 -    audit failure must not stop a forget, but it is logged, not silent.
--    """
--    try:
++    Returns True if the marker landed; False if the queue dir is
++    missing or unwritable. We degrade rather than fail because the
++    daily recompile still runs even without the marker – the marker
++    is a hint, not a precondition.
+     """
+     try:
 -        import importlib.util as _ilu
 -        _spec = _ilu.spec_from_file_location(
 -            "person_audit",
@@ -9407,24 +9404,42 @@
 -    except Exception as exc:  # noqa: BLE001
 -        print("person removal audit NOT written: %s" % type(exc).__name__,
 -              file=sys.stderr)
--        return False
--
--
++        _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
++        (_RECOMPILE_QUEUE_DIR / "wiki_recompile_pending").touch()
++        return True
++    except OSError:
+         return False
+ 
+ 
 -def _forget_person_update(person_uri, graph_uris):
 -    """SPARQL UPDATE erasing one person from the default AND named graphs.
--
++_QDRANT_ABSENT_RE = re.compile(
++    r"(collection|point)\b.{0,80}?(does not exist|doesn't exist|doesnt exist|not found)",
++    re.IGNORECASE | re.DOTALL,
++)
+ 
 -    The bare ``DELETE ... WHERE`` pair reaches the DEFAULT graph only. With
 -    ``--union-default-graph`` off (it is, and compartment.py requires it
 -    stays off) that pair CANNOT see a named graph, so CM048's facts,
 -    relationship signals, outstanding todos and conversation links for
 -    this person survived an erasure the endpoint reported as successful.
 -    Every graph in scope therefore gets its own explicitly-scoped pair.
--
+ 
 -    Kept as a named function so the erasure can be tested directly rather
 -    than inferred from the handler around it.
 -    """
 -    esc_uri = person_uri.replace("\\", "\\\\").replace(">", "%3E")
--
++def _qdrant_says_absent(exc):
++    """True only when a Qdrant 404 body says the collection or point is not
++    there. A bare 404 (a wrong route, a proxy page) is NOT a measured empty."""
++    if getattr(exc, "code", None) != 404:
++        return False
++    try:
++        body = exc.read().decode("utf-8", "replace")
++    except Exception:  # noqa: BLE001
++        return False
++    return bool(_QDRANT_ABSENT_RE.search(body))
+ 
 -    # THE FACT NODE, COLLECTED WHILE ITS LINK TO THE PERSON STILL EXISTS.
 -    #
 -    # The two bare clauses below delete every triple where the person is the
@@ -9475,9 +9490,17 @@
 -        ("<https://schema.ostler.ai/ontology#PersonFact>",
 -         "<https://schema.ostler.ai/ontology#aboutPerson>"),
 -        ("<urn:ostler:Fact>", "<urn:ostler:about>"),
-+        target=_conversation_process_tracked,
-+        args=(conversation_id, transcript, metadata),
-+        daemon=True,
++
++def _qdrant_person_filter(cluster):
++    return {"filter": {"must": [{"key": "person_uri", "match": {"any": cluster}}]}}
++
++
++def _qdrant_post(path, body):
++    req = urllib.request.Request(
++        QDRANT_URL.rstrip("/") + path,
++        data=json.dumps(body).encode(),
++        headers={"Content-Type": "application/json"},
++        method="POST",
      )
 -    clauses = []
 -    for graph in graph_uris:
@@ -9490,7 +9513,7 @@
 -        clauses.append(
 -            "DELETE {{ ?f ?fp ?fo }} WHERE {{ ?f a " + fact_type + " ; "
 -            + about + " <{uri}> ; ?fp ?fo }};")
-+    thread.start()
++    return _store_urlopen(req, timeout=30)
  
 -    clauses += [
 -        "DELETE {{ <{uri}> ?p ?o }} WHERE {{ <{uri}> ?p ?o }};",
@@ -9506,63 +9529,10 @@
 -            "WHERE {{ GRAPH <" + graph + "> {{ ?s ?p <{uri}> }} }};"
 -        )
 -    return "\n".join(clauses).format(uri=esc_uri)
-+    return {
-+        "job_id": conversation_id,
-+        "status": "accepted",
-+        "state_url": f"/api/v1/conversation/status/{conversation_id}",
-+    }, 202
  
- 
--
- def _queue_wiki_recompile(slug):
-     """Drop a marker so the daily wiki-recompile LaunchAgent picks up the
-     deletion on its next run.
-@@ -2708,8 +3285,127 @@
-     try:
-         _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-         (_RECOMPILE_QUEUE_DIR / "wiki_recompile_pending").touch()
--        # Per-slug audit line for debug. Append-only, never rotated by
--        # us. The OS log rotator handles that if customer wires one.
-+        return True
-+    except OSError:
-+        return False
-+
-+
-+_QDRANT_ABSENT_RE = re.compile(
-+    r"(collection|point)\b.{0,80}?(does not exist|doesn't exist|doesnt exist|not found)",
-+    re.IGNORECASE | re.DOTALL,
-+)
-+
-+
-+def _qdrant_says_absent(exc):
-+    """True only when a Qdrant 404 body says the collection or point is not
-+    there. A bare 404 (a wrong route, a proxy page) is NOT a measured empty."""
-+    if getattr(exc, "code", None) != 404:
-+        return False
-+    try:
-+        body = exc.read().decode("utf-8", "replace")
-+    except Exception:  # noqa: BLE001
-+        return False
-+    return bool(_QDRANT_ABSENT_RE.search(body))
-+
-+
-+def _qdrant_person_filter(cluster):
-+    return {"filter": {"must": [{"key": "person_uri", "match": {"any": cluster}}]}}
-+
-+
-+def _qdrant_post(path, body):
-+    req = urllib.request.Request(
-+        QDRANT_URL.rstrip("/") + path,
-+        data=json.dumps(body).encode(),
-+        headers={"Content-Type": "application/json"},
-+        method="POST",
-+    )
-+    return _store_urlopen(req, timeout=30)
-+
-+
 +def _forget_qdrant(cluster):
 +    """Delete this cluster's vectors, then READ BACK that none remain.
-+
+ 
 +    Returns (purged, reason). A delete call that returned 2xx is not proof
 +    the vectors are gone, so the count query is the evidence. A 404 counts as
 +    empty only when its body says the collection or point does not exist.
@@ -9589,8 +9559,15 @@
 +    if left != 0:
 +        return False, f"qdrant_still_holds_vectors: {left}"
 +    return True, None
-+
-+
+ 
+-def _queue_wiki_recompile(slug):
+-    """Drop a marker so the daily wiki-recompile LaunchAgent picks up the
+-    deletion on its next run.
+ 
+-    Returns True if the marker landed; False if the queue dir is
+-    missing or unwritable. We degrade rather than fail because the
+-    daily recompile still runs even without the marker – the marker
+-    is a hint, not a precondition.
 +def _forget_graph_left(cluster):
 +    """URIs in the cluster that still hold a triple, as the readers see it."""
 +    left = []
@@ -9641,9 +9618,12 @@
 +    erased could later be answered "already forgotten" with nothing purged
 +    (status-honesty sweep V17). The line is the evidence of a real erasure,
 +    so it is written only when there was one.
-+    """
-+    try:
-+        _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+     """
+     try:
+         _RECOMPILE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+-        (_RECOMPILE_QUEUE_DIR / "wiki_recompile_pending").touch()
+-        # Per-slug audit line for debug. Append-only, never rotated by
+-        # us. The OS log rotator handles that if customer wires one.
          audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
          with audit.open("a", encoding="utf-8") as f:
              f.write(f"{datetime.utcnow().isoformat()}Z forget {slug}\n")
@@ -9660,12 +9640,10 @@
      """
      try:
          audit = _RECOMPILE_QUEUE_DIR / "forget_audit.log"
-@@ -2792,6 +3488,45 @@
-                      phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
-     except Exception:
+@@ -2794,6 +3490,45 @@
          return False
-+
-+
+ 
+ 
 +def _personal_identifiers_for(person_uris, slug):
 +    """The PERSONAL identifiers of the person behind ``person_uris``, for a
 +    durable identity-keyed record (the do-not-suggest record and the minors
@@ -9703,9 +9681,11 @@
 +            continue                          # never a landline
 +        identifiers.append(v)
 +    return sorted(set(identifiers))
- 
- 
++
++
  def api_people_suppress_suggestions(slug, payload):
+     """Handle POST /api/v1/people/{slug}/suppress-suggestions.
+ 
 @@ -2866,41 +3601,22 @@
              '  ?person a pwg:Person ; pwg:displayName ?name .\n'
              '}}'.format(ns=PWG_NS)
@@ -9828,7 +9808,7 @@
  
      if person_uri is None:
          # ── "I COULD NOT FIND THEM" IS NOT "I ALREADY ERASED THEM" ──
-@@ -3080,27 +3822,45 @@
+@@ -3080,93 +3822,467 @@
      # and resurrectable. A failed write does not stop the erasure; it is
      # reported (tombstone_written false + degraded) so the caller can say so.
      tombstone_written = False
@@ -9892,42 +9872,23 @@
 +            r.startswith(("tombstone_failed", "tombstone_unreadable")) for r in degraded_reasons
 +        ):
 +            degraded_reasons.append("tombstone_failed: could not write the tombstone file")
- 
-     # Oxigraph: delete every triple where this URI is subject, then
-     # every triple where it's object (incoming relationships, mentions).
-@@ -3118,55 +3878,411 @@
-     # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
-     # span -- so a forget removes everything any Ostler surface could
-     # still show, without deleting out of another user's compartment.
--    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
--    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
--    try:
--        _sparql_update(sparql_update)
--        stores_purged.append("oxigraph")
--    except Exception as exc:
--        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
--
--    # Qdrant: delete every point in `people` whose payload.person_uri
--    # matches. `wait=true` so the response reflects the actual purge.
--    qdrant_body = json.dumps({
--        "filter": {
--            "must": [
--                {"key": "person_uri", "match": {"value": person_uri}}
--            ]
--        }
--    }).encode()
--    try:
--        req = urllib.request.Request(
--            QDRANT_URL.rstrip("/")
--            + "/collections/people/points/delete?wait=true",
--            data=qdrant_body,
--            headers={"Content-Type": "application/json"},
--            method="POST",
--        )
--        urllib.request.urlopen(req, timeout=30)
--        stores_purged.append("qdrant")
--    except Exception as exc:
--        degraded_reasons.append(f"qdrant_delete_failed: {exc}")
++
++    # Oxigraph: delete every triple where this URI is subject, then
++    # every triple where it's object (incoming relationships, mentions).
++    # All in one UPDATE so partial-failure is less likely.
++    #
++    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
++    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
++    # signals and conversation links into the NAMED graph
++    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
++    # and compartment.py requires it stays off) an unqualified DELETE
++    # cannot see them. The erasure therefore silently under-deleted and
++    # left the person's records behind. Each named graph in this user's
++    # scope needs its own explicitly-scoped pair.
++    #
++    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
++    # span -- so a forget removes everything any Ostler surface could
++    # still show, without deleting out of another user's compartment.
 +    ox_failed = False
 +    if not resumed:
 +        # Record the cluster BEFORE the graph delete: once the graph is empty a
@@ -9956,17 +9917,60 @@
 +        elif still is not None:
 +            stores_purged.append("oxigraph")
  
--    queued = _queue_wiki_recompile(slug)
+-    # Oxigraph: delete every triple where this URI is subject, then
+-    # every triple where it's object (incoming relationships, mentions).
+-    # All in one UPDATE so partial-failure is less likely.
+-    #
+-    # v1018-D012b: the bare `DELETE ... WHERE` forms below reach the
+-    # DEFAULT graph ONLY. CM048 writes this person's facts, relationship
+-    # signals and conversation links into the NAMED graph
+-    # `urn:ostler:user/<id>`, and with `--union-default-graph` off (it is,
+-    # and compartment.py requires it stays off) an unqualified DELETE
+-    # cannot see them. The erasure therefore silently under-deleted and
+-    # left the person's records behind. Each named graph in this user's
+-    # scope needs its own explicitly-scoped pair.
+-    #
+-    # Scope matches `_USER_GRAPH_URIS` -- the same graphs the readers
+-    # span -- so a forget removes everything any Ostler surface could
+-    # still show, without deleting out of another user's compartment.
+-    _audit_person_removal(person_uri, "assistant_api.forget_person", "user_forget")
+-    sparql_update = _forget_person_update(person_uri, _USER_GRAPH_URIS)
+-    try:
+-        _sparql_update(sparql_update)
+-        stores_purged.append("oxigraph")
+-    except Exception as exc:
+-        degraded_reasons.append(f"oxigraph_update_failed: {exc}")
+-
+-    # Qdrant: delete every point in `people` whose payload.person_uri
+-    # matches. `wait=true` so the response reflects the actual purge.
+-    qdrant_body = json.dumps({
+-        "filter": {
+-            "must": [
+-                {"key": "person_uri", "match": {"value": person_uri}}
+-            ]
+-        }
+-    }).encode()
+-    try:
+-        req = urllib.request.Request(
+-            QDRANT_URL.rstrip("/")
+-            + "/collections/people/points/delete?wait=true",
+-            data=qdrant_body,
+-            headers={"Content-Type": "application/json"},
+-            method="POST",
+-        )
+-        urllib.request.urlopen(req, timeout=30)
 +    # Qdrant: delete every point in `people` whose payload.person_uri matches
 +    # (wait=true), then count what is left. On a retry this runs even though
 +    # the graph is already empty.
 +    qdrant_ok, qdrant_why = _forget_qdrant(cluster)
 +    if qdrant_ok:
-+        stores_purged.append("qdrant")
+         stores_purged.append("qdrant")
+-    except Exception as exc:
+-        degraded_reasons.append(f"qdrant_delete_failed: {exc}")
 +    else:
 +        degraded_reasons.append(qdrant_why)
  
--    forgotten = bool(stores_purged)
+-    queued = _queue_wiki_recompile(slug)
 +    # DONE MEANS BOTH STORES. This used to answer forgotten:true / 200 when
 +    # EITHER store was purged, so a failed graph delete (or a failed vector
 +    # delete) was reported to the customer as an erasure while their records
@@ -9975,7 +9979,8 @@
 +    # idempotent and the cluster is re-resolved from the graph.
 +    remaining = [s for s in ("oxigraph", "qdrant") if s not in stores_purged]
 +    forgotten = not remaining
-+
+ 
+-    forgotten = bool(stores_purged)
 +    # The wiki page is compiled from the graph, so a recompile is worth
 +    # queueing whenever the graph half went, complete or not.
 +    queued = _queue_wiki_recompile(slug) if "oxigraph" in stores_purged else False
@@ -10598,40 +10603,26 @@
          conn = sqlite3.connect(db_path)
      conn.row_factory = _row_factory_for(conn)
      return conn
-@@ -4400,41 +5568,96 @@
-     # Confidence is optional on the writer side; coalesce in Python
-     # rather than the SPARQL query so we don't drop rows that lack it.
-     # TWO ways a fact belongs to this user, and we must match BOTH.
-+    #
-+    # THE BUG THIS FIXES (2026-08-08)
-+    # ------------------------------------------------------------------
-+    # This query used to match only `pwg:aboutPerson <USER_URI>` -- facts
-+    # about the user themselves. But the assert endpoint above writes a fact
-+    # about SOMEONE ELSE and marks ownership separately:
-+    #
-+    #     <fact> pwg:aboutPerson   <person_marlow>   # who it is about
-+    #            pwg:belongsToUser <user_andy>       # whose memory it is
-+    #
-+    # So "Jane Doe is your wife" was stored with aboutPerson = jane,
+@@ -4411,6 +5579,7 @@
+     #            pwg:belongsToUser <user_andy>       # whose memory it is
+     #
+     # So "Jane Doe is your wife" was stored with aboutPerson = jane,
 +    # and this reader asked for aboutPerson = Andy. It matched nothing.
-+    # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
-+    # write-only field, the same defect class as displayNameProvisional
-+    # (task #658).
-+    #
-+    # What that looked like to the customer, 2026-08-08:
-+    #   in the app:      "I have successfully remembered that Jane Doe
-+    #                     is your wife."
-+    #   then on iMessage: "I cannot tell you who your wife is. I do not have
-+    #                     access to that personal information."
+     # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
+     # write-only field, the same defect class as displayNameProvisional
+     # (task #658).
+@@ -4420,6 +5589,7 @@
+     #                     is your wife."
+     #   then on iMessage: "I cannot tell you who your wife is. I do not have
+     #                     access to that personal information."
 +    # Andy: "WTAF? Why is this STILL not working?"
-+    #
-+    # It was never a cross-channel problem and never a privacy guardrail. The
-+    # write succeeded, the fact is in the graph, and the reader was looking in
-+    # the wrong place -- so EVERY channel was equally blind. The app only
-+    # looked smarter because it was quoting back what it had just been told.
-+    #
-+    # ?about is returned so a caller can name the subject: answering "who is
-+    # my wife" needs jane's name, not just the sentence.
+     #
+     # It was never a cross-channel problem and never a privacy guardrail. The
+     # write succeeded, the fact is in the graph, and the reader was looking in
+@@ -4428,11 +5598,66 @@
+     #
+     # ?about is returned so a caller can name the subject: answering "who is
+     # my wife" needs jane's name, not just the sentence.
 +    # THE SECOND BUG, SAME SHAPE, FOUND 2026-09-16
 +    # ------------------------------------------------------------------
 +    # The query above was still asking a question no writer answers. On a
@@ -10679,36 +10670,7 @@
 +    # defect class this commit is closing, so compare folded. USER_ID is
 +    # already slug-normalised ([a-z0-9_-] only), so it cannot break the IRI
 +    # or the literal it is interpolated into.
-     #
--    # THE BUG THIS FIXES (2026-08-08)
--    # ------------------------------------------------------------------
--    # This query used to match only `pwg:aboutPerson <USER_URI>` -- facts
--    # about the user themselves. But the assert endpoint above writes a fact
--    # about SOMEONE ELSE and marks ownership separately:
--    #
--    #     <fact> pwg:aboutPerson   <person_marlow>   # who it is about
--    #            pwg:belongsToUser <user_andy>       # whose memory it is
--    #
--    # So "Jane Doe is your wife" was stored with aboutPerson = jane,
--    # and this reader asked for aboutPerson = Andy. It matched nothing.
--    # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
--    # write-only field, the same defect class as displayNameProvisional
--    # (task #658).
--    #
--    # What that looked like to the customer, 2026-08-08:
--    #   in the app:      "I have successfully remembered that Jane Doe
--    #                     is your wife."
--    #   then on iMessage: "I cannot tell you who your wife is. I do not have
--    #                     access to that personal information."
--    # Andy: "WTAF? Why is this STILL not working?"
--    #
--    # It was never a cross-channel problem and never a privacy guardrail. The
--    # write succeeded, the fact is in the graph, and the reader was looking in
--    # the wrong place -- so EVERY channel was equally blind. The app only
--    # looked smarter because it was quoting back what it had just been told.
--    #
--    # ?about is returned so a caller can name the subject: answering "who is
--    # my wife" needs jane's name, not just the sentence.
++    #
 +    # L3 IS WITHHELD ON THE CM048 ARM, and that is a requirement of this
 +    # change rather than an extra. These rows were unreachable before, so
 +    # turning them on is the moment a privacy stamp starts to matter; CM048
@@ -10724,7 +10686,7 @@
          '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
          '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
          '  UNION\n'
-@@ -4448,10 +5671,34 @@
+@@ -4446,10 +5671,34 @@
          '  {pf_fact}\n'
          '  {pf_owner}\n'
          '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
@@ -10761,7 +10723,7 @@
                      pf_fact=_pr.optional_level("fact", "fpriv"),
                      pf_owner=_pr.optional_level_iri(USER_URI, "ownerPriv"))
      )
-@@ -4771,121 +6018,6 @@
+@@ -4769,123 +6018,8 @@
                                             destination=destination,
                                           owner_level=_pr.level_input(r.get("ownerPriv")))]
      return rows
@@ -10792,12 +10754,12 @@
 -
 -def _resolve_person_employment(uri: str, scalar_orgs) -> dict:
 -    """Resolve a (non-operator) person's employers into one honest answer.
--
+ 
 -    BUG: a person with two employers (a job change) was named by whichever
 -    ``pwg:organization`` scalar the store returned first, often the stale
 -    one. Here the dated ``career_position`` facts decide, most recent
 -    start first; an open-ended role (no endDate) beats a closed one.
--
+ 
 -    Returns ``{}`` when there is nothing to say (zero or one distinct
 -    employer: the caller's existing scalar behaviour is unchanged), else:
 -
@@ -10880,10 +10842,12 @@
 -        "previous_organisations": prev,
 -        "employer_ambiguous": False,
 -    }
- 
- 
+-
+-
  def _select_current_employer(outbound: bool = False, destination=None) -> dict:
-@@ -5148,17 +6280,10 @@
+     """Deterministically resolve the operator's CURRENT employer.
+ 
+@@ -5146,17 +6280,10 @@
      the degraded shape with reason="user_id_not_configured" so the iOS
      tab can prompt the user to finish onboarding.
      """
@@ -10903,7 +10867,7 @@
              "degraded": True,
              "reason": "user_id_not_configured",
          }
-@@ -5166,8 +6291,8 @@
+@@ -5164,8 +6291,8 @@
          raw_facts = _memory_query_facts()
      except Exception as exc:
          return {
@@ -10914,7 +10878,7 @@
              "degraded": True,
              "reason": f"oxigraph_unreachable: {exc}",
          }
-@@ -5180,8 +6305,17 @@
+@@ -5178,8 +6305,17 @@
      # Routed through the canonical ostler_hygiene reader (Phase 2); the
      # employer resolver's own inline overlay is orthogonal.
      hygiene, verdicts = _hygiene_overlay()
@@ -10932,7 +10896,7 @@
      # Facts this destination may not see (Archie 2026-11-17). Every Hub
      # route is outbound: each row's own level and the owner node's go
      # through the shared table (may_leave) for the request's destination,
-@@ -5192,6 +6326,8 @@
+@@ -5190,6 +6326,8 @@
      withheld_private = 0
      for row in raw_facts:
          uri = row.get("fact", "")
@@ -10941,7 +10905,7 @@
          if hygiene is not None and hygiene.is_dropped(uri, verdicts):
              # Retired by the hygiene pass -- withheld from the surface
              # exactly like a user "forget" (the source triple stays put).
-@@ -5235,7 +6371,7 @@
+@@ -5233,7 +6371,7 @@
              withheld_private += 1
              continue
  
@@ -10950,7 +10914,7 @@
              "id": fact_id,
              "predicate": domain,
              "object": text,
-@@ -5251,8 +6387,14 @@
+@@ -5249,8 +6387,14 @@
              # popped before the response so the wire shape is unchanged.
              "_rank": rank,
              **_pr.label_for(_rec, _owner_lvl, destination),
@@ -10965,7 +10929,7 @@
      _instr_withheld = [0]
      out.extend(_owner_instruction_facts(destination, _instr_withheld))
      withheld_private += _instr_withheld[0]
-@@ -5266,9 +6408,11 @@
+@@ -5264,9 +6408,11 @@
          reverse=True,
      )
      out = out[:MEMORY_LIMIT]
@@ -10979,7 +10943,7 @@
                  "withheld_private": withheld_private}
      # Overlay the deterministically-resolved current employer so the
      # brief LLM never has to guess it from the flat fact list. Guarded:
-@@ -5592,6 +6736,7 @@
+@@ -5590,6 +6736,7 @@
              "_rank": 1.0,
              **_pr.label_for(_rec, None, destination),
          })
@@ -10987,11 +10951,10 @@
      return out
  
  
-@@ -5614,17 +6759,6 @@
-     """
+@@ -5613,17 +6760,6 @@
      if not fact_id or len(fact_id) > 200:
          return {"error": "Invalid fact_id"}, 400
--
+ 
 -    if fact_id.startswith("instr_"):
 -        # An owner instruction has no value to edit: it is either active or
 -        # forgotten. Forget cancels the row; the Memory tab then drops it.
@@ -11002,13 +10965,48 @@
 -        if status != 200:
 -            return result, status
 -        return {"ok": True, "id": fact_id, "action": "forget"}, 200
- 
+-
      is_forget = bool(payload.get("forget"))
      new_value = payload.get("newValue")
-@@ -5669,6 +6803,171 @@
-     return {"ok": True, "id": fact_id, "action": action}, 200
- 
- 
+     if not is_forget and (not isinstance(new_value, str) or not new_value.strip()):
+@@ -5633,38 +6769,203 @@
+         }, 400
+     if new_value and len(new_value) > 4096:
+         return {"error": "newValue too long (max 4096 chars)."}, 400
++
++    action = "forget" if is_forget else "correct"
++    stored_new_value = None if is_forget else new_value.strip()
++    now = datetime.utcnow().isoformat() + "Z"
++
++    try:
++        conn = _memory_corrections_connect()
++    except Exception as exc:
++        return {
++            "ok": False,
++            "degraded": True,
++            "reason": f"corrections_db_unreachable: {exc}",
++        }, 503
++    try:
++        _ensure_memory_corrections_schema(conn)
++        conn.execute(
++            "INSERT INTO memory_corrections "
++            "(fact_id, action, previous_value, new_value, created_at) "
++            "VALUES (?, ?, ?, ?, ?)",
++            (fact_id, action, None, stored_new_value, now),
++        )
++        conn.commit()
++    except Exception as exc:
++        conn.close()
++        return {
++            "ok": False,
++            "degraded": True,
++            "reason": f"corrections_db_write_failed: {exc}",
++        }, 503
++    conn.close()
++
++    return {"ok": True, "id": fact_id, "action": action}, 200
++
++
 +# ── ONE merge-aware person resolver ───────────────────────────────────
 +#
 +# A contact merge leaves the losing nodes behind with pwg:mergedInto
@@ -11153,11 +11151,40 @@
 +    if not rows:
 +        return None
 +    return _rank_name_rows(rows)[0]["person"]
-+
-+
+ 
+-    action = "forget" if is_forget else "correct"
+-    stored_new_value = None if is_forget else new_value.strip()
+-    now = datetime.utcnow().isoformat() + "Z"
+ 
+-    try:
+-        conn = _memory_corrections_connect()
+-    except Exception as exc:
+-        return {
+-            "ok": False,
+-            "degraded": True,
+-            "reason": f"corrections_db_unreachable: {exc}",
+-        }, 503
+-    try:
+-        _ensure_memory_corrections_schema(conn)
+-        conn.execute(
+-            "INSERT INTO memory_corrections "
+-            "(fact_id, action, previous_value, new_value, created_at) "
+-            "VALUES (?, ?, ?, ?, ?)",
+-            (fact_id, action, None, stored_new_value, now),
+-        )
+-        conn.commit()
+-    except Exception as exc:
+-        conn.close()
+-        return {
+-            "ok": False,
+-            "degraded": True,
+-            "reason": f"corrections_db_write_failed: {exc}",
+-        }, 503
+-    conn.close()
 +def _merged_cluster(person_uri):
 +    """``person_uri`` plus every node merged into it, along the whole chain.
-+
+ 
+-    return {"ok": True, "id": fact_id, "action": action}, 200
 +    Forget uses this: erasing the survivor alone would leave the retired
 +    nodes' names, emails and identifiers behind. Raises on a store failure.
 +    """
@@ -11172,12 +11199,10 @@
 +        if n and n not in out:
 +            out.append(n)
 +    return out
-+
-+
+ 
+ 
  _PRIVACY_ORDER = pwg_privacy.VALID_PRIVACY_LEVELS   # read from the shared table
- 
- 
-@@ -5693,13 +6992,20 @@
+@@ -5691,13 +6992,20 @@
      # last_contact is the MAX of the four per-source predicates, computed
      # in Python after the query so each source remains independently
      # OPTIONAL (a missing source must not exclude the row).
@@ -11202,7 +11227,7 @@
          '  OPTIONAL {{ ?person pwg:organization ?org }}\n'
          '  OPTIONAL {{ ?person pwg:jobTitle ?title }}\n'
          '  OPTIONAL {{ ?person pwg:relationship ?rel }}\n'
-@@ -5712,36 +7018,58 @@
+@@ -5710,36 +7018,58 @@
          '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
          '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
          '  {pf_person}\n'
@@ -11275,21 +11300,21 @@
          }
          # API surface is British English and matches the iOS Codable
          # expectations (see CM031 docs/API_CONTRACT.md). Per #ARCH-01:
-@@ -5794,13 +7122,6 @@
-             # Mark it so the brief LLM discounts a stale fragment's scalar org.
+@@ -5793,13 +7123,6 @@
              entry["deprecated_fragment"] = True
              entry["merged_into"] = person["mergedInto"]
--
+ 
 -        if not (USER_URI and uri == USER_URI):
 -            # Two employers (a job change): name the most recent one, or
 -            # both when recency cannot decide. Single employer: no-op.
 -            _emp = _resolve_person_employment(uri, _g["orgs"])
 -            if _emp:
 -                entry.update(_emp)
- 
+-
          # MAX across the four per-source last-contact predicates, capped
          # at today so a future-dated event never wins (see
-@@ -5907,10 +7228,12 @@
+         # _max_past_last_contact). Missing sources contribute nothing.
+@@ -5905,10 +7228,12 @@
          person_slug = _wiki_slug(pname)
          # CM048 writes these signals into the per-user NAMED graph, so an
          # unqualified read returns nothing. Measured 0 rows as shipped,
@@ -11304,7 +11329,7 @@
                  '  ?signal <urn:ostler:about> ?person .\n'
                  '  ?signal <urn:ostler:warmth> ?warmth .\n'
                  '  ?signal <urn:ostler:trust> ?trust .\n'
-@@ -6077,13 +7400,12 @@
+@@ -6075,13 +7400,12 @@
      # Resolve slug -> person URI by recomputing _wiki_slug(displayName).
      # Slug is not stored in the graph directly; it is derived from the
      # display name by the wiki compiler (see api_people_forget).
@@ -11323,7 +11348,7 @@
      except Exception as exc:
          return {
              "found": False,
-@@ -6092,15 +7414,6 @@
+@@ -6090,15 +7414,6 @@
              "error": str(exc),
          }, 503
  
@@ -11339,7 +11364,7 @@
      if person_uri is None:
          return {
              "slug": slug,
-@@ -6297,10 +7610,12 @@
+@@ -6295,10 +7610,12 @@
  
          # CM048 writes these signals into the per-user NAMED graph, so an
          # unqualified read returns nothing. Measured 0 rows as shipped,
@@ -11354,7 +11379,7 @@
                  '  ?signal <urn:ostler:about> ?person .\n'
                  '  ?signal <urn:ostler:warmth> ?warmth .\n'
                  '  ?signal <urn:ostler:trust> ?trust .\n'
-@@ -6382,7 +7697,7 @@
+@@ -6380,7 +7697,7 @@
              data=body,
              headers={"Content-Type": "application/json"},
          )
@@ -11363,7 +11388,7 @@
              qresult = json.loads(resp.read())
          points = qresult.get("result", {}).get("points", [])
          if points:
-@@ -6540,13 +7855,12 @@
+@@ -6538,13 +7855,12 @@
      # This is the load-bearing query: if it fails we cannot identify the
      # person at all, so degrade the whole request (503) rather than return
      # a misleading empty timeline.
@@ -11382,7 +11407,7 @@
      except Exception as exc:
          return {
              "found": False,
-@@ -6555,15 +7869,6 @@
+@@ -6553,15 +7869,6 @@
              "error": str(exc),
          }, 503
  
@@ -11398,7 +11423,7 @@
      if person_uri is None:
          return {
              "slug": slug,
-@@ -6652,7 +7957,7 @@
+@@ -6650,7 +7957,7 @@
          # matches in both arms of the UNION.
          conv_rows = _sparql_select(
              'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
@@ -11407,7 +11432,7 @@
                  '  ?fact <urn:ostler:about> <{uri}> ; '
                  '<urn:ostler:fromConversation> ?conv .\n'
                  '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-@@ -6808,6 +8113,89 @@
+@@ -6806,6 +8113,89 @@
      return limit, None
  
  
@@ -11497,7 +11522,33 @@
  def _new_withheld():
      """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
      items. ``legacy_untagged`` is NOT withheld: those items are served and
-@@ -6945,13 +8333,10 @@
+@@ -6813,9 +8203,14 @@
+     return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
+ 
+ 
+-def _count_withheld(withheld, verdict):
+-    """Tally one item by its verdict. Returns True when the item is served."""
++def _count_withheld(withheld, verdict, destination=None):
++    """Tally one item by its verdict. Returns True when the item is served.
++
++    owner_local (this Mac, loopback only) serves an L3 item, labelled private,
++    exactly as the shared table says; every other destination withholds it."""
+     if verdict == "l3":
++        if destination == pwg_privacy.OWNER_LOCAL:
++            return True
+         withheld["l3"] += 1
+         return False
+     if verdict == "unknown":
+@@ -6895,7 +8290,7 @@
+     return out
+ 
+ 
+-def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
++def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT, destination=None):
+     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
+ 
+     Read-only listing of ``pwg:Decision`` nodes (the typed "what did we
+@@ -6943,13 +8338,10 @@
                  "error": "Invalid 'about' slug. Expected lowercase ASCII "
                           "letters, digits, hyphens (max 80 chars).",
              }, 400
@@ -11514,7 +11565,7 @@
          except Exception as exc:
              return {
                  "decisions": [],
-@@ -6959,17 +8344,14 @@
+@@ -6957,17 +8349,14 @@
                  "degraded": True,
                  "reason": f"oxigraph_lookup_failed: {exc}",
              }, 503
@@ -11534,7 +11585,7 @@
          if about_uri else ''
      )
      try:
-@@ -6984,6 +8366,15 @@
+@@ -6982,6 +8371,15 @@
              '}}'.format(ns=PWG_NS, about_clause=about_clause)
          )
      except Exception as exc:
@@ -11550,7 +11601,16 @@
          return {
              "decisions": [],
              "count": 0,
-@@ -7040,12 +8431,25 @@
+@@ -7028,7 +8426,7 @@
+         except Exception:
+             about_people = []
+             verdict = "unknown"
+-        if not _count_withheld(withheld, verdict):
++        if not _count_withheld(withheld, verdict, destination):
+             continue
+         decisions.append({
+             "summary": summary,
+@@ -7038,15 +8436,28 @@
              "status": r.get("status", ""),
          })
  
@@ -11578,8 +11638,21 @@
 +    return out, 200
  
  
- def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
-@@ -7239,12 +8643,20 @@
+-def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
++def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT, destination=None):
+     """Handle GET /api/v1/topics?q=<text>&limit=N.
+ 
+     Read-only listing of ``pwg:ConversationTopic`` nodes ranked by total
+@@ -7119,7 +8530,7 @@
+         # The mention inherits its conversation's level: strictest wins.
+         verdict = _topic_mention_verdict(
+             r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(r.get("conv"), []))
+-        if not _count_withheld(withheld, verdict):
++        if not _count_withheld(withheld, verdict, destination):
+             continue
+         agg["weight"] += _as_int(r.get("w"))
+         agg["mentions"] += 1
+@@ -7237,14 +8648,22 @@
      }, 200
  
  
@@ -11595,18 +11668,20 @@
 +# untagged legacy row is served at the level the operator's own data has
 +# always been treated at, and is never silently promoted to L0/L1.
 +_COMMITMENT_DEFAULT_PRIVACY_LEVEL = "L2"
-+
-+
+ 
+ 
 +def _commitment_privacy_level(raw):
 +    """Per-row level: tagged+valid -> that level; untagged -> the default;
 +    tagged but unparseable -> L3 (fail closed)."""
 +    if raw is None or str(raw).strip() == "":
 +        return _COMMITMENT_DEFAULT_PRIVACY_LEVEL
 +    return pwg_privacy.parse_privacy_level(raw) or "L3"
- 
- 
++
++
  def commitments_list(owner=None, due_before=None, status="open",
-@@ -7294,7 +8706,7 @@
+                      limit=_MOAT_DEFAULT_LIMIT, destination=None):
+     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
+@@ -7292,7 +8711,7 @@
          # Rows are gated per row in the loop, fail closed.
          rows = _sparql_select(
              'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
@@ -11615,7 +11690,7 @@
                  '  ?todo a <urn:ostler:OutstandingTodo> ;\n'
                  '        <urn:ostler:todoText> ?action ;\n'
                  '        <urn:ostler:owner> ?owner ;\n'
-@@ -7361,6 +8773,8 @@
+@@ -7359,6 +8778,8 @@
      commitments = commitments[:limit]
      for c in commitments:
          c.pop("_created", None)
@@ -11624,7 +11699,7 @@
      return {"commitments": commitments, "count": len(commitments),
              "withheld": _withheld_view(withheld),
              "legacy_untagged": withheld["legacy_untagged"]}, 200
-@@ -7377,24 +8791,27 @@
+@@ -7375,24 +8796,27 @@
  #
  # The detector itself lives in CM048 (src/reply_debt.py + adapters +
  # service). It is deliberately source-agnostic stdlib-only code (no LLM,
@@ -11663,7 +11738,7 @@
  
  # Where the CM048 checkout lives on the box. Mirrors OSTLER_PROJECT_DIR
  # used by _conversation_process_background; that env var points at the
-@@ -7502,23 +8919,38 @@
+@@ -7500,23 +8924,38 @@
              debts = debts[:limit]
          payload = service.reply_debt_payload(debts)
      except Exception as exc:
@@ -11707,7 +11782,7 @@
      return payload, 200
  
  
-@@ -7653,7 +9085,7 @@
+@@ -7651,7 +9090,7 @@
                  data=data,
                  headers={"Content-Type": "application/json"},
              )
@@ -11716,7 +11791,7 @@
                  result = json.loads(resp.read()).get("result", {}) or {}
              batch = result.get("points", []) or []
              points.extend(batch)
-@@ -7688,10 +9120,10 @@
+@@ -7686,10 +9125,10 @@
              uri = r.get("person")
              typ = (r.get("type") or "").strip()
              val = (r.get("value") or "").strip()
@@ -11729,10 +11804,11 @@
              )
              if val not in bucket[typ]:
                  bucket[typ].append(val)
-@@ -7738,6 +9170,21 @@
+@@ -7735,6 +9174,21 @@
+         name = p.get("display_name") or p.get("name") or ""
          given = (p.get("given_name") or "").strip()
          family = (p.get("family_name") or "").strip()
- 
++
 +        # F7b: "<given> <family> <org phrase>" is a person with a company
 +        # appended: show the person's name, never hide the person.
 +        if not (p.get("icloud_uid") or "").strip():
@@ -11747,11 +11823,10 @@
 +                list(p.get("emails") or []) + list(ident_by_uri.get(uri, {}).get("email", [])),
 +                list(p.get("phones") or []) + list(ident_by_uri.get(uri, {}).get("phone", []))):
 +            continue
-+
+ 
          # Walk #6, bug 2: the STORED name can be a bare email/phone
          # fallback even though this same record now carries a real
-         # given_name/family_name (measured: a Contacts-linked record,
-@@ -7749,8 +9196,12 @@
+@@ -7747,8 +9201,12 @@
          # nameless/automated checks below -- a bare-phone fallback is
          # exactly what _is_nameless_name hides outright, so upgrading
          # first is the only way this row ever reaches the list at all.
@@ -11766,7 +11841,7 @@
  
          # CM051 #2568: this used to be `if not name: continue`, which only
          # catches an EMPTY name (case 1 of _is_nameless_name's three). A
-@@ -7760,8 +9211,19 @@
+@@ -7758,8 +9216,19 @@
          # the Hub/wiki count gap. Reuse the LOCKED predicate rather than a
          # second filter: it is explicitly byte-identical across all three
          # surfaces for exactly this reason (Ref #664).
@@ -11787,10 +11862,12 @@
          # Walk #6, bug 1 -- CORRECTED after Archie's review (walk #6 round
          # 2). The service/notification shape checks are vocabulary-and-shape
          # heuristics, not a structural law, and Archie measured two classes
-@@ -7789,10 +9251,18 @@
+@@ -7787,10 +9256,18 @@
          # specifically, not "has a given/family name" generically -- only a
          # card is proof of a real address-book entry.
          has_contacts_card = bool((p.get("icloud_uid") or "").strip())
+-        # Cut #15: a STRONG organisation word outranks even a card.
+-        if _is_organisation_name(name):
 +        # F7 follow-up (walk #16): a record that carries a GIVEN or FAMILY
 +        # name was parsed into a person's name by something that read it as
 +        # one. The name-SHAPE rules below were hiding real people on the walk
@@ -11799,8 +11876,7 @@
 +        # given/family name only; a legal-form suffix on a named record is
 +        # still caught by _is_non_human_person (F7), which is evidence-based.
 +        _has_person_name = bool(given or family)
-         # Cut #15: a STRONG organisation word outranks even a card.
--        if _is_organisation_name(name):
++        # Cut #15: a STRONG organisation word outranks even a card.
 +        if not _has_person_name and _is_organisation_name(name):
              continue
 -        if not has_contacts_card and (
@@ -11808,7 +11884,7 @@
              _is_automated_or_service_name(name)
              or _is_service_mailbox_name(name)
          ):
-@@ -7810,7 +9280,7 @@
+@@ -7808,7 +9285,7 @@
          # the bug-2 upgrade above already re-labels it with its own human
          # name on every read, so it is not "a name that is a bare email
          # address" by the time this check runs; not a new defect, see the
@@ -11817,10 +11893,12 @@
          # shape as self_uris/ident_by_uri above.
          if (
              not has_contacts_card
-@@ -7827,6 +9297,30 @@
+@@ -7823,6 +9300,30 @@
+                 for v in ident_by_uri.get(uri, {}).get("email", [])
+             )
              if row_emails & human_named_emails:
-                 continue
- 
++                continue
++
 +        # F7 (walk #16): no human evidence at all (see _is_non_human_person).
 +        # Uncarded only; a card outranks it. Hidden from the LIST, never
 +        # deleted, still searchable by the assistant.
@@ -11843,12 +11921,10 @@
 +                    and not _ev_phones and not _ev_emails
 +                    and not ident_by_uri.get(uri, {}).get("linkedin_url")
 +                    and ident_by_uri.get(uri, {}).get("instagram_username")):
-+                continue
-+
+                 continue
+ 
          # Sort keys -- prefer the parsed given/family name, fall back to a
-         # split of the display name so LinkedIn/email-only people still sort.
-         if not given and not family:
-@@ -7844,6 +9338,10 @@
+@@ -7842,6 +9343,10 @@
              "slug": slug,
              "wiki_url": f"{WIKI_BASE_URL}/People/{slug}/",
          }
@@ -11859,7 +11935,7 @@
          role = p.get("job_title") or p.get("organization") or ""
          if role:
              row["role"] = role
-@@ -7979,6 +9477,10 @@
+@@ -7977,6 +9482,10 @@
      return suppressed_slugs, suppressed_uris
  
  
@@ -11870,7 +11946,7 @@
  def people_stale(months=3, limit=5):
      """Find contacts not spoken to in N months, reconciled against the graph.
  
-@@ -8010,10 +9512,6 @@
+@@ -8008,10 +9517,6 @@
      import time
      cutoff_ts = int(time.time()) - (months * 30 * 86400)
      cutoff_date = datetime.utcfromtimestamp(cutoff_ts).strftime("%Y-%m-%d")
@@ -11881,7 +11957,7 @@
      try:
          body = {
              "filter": {
-@@ -8033,40 +9531,105 @@
+@@ -8031,40 +9536,105 @@
                       "match": {"any": ["person", "unclassified"]}},
                  ]
              },
@@ -12004,7 +12080,7 @@
          has_card = bool((p.get("icloud_uid") or "").strip())
          if not has_card and (
              _is_automated_or_service_name(name)
-@@ -8080,7 +9643,10 @@
+@@ -8078,7 +9648,10 @@
              "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
              "last_contact": p.get("last_contact", ""),
              "months_since_contact": months_since,
@@ -12016,7 +12092,7 @@
              "_person_uri": p.get("person_uri") or "",
          })
  
-@@ -8094,16 +9660,20 @@
+@@ -8092,16 +9665,20 @@
      if unresolved:
          try:
              names = sorted({c["name"] for c in unresolved})
@@ -12047,7 +12123,7 @@
          except Exception as exc:
              # FAIL CLOSED (CM051 #2521): can't identify these candidates in
              # the graph at all, so none of this batch can be trusted.
-@@ -8130,17 +9700,19 @@
+@@ -8128,17 +9705,19 @@
      graph_max_by_uri = {}
      if uris:
          try:
@@ -12078,7 +12154,7 @@
          except Exception as exc:
              # FAIL CLOSED (CM051 #2521). Qdrant's last_contact_ts has
              # already been shown wrong in the direction that announces
-@@ -8179,8 +9751,6 @@
+@@ -8177,8 +9756,6 @@
              continue
          if uri in suppressed_uris or _wiki_slug(c["name"]) in suppressed_slugs:
              continue
@@ -12087,7 +12163,7 @@
          graph_max = graph_max_by_uri.get(uri)
          if graph_max:
              graph_max = graph_max[:10]
-@@ -8205,27 +9775,42 @@
+@@ -8203,27 +9780,42 @@
      from datetime import datetime, timedelta, timezone
      cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
      try:
@@ -12140,7 +12216,7 @@
      carded_uris = _load_carded_uris(r.get("p") for r in rows)
      # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
      # fail closed so a suppressed person is never a follow-up nudge.
-@@ -8236,16 +9821,23 @@
+@@ -8234,16 +9826,23 @@
                  "reason": f"suppression_index_failed: {exc}", "error": str(exc)}
  
      seen = set()
@@ -12166,7 +12242,7 @@
          if uri and uri in self_uris:
              continue
          has_card = uri in carded_uris
-@@ -8255,6 +9847,8 @@
+@@ -8253,6 +9852,8 @@
          ):
              continue
          seen.add(name)
@@ -12175,7 +12251,7 @@
          contacts.append({
              "name": name,
              "slug": _wiki_slug(name),
-@@ -8274,21 +9868,46 @@
+@@ -8272,21 +9873,46 @@
      today = datetime.now()
      results = []
      try:
@@ -12232,7 +12308,7 @@
      self_uris = _load_people_list_self_uris()
      carded_uris = _load_carded_uris(r.get("p") for r in rows)
      # Do-not-suggest (deceased / stop-suggesting), identity-keyed + read-time;
-@@ -8311,8 +9930,14 @@
+@@ -8309,8 +9935,14 @@
          # Birthdays surface, same render-time filter the People search / stale /
          # recent endpoints use. Ref #664. The Qdrant point / graph node is never
          # deleted -- only withheld from this listing.
@@ -12248,7 +12324,7 @@
          if uri and uri in self_uris:
              continue
          has_card = uri in carded_uris
-@@ -8336,6 +9961,7 @@
+@@ -8334,27 +9966,312 @@
              if 0 <= days_until <= days:
                  results.append({
                      "name": name,
@@ -12256,19 +12332,11 @@
                      "slug": _wiki_slug(name),
                      "wiki_url": f"{WIKI_BASE_URL}/People/{_wiki_slug(name)}/",
                      "birthday": f"{month:02d}-{day:02d}",
-@@ -8344,19 +9970,303 @@
+                     "days_until": days_until,
+                 })
          except (ValueError, TypeError):
-             continue
- 
--    results.sort(key=lambda r: r["days_until"])
--    # Dedup by name (multiple Oxigraph nodes for same person)
--    seen = set()
--    deduped = []
--    for r in results:
--        if r["name"] not in seen:
--            seen.add(r["name"])
--            deduped.append(r)
--    return {"people": deduped}
++            continue
++
 +    # Already one entry per live person URI (see above), so no name dedupe:
 +    # two different people who share a name are two birthdays.
 +    results.sort(key=lambda r: (r["days_until"], r["name"]))
@@ -12473,12 +12541,12 @@
 +        not_connected.append("Google")  # no account or no opt-in: gws not run
 +    except Exception:
 +        pass  # optional extra
- 
++
 +    if local_failed and not extra_ok:
 +        return 503, {"error": "calendar unavailable", "detail": errors,
 +                     "degraded": True, "events": [], "count": 0,
 +                     "period_days": days, "sources": []}
- 
++
 +    all_events.sort(key=lambda e: e.get("start", ""))
 +    all_events = [e for e in all_events if not _is_personal_admin_event(e)]
 +    deduped = collapse_duplicate_events(all_events)
@@ -12515,9 +12583,9 @@
 +        body["degraded"] = True
 +        body["errors"] = errors
 +    return 200, body
- 
 +
- def fetch_recent_emails(hours=24, limit=20):
++
++def fetch_recent_emails(hours=24, limit=20):
 +    """(http_status, body): mail received in the last ``hours``, from the
 +    ingested Apple Mail store (apple_mail.json). Subject/sender only, no body.
 +
@@ -12540,7 +12608,7 @@
 +    window, unread_total = [], 0
 +    for r in rows:
 +        if not isinstance(r, dict):
-+            continue
+             continue
 +        if r.get("is_read") is False:
 +            unread_total += 1
 +        dt = _parse_store_dt(r.get("date_received"))
@@ -12563,13 +12631,25 @@
 +        body["degraded"] = True
 +        body["errors"] = [stale]
 +    return 200, body
-+
-+
+ 
+-    results.sort(key=lambda r: r["days_until"])
+-    # Dedup by name (multiple Oxigraph nodes for same person)
+-    seen = set()
+-    deduped = []
+-    for r in results:
+-        if r["name"] not in seen:
+-            seen.add(r["name"])
+-            deduped.append(r)
+-    return {"people": deduped}
+ 
+-
+-
+-def fetch_recent_emails(hours=24, limit=20):
 +def _fetch_recent_emails_gws(hours=24, limit=20):
      """Fetch recent emails via gws CLI. Returns subjects/snippets only (no body).
  
      Never spawns gws unless google_connector_allowed(GOOGLE_GMAIL_CONSENT_ID).
-@@ -8455,95 +10365,45 @@
+@@ -8453,95 +10370,45 @@
      # change. Aliases share the same list reference – cheap, no copy.
      out["reconnect"] = out["stale_contacts"]
      out["follow_up"] = out["recent_meetings"]
@@ -12602,24 +12682,14 @@
  
 -def calendar_payload(days):
 -    """The /calendar response body for the next ``days`` days.
-+def _calendar_events_in_process(days):
-+    """Events for the next ``days`` days, read IN-PROCESS for the pre-meeting
-+    brief (CM041 #231: a handler must never HTTP-call this single-threaded
-+    server). CM051 serves /calendar from build_calendar_response (local store
-+    first), so this reads the same function. A failed read raises, so
-+    api_meeting_upcoming reports degraded instead of an empty 200."""
-+    status, body = build_calendar_response(days)
-+    if status != 200:
-+        raise RuntimeError("calendar unavailable: %s" % (body.get("detail") or status))
-+    return body.get("events", [])
- 
+-
 -    Shared by the /calendar handler and by in-process callers (the
 -    pre-meeting brief), so no handler has to HTTP-call this server back:
 -    the server is single-threaded, so a handler that requests its own port
 -    hangs until the client times out.
 -    """
 -    all_events = []
- 
+-
 -    # 1. iCloud Calendar
 -    try:
 -        result = subprocess.run(
@@ -12684,7 +12754,17 @@
 -                    names.append(a)
 -            if names:
 -                e["attendee_names"] = names
--
++def _calendar_events_in_process(days):
++    """Events for the next ``days`` days, read IN-PROCESS for the pre-meeting
++    brief (CM041 #231: a handler must never HTTP-call this single-threaded
++    server). CM051 serves /calendar from build_calendar_response (local store
++    first), so this reads the same function. A failed read raises, so
++    api_meeting_upcoming reports degraded instead of an empty 200."""
++    status, body = build_calendar_response(days)
++    if status != 200:
++        raise RuntimeError("calendar unavailable: %s" % (body.get("detail") or status))
++    return body.get("events", [])
+ 
 -    body = {
 -        "events": deduped,
 -        "count": len(deduped),
@@ -12694,12 +12774,12 @@
 -    if not_connected:
 -        body["not_connected"] = not_connected
 -    return body
--
+ 
 -
  def api_meeting_upcoming(within_minutes=120, destination=None):
      """Return enriched pre-meeting briefs for events starting within
      ``within_minutes`` from now.
-@@ -8600,13 +10460,19 @@
+@@ -8598,13 +10465,19 @@
      # miss an event right at the boundary).
      days_lookahead = max(1, int((within_minutes + 1439) // 1440))
  
@@ -12723,7 +12803,7 @@
          )
      except Exception as exc:
          return {
-@@ -8641,6 +10507,9 @@
+@@ -8639,6 +10512,9 @@
              return None
  
      upcoming = []
@@ -12733,7 +12813,7 @@
      for b in all_briefs:
          dt = _parse_start(b)
          if dt is None:
-@@ -8651,15 +10520,29 @@
+@@ -8649,15 +10525,29 @@
              continue
          if now <= dt <= window_end:
              upcoming.append(b)
@@ -12764,7 +12844,7 @@
      """Historic timeline rows from the People Graph - one entry PER MEETING.
  
      The Timeline is mainly a HISTORIC view, so its primary source is the graph
-@@ -8687,9 +10570,9 @@
+@@ -8685,9 +10575,9 @@
      level_where = ''
      if outbound:
          level_select = (
@@ -12776,7 +12856,7 @@
          )
          # level_where is spliced into the outer .format() below, so the helper
          # SQL is brace-escaped here; the literal braces stay as they were.
-@@ -8703,19 +10586,29 @@
+@@ -8701,19 +10591,29 @@
      try:
          rows = _sparql_select(
              ('PREFIX pwg: <{ns}>\n'
@@ -12819,7 +12899,7 @@
              )
          )
      except Exception as exc:
-@@ -8740,17 +10633,30 @@
+@@ -8738,17 +10638,30 @@
          participants = [a for a in attendees_raw.split("|")
                          if a and not _is_nameless_name(a)]
          out.append({
@@ -12852,7 +12932,7 @@
      """Historic conversation rows for the Timeline, from Qdrant.
  
      Meetings live in Oxigraph as pwg:Meeting nodes; CONVERSATIONS do not. They
-@@ -8775,7 +10681,12 @@
+@@ -8773,7 +10686,12 @@
      rows, points, next_offset = [], [], None
      page = 256
      try:
@@ -12866,7 +12946,7 @@
              body = {
                  "limit": page,
                  "with_payload": True,
-@@ -8788,7 +10699,7 @@
+@@ -8786,7 +10704,7 @@
                  data=json.dumps(body).encode(),
                  headers={"Content-Type": "application/json"},
              )
@@ -12875,7 +12955,7 @@
                  result = json.loads(resp.read()).get("result", {}) or {}
              batch = result.get("points", []) or []
              points.extend(batch)
-@@ -8806,9 +10717,11 @@
+@@ -8804,9 +10722,11 @@
          # time (CM047/CM048 schema alignment). Accept any of them rather than
          # dropping a whole source on a field rename -- a missing date is the
          # only disqualifier, since the Timeline is ordered by it.
@@ -12889,7 +12969,7 @@
              val = payload.get(key)
              if val:
                  raw_date = str(val)
-@@ -8816,6 +10729,8 @@
+@@ -8814,6 +10734,8 @@
          date = raw_date[:10]
          if not date or date < cutoff:
              continue
@@ -12898,7 +12978,7 @@
          # The payload's own level, for the request's destination, always
          # (undeclared = unknown). owner_local sees L3/untagged labelled.
          if _pr.outbound_hidden(payload, destination=destination):
-@@ -8833,15 +10748,42 @@
+@@ -8831,15 +10753,42 @@
              # what-happened-when view; conversation content is L2+ and has its
              # own privacy-gated surfaces. A channel + counterpart is enough to
              # place the event without publishing what was said.
@@ -12943,7 +13023,7 @@
  def _timeline_photos(past_days=730, limit=200, destination=None):
      """Aggregated Photos rows for the Timeline: one row per (day, place).
  
-@@ -8928,7 +10870,10 @@
+@@ -8926,7 +10875,10 @@
      return out, None
  
  
@@ -12955,7 +13035,7 @@
      """Mainly-historic life timeline: past meetings/events + a short forward look.
  
      The Timeline is a HISTORIC view first. Its backbone is the People Graph
-@@ -8976,21 +10921,41 @@
+@@ -8974,21 +10926,41 @@
              items.append({
                  "kind": "calendar",
                  "date": e.get("start", ""),
@@ -13001,7 +13081,7 @@
      else:
          items.extend(past_rows)
  
-@@ -9002,24 +10967,39 @@
+@@ -9000,24 +10972,39 @@
      # Failure here is reported, never fatal: a broken conversation store must
      # degrade this section, not empty the whole Timeline of its meetings.
      conv_rows, conv_err = _timeline_conversations(
@@ -13048,7 +13128,7 @@
  
      # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
      # subtitle, attendees}]`. Map our `items: [{kind, date, summary,
-@@ -9029,15 +11009,29 @@
+@@ -9027,15 +11014,29 @@
      entries = []
      for it in items:
          kind = it.get("kind") or ""
@@ -13083,7 +13163,7 @@
          # Attendee names come in two shapes:
          #   calendar items: list-of-dicts {name?, email?, role?}
          #   meeting items: a `participants` list-of-strings
-@@ -9052,24 +11046,29 @@
+@@ -9050,24 +11051,29 @@
                          attendee_names.append(nm)
                  elif isinstance(a, str):
                      attendee_names.append(a)
@@ -13120,13 +13200,12 @@
          "limit": limit,
          "count": len(items),
      }
-@@ -9272,27 +11271,170 @@
-             "degraded": True,
+@@ -9271,21 +11277,49 @@
              "reason": f"tidy engine unavailable: {exc}",
          }
-+
-+    return _contacts_diff_cached(TidyEngine)
  
++    return _contacts_diff_cached(TidyEngine)
++
 +
 +# ── Tidy report: built in the background, served from a cache (CM051 F18) ──
 +#
@@ -13156,15 +13235,7 @@
      try:
 -        engine = TidyEngine(oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL)
 -        return engine.build_report().to_dict()
-+        engine = engine_cls(
-+            oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL,
-+            config={"fuzzy_match_max_seconds": _CONTACTS_DIFF_BUILD_BUDGET_SECONDS},
-+        )
-+        report = engine.build_report().to_dict()
-+        with _contacts_diff_lock:
-+            _contacts_diff_state.update(report=report, as_of=time.time(),
-+                                        last_error="")
-     except Exception as exc:
+-    except Exception as exc:
 -        return {
 -            "schema_version": 1,
 -            "total_persons": 0,
@@ -13174,6 +13245,15 @@
 -            "reason": str(exc)[:200],
 -            "error": str(exc),
 -        }
++        engine = engine_cls(
++            oxigraph_url=OXIGRAPH_URL, qdrant_url=QDRANT_URL,
++            config={"fuzzy_match_max_seconds": _CONTACTS_DIFF_BUILD_BUDGET_SECONDS},
++        )
++        report = engine.build_report().to_dict()
++        with _contacts_diff_lock:
++            _contacts_diff_state.update(report=report, as_of=time.time(),
++                                        last_error="")
++    except Exception as exc:
 +        with _contacts_diff_lock:
 +            _contacts_diff_state["last_error"] = str(exc)[:200]
      finally:
@@ -13182,10 +13262,10 @@
          if engine is not None:
              try:
                  engine.close()
-+            except Exception:
-+                pass
-+
-+
+@@ -9293,6 +11327,121 @@
+                 pass
+ 
+ 
 +def _contacts_diff_kick(engine_cls) -> None:
 +    """Start a background build unless one is running. Caller holds the lock."""
 +    if _contacts_diff_state["building"]:
@@ -13295,14 +13375,16 @@
 +        except Exception as exc:  # noqa: BLE001 - one bad note never aborts the batch
 +            try:
 +                _quarantine_quick_note(entry, "error:" + type(exc).__name__)
-             except Exception:
-                 pass
++            except Exception:
++                pass
 +            out["quarantined"] += 1
 +    return out
- 
- 
++
++
  def api_ingest_ios(payload):
-@@ -9311,7 +11453,15 @@
+     """Accept a batch from the CM031 iOS companion app.
+ 
+@@ -9309,7 +11458,15 @@
      (meetings, calendar) already keyed by date. The graph write is
      best-effort: a graph failure never fails the ingest (the JSONL spool
      is the durable record).
@@ -13318,7 +13400,7 @@
      import time
      import uuid
  
-@@ -9346,6 +11496,8 @@
+@@ -9344,6 +11501,8 @@
          except Exception as exc:  # noqa: BLE001 - never fail ingest on graph error
              health_errors.append(str(exc)[:120])
  
@@ -13327,7 +13409,7 @@
      try:
          os.makedirs(INGEST_DIR, exist_ok=True)
          batch_id = str(uuid.uuid4())
-@@ -9363,8 +11515,17 @@
+@@ -9361,8 +11520,17 @@
              "ok": True,
              "batch_id": batch_id,
              "item_count": len(batch),
@@ -13345,7 +13427,7 @@
          if health_written:
              result["health_observations"] = health_written
          if health_errors:
-@@ -9485,7 +11646,7 @@
+@@ -9483,7 +11651,7 @@
          headers={"Content-Type": "application/json"},
          method="PUT",
      )
@@ -13354,7 +13436,7 @@
  
  
  def _safari_qdrant_upsert(point_id, vector, payload):
-@@ -9510,7 +11671,7 @@
+@@ -9508,7 +11676,7 @@
          method="PUT",
      )
      try:
@@ -13363,7 +13445,7 @@
              return resp.status in (200, 202)
      except Exception:
          return False
-@@ -9552,7 +11713,15 @@
+@@ -9550,7 +11718,15 @@
      ``ostler_fda/pwg_ingest.ingest_browser_history`` but for one page
      at a time: sensitive-domain filter, Ollama embed of
      (title + host + url), Qdrant upsert into ``safari_history``.
@@ -13379,7 +13461,7 @@
      import uuid as _uuid
      import time as _time
  
-@@ -9713,7 +11882,7 @@
+@@ -9711,7 +11887,7 @@
  def _strip_tracking_url(url):
      """Drop known tracking params before the url is stored or keyed.
      url_clean.py lives beside this file (byte-identical to
@@ -13388,7 +13470,7 @@
      here = os.path.dirname(os.path.abspath(__file__))
      if here not in sys.path:
          sys.path.insert(0, here)
-@@ -9732,9 +11901,34 @@
+@@ -9730,9 +11906,34 @@
      return browsing_enrich
  
  
@@ -13423,7 +13505,7 @@
      if job.get("kind") == bn.KIND_KNOWLEDGE:
          if not text.strip():
              return None
-@@ -9761,7 +11955,11 @@
+@@ -9759,7 +11960,11 @@
              visit_id=visit_id, result=result,
              user_tags=job.get("user_tags") or [], note=job.get("note") or "",
              failure_reason=job.get("failure_reason") or "",
@@ -13435,7 +13517,7 @@
          vector = _embed_text(point["content"][:6000])
          bn.qdrant_ensure_collection(QDRANT_URL, bn.KNOWLEDGE_COLLECTION, len(vector))
          if not bn.qdrant_upsert(QDRANT_URL, bn.KNOWLEDGE_COLLECTION,
-@@ -9804,7 +12002,8 @@
+@@ -9802,7 +12007,8 @@
      with _ENRICH_QUEUE_LOCK:
          if _ENRICH_QUEUE is None:
              bn = _bn()
@@ -13445,10 +13527,24 @@
              _ENRICH_QUEUE.start()
          return _ENRICH_QUEUE
  
-@@ -9822,6 +12021,13 @@
-     Notion importers use, so the CM044 Knowledge wing renders it unchanged.
-     The raw text is dropped once summarised.
-     """
+@@ -9814,191 +12020,655 @@
+            "timestamp", "device", "tags": [...], "note": "..."}
+ 
+     An explicit user action: the text skip list does not apply, the
+-    sensitive-domain filter still does. The visit is stored (or reused),
+-    then a Knowledge item is written asynchronously by the summary worker
+-    into the SAME collection and shape the Evernote / Notes / Obsidian /
+-    Notion importers use, so the CM044 Knowledge wing renders it unchanged.
+-    The raw text is dropped once summarised.
+-    """
+-    import uuid as _uuid
+-    import time as _time
++    sensitive-domain filter still does. The visit is stored (or reused),
++    then a Knowledge item is written asynchronously by the summary worker
++    into the SAME collection and shape the Evernote / Notes / Obsidian /
++    Notion importers use, so the CM044 Knowledge wing renders it unchanged.
++    The raw text is dropped once summarised.
++    """
 +    # Rule 0.8: Save to Knowledge is browser capture too, so it pauses
 +    # without Ostler Pro exactly like api_safari_ingest. (CM051-only line:
 +    # CM041 source has no subscription gate.)
@@ -13456,13 +13552,86 @@
 +    if paused is not None:
 +        return paused
 +
-     import uuid as _uuid
-     import time as _time
- 
-@@ -9902,6 +12108,15 @@
-         "device": payload.get("device", ""),
-         "knowledge_id": payload.get("knowledge_id", ""),
-     }
++    import uuid as _uuid
++    import time as _time
++
++    if not isinstance(payload, dict):
++        return {"error": "body must be a JSON object"}, 400
++    url = _strip_tracking_url((payload.get("url") or "").strip())
++    if not url:
++        return {"error": "missing 'url'"}, 400
++    bn = _bn()
++    title = (payload.get("title") or "").strip()
++    timestamp = (payload.get("timestamp") or "").strip() or datetime.now(
++        timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++    device = (payload.get("device") or "").strip() or "browser"
++    text = bn.clamp_text(payload.get("text"), bn.KNOWLEDGE_TEXT_CAP_CHARS)
++    user_tags = bn.clean_user_tags(payload.get("tags"))
++    note = bn.clean_note(payload.get("note"))
++    host = _safari_extract_host(url)
++
++    if _safari_is_sensitive_domain(host):
++        return {"ok": True, "stored": 0, "skipped_sensitive": 1,
++                "reason": "sensitive_domain"}, 200
++    if not (text.strip() or note):
++        return {"error": "nothing to save: send 'text' or 'note'"}, 400
++
++    point_id = str(_uuid.uuid5(
++        _uuid.NAMESPACE_URL, f"browsing|safari_history|{url}|{timestamp}"))
++    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
++    if existing is None:
++        try:
++            vector = _embed_text(" ".join(p for p in (title, host, url) if p))
++        except Exception as exc:
++            return {"error": f"embed failed: {type(exc).__name__}"}, 502
++        if not vector:
++            return {"error": "empty embedding vector"}, 502
++        try:
++            _safari_qdrant_ensure_collection(len(vector))
++        except Exception as exc:
++            return {"error": f"qdrant collection ensure failed: {type(exc).__name__}"}, 502
++        if not _safari_qdrant_upsert(point_id, vector, {
++            "url": url, "domain": host, "title": title, "timestamp": timestamp,
++            "visit_date": timestamp, "created_at": timestamp, "date": timestamp,
++            "visit_count": 1, "source": "safari_extension_live", "type": "web_visit",
++            "device": device, "summary_status": "unsummarised",
++            "saved_to_knowledge": True,
++        }):
++            return {"error": "qdrant upsert failed"}, 502
++    else:
++        bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
++                              {"saved_to_knowledge": True})
++
++    kid = bn.knowledge_id(url, timestamp)
++    _enrich_queue().enqueue({
++        "id": "k-" + kid, "kind": bn.KIND_KNOWLEDGE, "point_id": point_id,
++        "url": url, "title": title, "text": text, "timestamp": timestamp,
++        "device": device, "user_tags": user_tags, "note": note,
++    })
++    _safari_write_state({
++        "last_write_ts": int(_time.time()),
++        "last_write_host": host,
++        "last_write_device": device,
++    })
++    return {"ok": True, "status": "queued", "id": kid, "visit_id": point_id}, 202
++
++
++def _browsing_item(payload):
++    return {
++        "url": payload.get("url", ""),
++        "title": payload.get("title", ""),
++        "domain": payload.get("domain", ""),
++        "timestamp": payload.get("timestamp") or payload.get("visit_date") or "",
++        "summary": payload.get("summary", ""),
++        "tags": payload.get("tags") or [],
++        "entities": payload.get("entities") or [],
++        # Entries written by the History.db / Chrome history importers carry
++        # no page text and no field: they read as unsummarised.
++        "summary_status": payload.get("summary_status") or "unsummarised",
++        "source": payload.get("source", ""),
++        "device": payload.get("device", ""),
++        "knowledge_id": payload.get("knowledge_id", ""),
++    }
 +
 +
 +# Runaway guard for the browsing keyword scan (pages of 1000). Not a sample:
@@ -13472,13 +13641,22 @@
 +    "url", "title", "domain", "timestamp", "visit_date", "summary", "tags",
 +    "entities", "summary_status", "source", "device", "knowledge_id",
 +)
- 
- 
- def api_browsing_search(q="", days=0, limit=10):
-@@ -9918,10 +12133,26 @@
-     if days and int(days) > 0:
-         cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
- 
++
++
++def api_browsing_search(q="", days=0, limit=10):
++    """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
++    reads to answer "what did I read about X". Returns the visit with its
++    summary, tags and entities so the entry means something; the assistant
++    can fetch the full URL itself when it needs more.
++    """
++    bn = _bn()
++    collection = _SAFARI_QDRANT_COLLECTION
++    limit = max(1, min(int(limit or 10), 50))
++    tokens = [t for t in re.findall(r"[a-z0-9]{3,}", (q or "").lower())]
++    cutoff = None
++    if days and int(days) > 0:
++        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
++
 +    # SCAN THE WHOLE COLLECTION, THEN FILTER. This used to stop after 5 pages
 +    # of 1000, in point-id order, and filter afterwards: on the walk #27 box
 +    # (safari_history 8714 points) about 43% of browsing history could never
@@ -13493,34 +13671,65 @@
 +    # filter needs. _BROWSING_SCAN_MAX_PAGES is a runaway guard, not a
 +    # sample size: if it is ever reached the response says so
 +    # (truncated + scanned) instead of silently answering from part of it.
-     points = []
-     offset = None
--    for _ in range(5):  # at most 5000 entries scanned
--        body = {"limit": 1000, "with_payload": True, "with_vector": False}
++    points = []
++    offset = None
 +    truncated = False
 +    for page in range(_BROWSING_SCAN_MAX_PAGES):
 +        body = {"limit": 1000, "with_payload": list(_BROWSING_SCAN_FIELDS),
 +                "with_vector": False}
-         if offset is not None:
-             body["offset"] = offset
-         try:
-@@ -9934,6 +12165,8 @@
-         offset = r.get("next_page_offset")
-         if offset is None:
-             break
++        if offset is not None:
++            body["offset"] = offset
++        try:
++            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/scroll", "POST", body)
++        except Exception as exc:
++            return {"results": [], "count": 0, "degraded": True,
++                    "reason": type(exc).__name__}, 200
++        r = res.get("result") or {}
++        points.extend(r.get("points") or [])
++        offset = r.get("next_page_offset")
++        if offset is None:
++            break
 +    else:
 +        truncated = offset is not None
- 
-     scored = {}
-     for pt in points:
-@@ -9973,10 +12206,14 @@
-         if key in seen:
-             continue
-         seen.add(key)
--        results.append(_browsing_item(pl))
--        if len(results) >= limit:
--            break
--    return {"results": results, "count": len(results)}, 200
++
++    scored = {}
++    for pt in points:
++        pl = pt.get("payload") or {}
++        ts = (pl.get("timestamp") or pl.get("visit_date") or "")
++        if cutoff and ts and ts[:10] < cutoff:
++            continue
++        hay = " ".join([
++            str(pl.get("title", "")), str(pl.get("domain", "")), str(pl.get("summary", "")),
++            " ".join(pl.get("tags") or []), " ".join(pl.get("entities") or []),
++        ]).lower()
++        kw = sum(1 for t in tokens if t in hay)
++        if tokens and kw == 0:
++            continue
++        scored[pt.get("id")] = (kw, 0.0, ts, pl)
++
++    if tokens:
++        try:
++            vec = _embed_text(q)
++            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/search", "POST",
++                        {"vector": vec, "limit": limit * 3, "with_payload": True})
++            for hit in res.get("result") or []:
++                pl = hit.get("payload") or {}
++                ts = (pl.get("timestamp") or pl.get("visit_date") or "")
++                if cutoff and ts and ts[:10] < cutoff:
++                    continue
++                prev = scored.get(hit.get("id"))
++                kw = prev[0] if prev else 0
++                scored[hit.get("id")] = (kw, float(hit.get("score") or 0.0), ts, pl)
++        except Exception:
++            pass  # keyword results still stand
++
++    ranked = sorted(scored.values(), key=lambda v: (v[0], v[1], v[2]), reverse=True)
++    seen, results = set(), []
++    for _kw, _score, _ts, pl in ranked:
++        key = pl.get("url", "")
++        if key in seen:
++            continue
++        seen.add(key)
 +        results.append(_browsing_item(pl))
 +        if len(results) >= limit:
 +            break
@@ -13529,13 +13738,15 @@
 +        out["truncated"] = True
 +        out["scanned"] = len(points)
 +    return out, 200
- 
- 
- # ── Hub health helpers ───────────────────────────────────────────────
-@@ -9986,11 +12223,211 @@
- # up to the endpoint handler.
- 
- 
++
++
++# ── Hub health helpers ───────────────────────────────────────────────
++# Each helper returns a (key, result_dict) tuple so the parallel runner
++# can fan out work and collect named results. Every helper is wrapped in
++# a blanket try/except – a misbehaving dependency must NEVER propagate
++# up to the endpoint handler.
++
++
 +def _subscription_paused(surface):
 +    """Rule 0.8: should this ingestion surface pause for an unpaid Hub?
 +
@@ -13703,60 +13914,194 @@
 +        import subscription_gate  # type: ignore[import-not-found]
 +    except ImportError as exc:
 +        return {"error": f"subscription_gate unavailable: {exc}"}, 500
-+
-+    if not isinstance(payload, dict):
-+        return {"error": "body must be a JSON object"}, 400
-+
+ 
+     if not isinstance(payload, dict):
+         return {"error": "body must be a JSON object"}, 400
+-    url = _strip_tracking_url((payload.get("url") or "").strip())
+-    if not url:
+-        return {"error": "missing 'url'"}, 400
+-    bn = _bn()
+-    title = (payload.get("title") or "").strip()
+-    timestamp = (payload.get("timestamp") or "").strip() or datetime.now(
+-        timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+-    device = (payload.get("device") or "").strip() or "browser"
+-    text = bn.clamp_text(payload.get("text"), bn.KNOWLEDGE_TEXT_CAP_CHARS)
+-    user_tags = bn.clean_user_tags(payload.get("tags"))
+-    note = bn.clean_note(payload.get("note"))
+-    host = _safari_extract_host(url)
+ 
+-    if _safari_is_sensitive_domain(host):
+-        return {"ok": True, "stored": 0, "skipped_sensitive": 1,
+-                "reason": "sensitive_domain"}, 200
+-    if not (text.strip() or note):
+-        return {"error": "nothing to save: send 'text' or 'note'"}, 400
 +    receipt_b64 = payload.get("receipt_b64")
 +    expires_at = payload.get("expires_at")
-+
+ 
+-    point_id = str(_uuid.uuid5(
+-        _uuid.NAMESPACE_URL, f"browsing|safari_history|{url}|{timestamp}"))
+-    existing = bn.qdrant_get_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id)
+-    if existing is None:
+-        try:
+-            vector = _embed_text(" ".join(p for p in (title, host, url) if p))
+-        except Exception as exc:
+-            return {"error": f"embed failed: {type(exc).__name__}"}, 502
+-        if not vector:
+-            return {"error": "empty embedding vector"}, 502
+-        try:
+-            _safari_qdrant_ensure_collection(len(vector))
+-        except Exception as exc:
+-            return {"error": f"qdrant collection ensure failed: {type(exc).__name__}"}, 502
+-        if not _safari_qdrant_upsert(point_id, vector, {
+-            "url": url, "domain": host, "title": title, "timestamp": timestamp,
+-            "visit_date": timestamp, "created_at": timestamp, "date": timestamp,
+-            "visit_count": 1, "source": "safari_extension_live", "type": "web_visit",
+-            "device": device, "summary_status": "unsummarised",
+-            "saved_to_knowledge": True,
+-        }):
+-            return {"error": "qdrant upsert failed"}, 502
+-    else:
+-        bn.qdrant_set_payload(QDRANT_URL, _SAFARI_QDRANT_COLLECTION, point_id,
+-                              {"saved_to_knowledge": True})
 +    if not isinstance(receipt_b64, str) or not receipt_b64.strip():
 +        return {"error": "receipt_b64 must be a non-empty string"}, 400
-+
+ 
+-    kid = bn.knowledge_id(url, timestamp)
+-    _enrich_queue().enqueue({
+-        "id": "k-" + kid, "kind": bn.KIND_KNOWLEDGE, "point_id": point_id,
+-        "url": url, "title": title, "text": text, "timestamp": timestamp,
+-        "device": device, "user_tags": user_tags, "note": note,
+-    })
+-    _safari_write_state({
+-        "last_write_ts": int(_time.time()),
+-        "last_write_host": host,
+-        "last_write_device": device,
+-    })
+-    return {"ok": True, "status": "queued", "id": kid, "visit_id": point_id}, 202
 +    if not isinstance(expires_at, str) or not expires_at.strip():
 +        return {"error": "expires_at must be an ISO-8601 string"}, 400
-+
+ 
 +    # Validate expires_at parses as ISO-8601. Mirrors the parse rule used
 +    # by subscription_gate._parse_iso so we 400 before writing state.
 +    try:
 +        datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
 +    except (ValueError, TypeError):
 +        return {"error": "expires_at is not a valid ISO-8601 datetime"}, 400
-+
+ 
+-def _browsing_item(payload):
+-    return {
+-        "url": payload.get("url", ""),
+-        "title": payload.get("title", ""),
+-        "domain": payload.get("domain", ""),
+-        "timestamp": payload.get("timestamp") or payload.get("visit_date") or "",
+-        "summary": payload.get("summary", ""),
+-        "tags": payload.get("tags") or [],
+-        "entities": payload.get("entities") or [],
+-        # Entries written by the History.db / Chrome history importers carry
+-        # no page text and no field: they read as unsummarised.
+-        "summary_status": payload.get("summary_status") or "unsummarised",
+-        "source": payload.get("source", ""),
+-        "device": payload.get("device", ""),
+-        "knowledge_id": payload.get("knowledge_id", ""),
+-    }
 +    try:
 +        subscription_gate.refresh_from_companion(receipt_b64, expires_at)
 +        status = subscription_gate.state_dict().get("status", "inactive")
 +        return {"status": status}, 200
 +    except Exception as exc:
 +        return {"error": f"refresh failed: {exc}"}, 500
-+
-+
- def _read_sync_marker(path):
--    """Read an ISO-8601 UTC timestamp from a marker file.
-+    """Read raw stripped contents from a marker file.
  
-     Returns the stripped contents if the file exists and is readable,
-     otherwise None. Never raises.
+ 
+-def api_browsing_search(q="", days=0, limit=10):
+-    """GET /api/v1/browsing/search?q=&days=&limit= -- what the assistant
+-    reads to answer "what did I read about X". Returns the visit with its
+-    summary, tags and entities so the entry means something; the assistant
+-    can fetch the full URL itself when it needs more.
++def _read_sync_marker(path):
++    """Read raw stripped contents from a marker file.
++
++    Returns the stripped contents if the file exists and is readable,
++    otherwise None. Never raises.
 +
 +    NOTE: this helper is intentionally permissive – it is also used by
 +    `_hub_queue_depth()` which writes integer text, not ISO-8601. For
 +    callers that want an ISO-8601 timestamp specifically, use
 +    `_read_iso8601_marker()` which validates + normalises the value.
      """
-     try:
-         if path.exists():
-@@ -10001,6 +12438,232 @@
-     return None
+-    bn = _bn()
+-    collection = _SAFARI_QDRANT_COLLECTION
+-    limit = max(1, min(int(limit or 10), 50))
+-    tokens = [t for t in re.findall(r"[a-z0-9]{3,}", (q or "").lower())]
+-    cutoff = None
+-    if days and int(days) > 0:
+-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
++    try:
++        if path.exists():
++            text = path.read_text(encoding="utf-8", errors="replace").strip()
++            return text or None
++    except Exception:
++        return None
++    return None
  
+-    points = []
+-    offset = None
+-    for _ in range(5):  # at most 5000 entries scanned
+-        body = {"limit": 1000, "with_payload": True, "with_vector": False}
+-        if offset is not None:
+-            body["offset"] = offset
+-        try:
+-            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/scroll", "POST", body)
+-        except Exception as exc:
+-            return {"results": [], "count": 0, "degraded": True,
+-                    "reason": type(exc).__name__}, 200
+-        r = res.get("result") or {}
+-        points.extend(r.get("points") or [])
+-        offset = r.get("next_page_offset")
+-        if offset is None:
+-            break
  
+-    scored = {}
+-    for pt in points:
+-        pl = pt.get("payload") or {}
+-        ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+-        if cutoff and ts and ts[:10] < cutoff:
+-            continue
+-        hay = " ".join([
+-            str(pl.get("title", "")), str(pl.get("domain", "")), str(pl.get("summary", "")),
+-            " ".join(pl.get("tags") or []), " ".join(pl.get("entities") or []),
+-        ]).lower()
+-        kw = sum(1 for t in tokens if t in hay)
+-        if tokens and kw == 0:
+-            continue
+-        scored[pt.get("id")] = (kw, 0.0, ts, pl)
 +def _read_iso8601_marker(path):
 +    """Read and validate an ISO-8601 UTC timestamp from a marker file.
-+
+ 
+-    if tokens:
+-        try:
+-            vec = _embed_text(q)
+-            res = bn._q(QDRANT_URL, f"/collections/{collection}/points/search", "POST",
+-                        {"vector": vec, "limit": limit * 3, "with_payload": True})
+-            for hit in res.get("result") or []:
+-                pl = hit.get("payload") or {}
+-                ts = (pl.get("timestamp") or pl.get("visit_date") or "")
+-                if cutoff and ts and ts[:10] < cutoff:
+-                    continue
+-                prev = scored.get(hit.get("id"))
+-                kw = prev[0] if prev else 0
+-                scored[hit.get("id")] = (kw, float(hit.get("score") or 0.0), ts, pl)
+-        except Exception:
+-            pass  # keyword results still stand
 +    F-3 (2026-05-27): hardens the iOS-facing health surface against
 +    malformed marker contents. A garbled marker file now returns None
 +    rather than leaking an unparseable string back to the Companion
 +    (which would then fail JSON-decoding into Date).
-+
+ 
+-    ranked = sorted(scored.values(), key=lambda v: (v[0], v[1], v[2]), reverse=True)
+-    seen, results = set(), []
+-    for _kw, _score, _ts, pl in ranked:
+-        key = pl.get("url", "")
+-        if key in seen:
 +    Returns a normalised "%Y-%m-%dT%H:%M:%SZ" string on success, or
 +    None if the file is missing, empty, unreadable, or contains a value
 +    that is not a recognised ISO-8601 form. Never raises.
@@ -13768,18 +14113,30 @@
 +        try:
 +            dt = datetime.strptime(raw, fmt)
 +        except ValueError:
-+            continue
+             continue
+-        seen.add(key)
+-        results.append(_browsing_item(pl))
+-        if len(results) >= limit:
+-            break
+-    return {"results": results, "count": len(results)}, 200
 +        if dt.tzinfo is None:
 +            dt = dt.replace(tzinfo=timezone.utc)
 +        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 +    return None
-+
-+
+ 
+ 
+-# ── Hub health helpers ───────────────────────────────────────────────
+-# Each helper returns a (key, result_dict) tuple so the parallel runner
+-# can fan out work and collect named results. Every helper is wrapped in
+-# a blanket try/except – a misbehaving dependency must NEVER propagate
+-# up to the endpoint handler.
 +def api_recording_active():
 +    """Read the current recording state for the CM031 Live Activity.
-+
+ 
 +    Wire contract (shared with the CM042 producer + CM031 consumer):
-+
+ 
+-def _read_sync_marker(path):
+-    """Read an ISO-8601 UTC timestamp from a marker file.
 +    - State file path: ``RECORDING_STATE_FILE``
 +      (default ``~/.ostler/recording_state.json``).
 +    - File missing → ``{"recording": null}``.
@@ -13790,7 +14147,9 @@
 +      or an unknown ``state`` value → ``{"recording": null}`` (logged at
 +      WARN, never 5xx).
 +    - Active body shape:
-+
+ 
+-    Returns the stripped contents if the file exists and is readable,
+-    otherwise None. Never raises.
 +      ``{
 +          "recording": {
 +            "meeting_id": "<ULID>",
@@ -13817,13 +14176,19 @@
 +      (reported as null) when the resolved jurisdiction is one that
 +      requires every party to agree. This only ever removes a claim; it
 +      cannot add one.
-+    """
+     """
 +    from datetime import datetime, timezone
 +
 +    # File missing → null (not a 404; the iOS Live Activity treats null
 +    # as "collapse the surface"). Use os.stat so we can read mtime in
 +    # the same syscall block.
-+    try:
+     try:
+-        if path.exists():
+-            text = path.read_text(encoding="utf-8", errors="replace").strip()
+-            return text or None
+-    except Exception:
+-        return None
+-    return None
 +        st = RECORDING_STATE_FILE.stat()
 +    except FileNotFoundError:
 +        return {"recording": None}
@@ -13835,7 +14200,7 @@
 +            flush=True,
 +        )
 +        return {"recording": None}
-+
+ 
 +    # Staleness check. The producer is expected to heartbeat by
 +    # re-writing the file (atomic .tmp + rename bumps mtime) every few
 +    # seconds while the capture is active. A mtime older than the
@@ -13849,7 +14214,7 @@
 +    age_seconds = (now_utc - mtime).total_seconds()
 +    if age_seconds > RECORDING_STALE_SECONDS:
 +        return {"recording": None}
-+
+ 
 +    # File present and fresh: parse + validate. Any structural problem
 +    # demotes to null so the consumer never sees half-populated bodies.
 +    try:
@@ -13978,7 +14343,7 @@
  def _hub_check_zeroclaw():
      """Is ZeroClaw running? Uses pgrep rather than parsing ps output.
  
-@@ -10113,7 +12776,7 @@
+@@ -10111,7 +12781,7 @@
      Absence of a marker is treated as unhealthy but not an error – fresh
      installs have never synced.
      """
@@ -13987,7 +14352,7 @@
      if ts:
          return {"healthy": True, "last_refresh": ts}
      return {"healthy": False, "last_refresh": None, "error": "no refresh recorded"}
-@@ -10236,7 +12899,7 @@
+@@ -10234,7 +12904,7 @@
      except Exception:
          queue_depth = 0
  
@@ -13996,7 +14361,7 @@
  
      # Derive hub_status from service health + queue depth.
      all_healthy = all(s.get("healthy") for s in services.values())
-@@ -10365,18 +13028,52 @@
+@@ -10363,18 +13033,52 @@
  # ── Wiki hydration status endpoint (CM044 #624 Part B) ───────────────
  
  
@@ -14057,7 +14422,7 @@
      except Exception:
          return None
  
-@@ -10457,8 +13154,8 @@
+@@ -10455,8 +13159,8 @@
      never promoted to a failure, so in-progress work cannot raise
      needs_attention on its own."""
      dispatched = completed = failed = running = stalled = 0
@@ -14067,7 +14432,7 @@
      try:
          if PROCESSING_DIR.exists():
              for d in PROCESSING_DIR.iterdir():
-@@ -10569,6 +13266,23 @@
+@@ -10567,6 +13271,23 @@
          ai["done"], ai["total"] = done, total
          if total <= 0:
              ai["state"] = "pending"        # no fake spinner with total 0
@@ -14091,7 +14456,7 @@
          else:
              ai["state"] = "running"
              ai["eta_utc"] = comp.get("eta_utc")
-@@ -10613,8 +13327,20 @@
+@@ -10611,8 +13332,20 @@
      else:
          overall = "pending"
  
@@ -14112,7 +14477,16 @@
          "phases": phases,
          "generated_at": datetime.utcnow().isoformat() + "Z",
      }
-@@ -10690,12 +13416,38 @@
+@@ -10649,7 +13382,7 @@
+     return pwg_privacy.provenance_verdict(raw)
+ 
+ 
+-def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
++def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None, destination=None):
+     """Read the CM059 interest-profile artefact and return a flat, filtered,
+     score-sorted list of interest records for the daemon's pwg_preferences
+     tool.
+@@ -10688,14 +13421,40 @@
      if not isinstance(interests, list):
          interests = []
  
@@ -14152,9 +14526,12 @@
 +            withheld["l3"] += 1
 +            continue
          verdict = _interest_privacy_verdict(it)
-         if _count_withheld(withheld, verdict):
+-        if _count_withheld(withheld, verdict):
++        if _count_withheld(withheld, verdict, destination):
              visible.append(it)
-@@ -10741,14 +13493,64 @@
+     interests = visible
+ 
+@@ -10739,14 +13498,64 @@
              "Accept": "application/sparql-results+json",
          },
      )
@@ -14220,10 +14597,12 @@
      from the derived named graph, built through the CM019 producer builder
      (vendored verbatim in derived_preferences.py beside this file).
  
-@@ -10775,6 +13577,163 @@
+@@ -10771,8 +13580,165 @@
+     reader = _dp.DerivedGraphReader(_sparql_select_unscoped, destination=destination)
+     return _dp.build_derived_preferences_response(
          reader, USER_ID, limit=limit, min_confidence=min_confidence, tier=tier)
- 
- 
++
++
 +# ----------------------------------------------------------------------
 +# Slow-request instrumentation (v1.0.121 batch-2).
 +#
@@ -14283,8 +14662,8 @@
 +    (p.split("/")[3] if p.startswith("/api/v1/") and len(p.split("/")) > 3
 +     else p.split("/")[1])
 +    for p in _STATIC_ROUTES) - {""}
-+
-+
+ 
+ 
 +def _route_template(path):
 +    """Path -> route template with no identifier in it, failing CLOSED.
 +
@@ -14384,7 +14763,7 @@
  def _is_loopback_client(client_address):
      """True when the HTTP peer is this Mac's loopback (127.0.0.0/8 or ::1)."""
      import ipaddress
-@@ -10787,7 +13746,7 @@
+@@ -10785,7 +13751,7 @@
  
  class Handler(BaseHTTPRequestHandler):
      # Destination of the current request (Archie, 2026-11-17). Undeclared or
@@ -14393,18 +14772,18 @@
      _destination = pwg_privacy.DEFAULT_DESTINATION
  
      def log_message(self, format, *args):
-@@ -10813,6 +13772,10 @@
+@@ -10810,6 +13776,10 @@
+         if dest == pwg_privacy.OWNER_LOCAL and not _is_loopback_client(self.client_address):
              dest = pwg_privacy.DEFAULT_DESTINATION
          self._destination = dest
- 
++
 +    def send_response(self, code, message=None):
 +        self._ical_status = code
 +        super().send_response(code, message)
-+
+ 
      # ── Security guards (v1.0.10 lockdown) ───────────────────────────────
      def _send_guard_error(self, code, message):
-         """Emit a small JSON error for a rejected request and return."""
-@@ -10924,6 +13887,7 @@
+@@ -10922,6 +13892,7 @@
              self.send_header("Access-Control-Allow-Origin", origin)
              self.send_header("Vary", "Origin")
  
@@ -14412,7 +14791,7 @@
      def do_OPTIONS(self):
          # Preflight support for the hydration route (browsers may send it
          # if a custom header ever creeps into the fetch). Other paths get
-@@ -10968,6 +13932,7 @@
+@@ -10966,6 +13937,7 @@
      def _is_post_only_path(cls, path):
          return path in cls._POST_ONLY_PATHS or bool(cls._FORGET_PATH_RE.match(path))
  
@@ -14420,7 +14799,7 @@
      def do_GET(self):
          parsed = urlparse(self.path)
          if parsed.path in self._VERSIONED_TO_LEGACY:
-@@ -11032,8 +13997,8 @@
+@@ -11030,8 +14002,8 @@
              if parsed.path == "/calendar/today":
                  days = 1
  
@@ -14431,7 +14810,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11042,12 +14007,23 @@
+@@ -11040,12 +14012,23 @@
          if parsed.path == "/people":
              params = parse_qs(parsed.query)
              sort = params.get("sort", [None])[0]
@@ -14456,7 +14835,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11209,14 +14185,28 @@
+@@ -11207,19 +14190,33 @@
                  self.wfile.write(json.dumps(err).encode())
                  return
              try:
@@ -14470,11 +14849,11 @@
                  return
 -            self.send_response(200)
 +            self.send_response(status)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+             self.wfile.write(json.dumps(result, indent=2).encode())
+             return
+ 
 +        if parsed.path in ("/api/v1/minors", "/api/v1/minors/suggestions"):
 +            try:
 +                if parsed.path == "/api/v1/minors":
@@ -14484,10 +14863,15 @@
 +            except Exception as exc:
 +                result, status = {"error": type(exc).__name__}, 500
 +            self.send_response(status)
-             self.send_header("Content-Type", "application/json")
-             self.end_headers()
-             self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11271,6 +14261,11 @@
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
+         if parsed.path == "/api/v1/suggestions":
+             try:
+                 result = api_suggestions()
+@@ -11269,6 +14266,11 @@
                  past_days, err = _safe_int(params, "past_days", 730)
              if not err:
                  limit, err = _safe_int(params, "limit", 200)
@@ -14499,7 +14883,7 @@
              if err:
                  self.send_response(400)
                  self.send_header("Content-Type", "application/json")
-@@ -11281,10 +14276,15 @@
+@@ -11279,10 +14281,15 @@
                  outbound = (params.get("outbound") or [""])[0].strip().lower() in (
                      "1", "true", "yes")
                  result = api_timeline(days=days, past_days=past_days,
@@ -14517,7 +14901,7 @@
                            "degraded": True, "reason": str(exc), "error": str(exc)}
              self.send_response(200)
              self.send_header("Content-Type", "application/json")
-@@ -11389,14 +14389,6 @@
+@@ -11387,14 +14394,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -14532,7 +14916,27 @@
          if parsed.path == "/api/v1/memory":
              try:
                  result = api_memory_list(destination=self._destination)
-@@ -11635,7 +14627,7 @@
+@@ -11537,7 +14536,8 @@
+             query = params.get("q", [None])[0]
+             try:
+                 result, status = decisions_list(
+-                    about=about, query=query, limit=limit
++                    about=about, query=query, limit=limit,
++                    destination=self._destination,
+                 )
+             except Exception as exc:
+                 result, status = {
+@@ -11588,7 +14588,8 @@
+                 return
+             query = params.get("q", [None])[0]
+             try:
+-                result, status = topics_list(query=query, limit=limit)
++                result, status = topics_list(query=query, limit=limit,
++                                             destination=self._destination)
+             except Exception as exc:
+                 result, status = {
+                     "topics": [], "count": 0, "degraded": True,
+@@ -11633,7 +14634,7 @@
          # GET /api/v1/reply-debt?limit=N&threshold_hours=F&lookback_days=N&include_group=0|1
          # The daily-brief headline: "you owe a reply to N people". Read-only;
          # degrades to {count:0, debts:[], degraded:true} when the CM048
@@ -14541,10 +14945,15 @@
          # rather than going red. (CM048 reply-debt detector, JTBD#1.)
          if parsed.path == "/api/v1/reply-debt":
              params = parse_qs(parsed.query)
-@@ -11676,6 +14668,31 @@
-             self.wfile.write(json.dumps(result, indent=2).encode())
-             return
- 
+@@ -11669,6 +14670,31 @@
+                     "reason": f"reply_debt_failed: {str(exc)[:200]}",
+                 }, 200
+             self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
 +        # Recording state (CM042 producer → CM031 Live Activity).
 +        # Read-only. Never 5xx: any failure demotes to recording=null so
 +        # the iOS Live Activity collapses cleanly. See api_recording_active
@@ -14565,15 +14974,10 @@
 +                )
 +                result = {"recording": None}
 +            self.send_response(200)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
-         # Conversation processing status (CM048)
-         # Per-slug person enrichment for the iOS / Hub person card.
-         # GET /api/v1/people/{slug}/enrichment
-@@ -11798,11 +14815,14 @@
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+             self.wfile.write(json.dumps(result, indent=2).encode())
+@@ -11796,11 +14822,15 @@
              domain = domain_vals[0].strip() if domain_vals else None
              polarity_vals = params.get("polarity") or []
              polarity = polarity_vals[0].strip() if polarity_vals else None
@@ -14581,6 +14985,7 @@
 +            status = 200
              try:
                  result = api_preferences(
++                    destination=self._destination,
                      domain=domain or None,
                      min_confidence=min_conf,
 -                    limit=limit,
@@ -14589,7 +14994,7 @@
                      polarity=polarity or None,
                  )
              except Exception as exc:
-@@ -11812,7 +14832,25 @@
+@@ -11810,7 +14840,25 @@
                      "degraded": True,
                      "reason": str(exc)[:200],
                  }
@@ -14616,7 +15021,7 @@
              self.send_header("Content-Type", "application/json")
              self.end_headers()
              self.wfile.write(json.dumps(result, indent=2).encode())
-@@ -11849,6 +14887,8 @@
+@@ -11847,6 +14895,8 @@
              "/email?q=is:unread": "Gmail query (default: unread)",
              "/api/v1/email/recent?hours=24&limit=20": "Recent emails (subject + snippet only)",
              "/api/v1/suggestions": "Composite: birthdays + stale contacts + recent meetings",
@@ -14625,7 +15030,7 @@
              "/api/v1/timeline?days=7": "Merged calendar + meetings timeline",
              "/api/v1/contacts/diff": "Tidy Contacts report (read-only hygiene findings)",
              "/api/v1/meeting/upcoming?within_minutes=120": "Enriched pre-meeting briefs for events starting within the window",
-@@ -11870,6 +14910,7 @@
+@@ -11868,6 +14918,7 @@
              "/health": "Health check (pass ?detailed=1 for dependency checks)",
          }}).encode())
  
@@ -14633,7 +15038,7 @@
      def do_POST(self):
          parsed = urlparse(self.path)
          self._declare_destination(parsed)
-@@ -11899,8 +14940,21 @@
+@@ -11897,10 +14948,53 @@
                  self.end_headers()
                  self.wfile.write(json.dumps({"error": "Body too large (max 65536 bytes)"}).encode())
                  return
@@ -14655,11 +15060,12 @@
 +                result, status = api_people_forget(slug, person_uri=forget_uri)
              except Exception as exc:
                  result, status = {"error": str(exc)}, 500
-             self.send_response(status)
-@@ -11909,6 +14963,36 @@
-             self.wfile.write(json.dumps(result, indent=2).encode())
-             return
- 
++            self.send_response(status)
++            self.send_header("Content-Type", "application/json")
++            self.end_headers()
++            self.wfile.write(json.dumps(result, indent=2).encode())
++            return
++
 +        # Route: POST /api/v1/people/{slug}/minor-suggestion/dismiss, body
 +        # ignored (the Hub UI may send none), handled before body validation.
 +        if (parsed.path.startswith("/api/v1/people/")
@@ -14684,16 +15090,10 @@
 +                result, status = api_minors_dismiss(slug)
 +            except Exception as exc:
 +                result, status = {"error": type(exc).__name__}, 500
-+            self.send_response(status)
-+            self.send_header("Content-Type", "application/json")
-+            self.end_headers()
-+            self.wfile.write(json.dumps(result, indent=2).encode())
-+            return
-+
-         # Security: content-type must be JSON
-         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-         if ctype != "application/json":
-@@ -11953,6 +15037,21 @@
+             self.send_response(status)
+             self.send_header("Content-Type", "application/json")
+             self.end_headers()
+@@ -11951,6 +15045,21 @@
              self.wfile.write(json.dumps({"error": f"Body read failed: {exc}"}).encode())
              return
  
@@ -14715,7 +15115,7 @@
          # Route: POST /api/v1/people/{slug}/suppress-suggestions
          # Owner-settable do-not-suggest flag ("mark as deceased" / "stop
          # suggesting"). Body: {"suppressed": bool, "reason": str}.
-@@ -12036,6 +15135,22 @@
+@@ -12034,6 +15143,22 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -14738,7 +15138,7 @@
          # Live browsing capture from the Safari / Chrome extension
          # (HR015 #180). Behind the Doctor proxy's paired-bearer wall
          # (proxy.py DEFAULT_PROXY_PATHS includes /api/safari/ingest).
-@@ -12099,28 +15214,6 @@
+@@ -12097,28 +15222,6 @@
              self.wfile.write(json.dumps(result, indent=2).encode())
              return
  
@@ -14767,7 +15167,7 @@
          # Memory tab correction: POST /api/v1/memory/correct/{fact_id}.
          # Body is {"newValue": "..."} or {"forget": true}. The fact_id
          # is the URI suffix (or the full URI) returned by
-@@ -12204,6 +15297,10 @@
+@@ -12202,6 +15305,10 @@
      BIND_HOST = os.environ.get("OSTLER_API_BIND", "127.0.0.1")
      # Tag the historical privacy coverage gap before answering /people/*.
      _run_privacy_backfill_on_startup()
@@ -14778,7 +15178,7 @@
      # Service-token auth posture (v1.0.10 lockdown). Loud so a missing token
      # is never silent: without it, every non-public endpoint fails closed
      # (401). There is no environment escape hatch.
-@@ -12232,15 +15329,48 @@
+@@ -12230,15 +15337,48 @@
              file=sys.stderr,
              flush=True,
          )
