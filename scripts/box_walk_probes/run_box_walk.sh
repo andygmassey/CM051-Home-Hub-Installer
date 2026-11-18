@@ -287,6 +287,12 @@ else
 fi
 export OSTLER_SCREENS_ALLOW_WRITE
 
+# THE ICAL PIN. no_l3_in_tool_results needs EXPECTED_ICAL_SHA256 from the cut.
+# Derived from cut/<OSTLER_CUT_VERSION> here, so every entry point (post_walk_qa.sh,
+# a hand run) passes the same value to the probes. lib/ical_pin.sh says why.
+. "$HERE/lib/ical_pin.sh"
+ical_pin_export "$(cd "$HERE/../.." && pwd)"
+
 # -------------------------------------------------------------------------
 # PHASE 1 -- negative controls. Try to make every probe fail.
 # -------------------------------------------------------------------------
