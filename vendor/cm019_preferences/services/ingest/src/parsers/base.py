@@ -6,7 +6,21 @@ from datetime import datetime
 from typing import Optional, Dict, Any, AsyncIterator
 from pathlib import Path
 import json
+import sys
 import uuid
+
+# The canonical privacy helper, vendored byte-identical from CM041 into
+# services/common (see services/common/pwg_privacy.PIN). Writers take the scale
+# stamp's key and value from it rather than restating them. Same relative
+# layout in the source tree and in CM051's vendored copy
+# (services/ingest/src/parsers -> services/common). No fallback: a missing
+# helper fails loudly at import rather than writing an unstamped level.
+_COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if _COMMON_DIR.is_dir() and str(_COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(_COMMON_DIR))
+import pwg_privacy  # noqa: E402
+import privacy_scale as _privacy_scale  # noqa: E402
+
 
 
 def describe_json_parse_failure(content: str, exc: "json.JSONDecodeError") -> str:
@@ -50,6 +64,43 @@ def describe_json_parse_failure(content: str, exc: "json.JSONDecodeError") -> st
     return f"malformed JSON, {size} bytes ({exc})"
 
 
+# Privacy tagging helpers. Compartment levels follow the gateway scale
+# (services/gateway/src/auth/compartments.py): LOWER number = MORE private,
+# L0 is never reachable externally, L6 is broadcast. "Stricter" therefore
+# means a numerically lower level. Lifted fields that carry money, location
+# or personal-network data are clamped with ``stricter_level`` so a caller
+# default that is looser (e.g. the L2 default) can never loosen them, while
+# an even stricter caller default (L0/L1) is respected.
+SENSITIVE_LEVEL = 1  # L1 Private: personal location, third-party people
+FINANCIAL_LEVEL = 1  # L1 Private: spend, prices, subscriptions
+# L0 is not used for ordinary data: the gateway never serves L0, which would
+# make the data invisible to the owner's own assistant.
+#
+# The ONE exception is the most-private floor below. Health data (GDPR Art 9)
+# and private notes are written at L0Personal, the most private numeric level,
+# which the canonical privacy scale maps to L3 (owner-only, never off the box).
+# These producers used to write 5 with the comment "HIGHEST PRIVACY", but 5 is
+# L5Commercial: services/mcp/src/privacy_model.py reads it as publishable L2
+# and the gateway serves it at the default public level. The number said the
+# opposite of the intent. Never write 5 (or anything above 0) for these.
+MOST_PRIVATE_LEVEL = 0  # L0Personal -> canonical L3
+HEALTH_LEVEL = MOST_PRIVATE_LEVEL  # deterministic floor for all health data
+# Ordinary notes (Archie 2026-11-17): L1Family, which the canonical mapping
+# reads as L2. Only content-classified notes go to the floor.
+NOTES_LEVEL = 1
+
+# Records at the floor are ALSO stamped with the canonical level and the scale
+# stamp, so the canonical readers (pwg_privacy.effective_level, which reads
+# ``privacy_level`` and never the numeric compartment) see L3 directly:
+# owner_local serves it labelled "private", every other destination withholds.
+CANONICAL_FLOOR_LEVEL = _privacy_scale.DEFAULT_LEVEL  # most private rung, read from the shared table
+
+
+def stricter_level(default_level: int, floor_level: int) -> int:
+    """Return the stricter (numerically lower) of two compartment levels."""
+    return min(default_level, floor_level)
+
+
 @dataclass
 class ParsedPreference:
     """A parsed preference ready for ingestion."""
@@ -84,6 +135,10 @@ class ParsedPreference:
 
     # Text for embedding
     embedding_text: str = ""
+
+    # Canonical privacy level ("L0".."L3"), stamped only by writers converted
+    # to the canonical scale. None = not stamped (legacy numeric only).
+    privacy_level: Optional[str] = None
 
     def __post_init__(self):
         """Generate embedding text + a stable content-keyed id if not set."""
@@ -150,6 +205,9 @@ class ParsedPreference:
         if self.source_id:
             lines.append(f'    pwg:sourceId "{self._escape(self.source_id)}" ;')
 
+        if self.privacy_level:
+            lines.append(f'    pwg:privacyLevel "{self._escape(self.privacy_level)}" ;')
+
         # Close the turtle block
         lines[-1] = lines[-1].rstrip(' ;') + ' .'
 
@@ -195,6 +253,9 @@ class ParsedPreference:
             "created_at": self.created_at.isoformat(),
             "observed_at": self.observed_at.isoformat() if self.observed_at else None
         }
+        if self.privacy_level:
+            payload["privacy_level"] = self.privacy_level
+            payload[_privacy_scale.SCALE_STAMP_FIELD] = _privacy_scale.SCALE_STAMP_VALUE
         # Include extra metadata (frequency, source_count, etc.)
         #
         # PROVENANCE IS ALWAYS STATED, NEVER IMPLIED BY ABSENCE. Enrichment

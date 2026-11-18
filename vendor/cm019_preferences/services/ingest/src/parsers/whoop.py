@@ -10,7 +10,7 @@ from datetime import datetime
 from collections import defaultdict
 import aiofiles
 
-from .base import BaseParser, ParsedPreference
+from .base import BaseParser, ParsedPreference, CANONICAL_FLOOR_LEVEL, HEALTH_LEVEL, stricter_level
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +64,13 @@ class WhoopParser(BaseParser):
         **kwargs
     ) -> AsyncIterator[ParsedPreference]:
         """Parse Whoop data export comprehensively."""
+        # Whoop data is health data (GDPR Art 9): the health floor applies to
+        # every point, and a looser caller default can never loosen it. This
+        # used to default to 2 (L2Trusted), which the outbound privacy gate
+        # allows off the box.
         if default_compartment is None:
-            default_compartment = 2  # L2 Trusted - health data
+            default_compartment = HEALTH_LEVEL
+        default_compartment = stricter_level(default_compartment, HEALTH_LEVEL)
 
         logger.info(f"Parsing Whoop data from {file_path}")
 
@@ -234,6 +239,7 @@ class WhoopParser(BaseParser):
                 observed_at=workout['timestamp'],
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Small",
                 extra={
                     "type": "workout",
@@ -267,6 +273,7 @@ class WhoopParser(BaseParser):
                 strength=strength,
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "activity_preference",
@@ -344,6 +351,7 @@ class WhoopParser(BaseParser):
                             observed_at=sleep_timestamp,
                             source=self.source_name,
                             compartment_level=default_compartment,
+                            privacy_level=CANONICAL_FLOOR_LEVEL,
                             size="Micro",
                             extra={
                                 "type": "nap",
@@ -422,6 +430,7 @@ class WhoopParser(BaseParser):
                 observed_at=record['sleep_time'],
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Small",
                 extra={
                     "type": "sleep",
@@ -452,6 +461,7 @@ class WhoopParser(BaseParser):
                 strength=0.35,  # V2: Pattern
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "sleep_tracking_habit",
@@ -491,6 +501,7 @@ class WhoopParser(BaseParser):
                     strength=0.28,  # V2
                     source=self.source_name,
                     compartment_level=default_compartment,
+                    privacy_level=CANONICAL_FLOOR_LEVEL,
                     size="Medium",
                     extra={
                         "type": "sleep_schedule",
@@ -508,6 +519,7 @@ class WhoopParser(BaseParser):
                     strength=0.22,  # V2
                     source=self.source_name,
                     compartment_level=default_compartment,
+                    privacy_level=CANONICAL_FLOOR_LEVEL,
                     size="Small",
                     extra={
                         "type": "nap_habit",
@@ -608,6 +620,7 @@ class WhoopParser(BaseParser):
                 observed_at=cycle['timestamp'],
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Micro",
                 extra={
                     "type": "daily_recovery",
@@ -634,6 +647,7 @@ class WhoopParser(BaseParser):
                 strength=0.32,  # V2: Strong pattern
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "recovery_pattern",
@@ -666,6 +680,7 @@ class WhoopParser(BaseParser):
                 strength=strength,
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "hrv_pattern",
@@ -698,6 +713,7 @@ class WhoopParser(BaseParser):
                 strength=strength,
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "rhr_pattern",
@@ -718,6 +734,7 @@ class WhoopParser(BaseParser):
                 strength=0.30,  # V2
                 source=self.source_name,
                 compartment_level=default_compartment,
+                privacy_level=CANONICAL_FLOOR_LEVEL,
                 size="Medium",
                 extra={
                     "type": "strain_pattern",
@@ -845,6 +862,7 @@ class WhoopParser(BaseParser):
                     strength=strength,
                     source=self.source_name,
                     compartment_level=default_compartment,
+                    privacy_level=CANONICAL_FLOOR_LEVEL,
                     size="Small",
                     extra={
                         "type": "tracked_behavior",

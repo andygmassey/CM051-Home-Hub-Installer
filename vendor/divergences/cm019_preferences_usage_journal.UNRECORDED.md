@@ -569,3 +569,16 @@ Contact store reachability on an installed Hub (traced 2026-11-18, not run on a 
 - The enrich log prints the creator counts on every run, so the thin walk can see which case happened.
 
 Yield, synthetic 210-item seed (`scratch/yield`, not in the repo): see the PR body for the per-client table.
+
+## 2026-11-17: Whoop writes the health floor; privacy helper, loader and table vendored (personal-world-graph #539, UNMERGED upstream), cm019_preferences
+
+Recorded here, not in a patch: the row's `divergence_patch` is empty and `verify = "skip"`. Every edit is a graft of upstream personal-world-graph e9f28b2 (PR #539, CB134-CM019-HEALTH, Archie ruling 2026-11-17):
+
+- `services/ingest/src/parsers/whoop.py`: whole file, BYTE-IDENTICAL to upstream@e9f28b2. Clamps every Whoop record to `HEALTH_LEVEL` (numeric 0) whatever the caller passes, and stamps `privacy_level="L3"`. It defaulted to 2 (L2Trusted).
+- `services/ingest/src/parsers/base.py`: 60 added lines, each present verbatim in upstream@e9f28b2 base.py (checked line by line, with a planted-line control that is not found): the services/common import shim, the privacy-tagging block (`SENSITIVE_LEVEL`, `FINANCIAL_LEVEL`, `MOST_PRIVATE_LEVEL`, `HEALTH_LEVEL`, `NOTES_LEVEL`, `CANONICAL_FLOOR_LEVEL`, `stricter_level`), the `privacy_level` field, the payload and turtle stamp. The file keeps its pre-existing CM051 divergence.
+- `services/common/pwg_privacy.py`, `privacy_scale.py`, `privacy_scale_canonical.tsv`, `pwg_privacy.PIN`: new files, BYTE-IDENTICAL to upstream@e9f28b2, which are byte-identical to CM041 #296 6c5f709.
+- NOT carried: #539's apple.py changes (the vendored apple.py already writes 0 at the four health/notes sites, without the stamp and without the notes ruling). They arrive with the re-pin.
+
+Proof: `tests/test_vendored_whoop_health_floor.py` (wired in `.github/workflows/derived-preferences.yml`). Base (helper files added so it can import): 54 failed checks, exit 1. Branch: 0 failed. Mutants: clamp removed 12 red; writer stamps the old `privacy_scale` key 18 red; table L3 others -> full 19 red; table L3 owner_local -> no 19 red.
+
+When #539 merges, re-pin past its merge commit and retire this section.

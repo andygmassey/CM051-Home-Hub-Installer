@@ -1,0 +1,11 @@
+# Vendored canonical privacy helper, and the shared table + loader it imports.
+# DO NOT EDIT these files here: they are byte-identical copies, pinned by
+# sha256. Re-vendor all three from the source commit and update this pin in one
+# change (tests: services/common/tests/test_pwg_privacy_pin.py).
+# privacy_scale.py and privacy_scale_canonical.tsv are also byte-identical to
+# the shared-table copies of personal-world-graph #538 (services/mcp/src).
+source_repo	andygmassey/CM041-People-Graph
+source_commit	6c5f709b95ce16f08aabb11e54e249c53e91b1d3
+sha256:pwg_privacy.py	fb248577e7a192c71da81d2d2cd29bb88e68c01d0066e0eaa095037ee1a6017a
+sha256:privacy_scale.py	3106baf3e9ca7edd55f9ff650653a4261dd5628d8669456c8229596f7ebda57e
+sha256:privacy_scale_canonical.tsv	77a99d94e81b5d1e70bc422aba6ba505bb9df71a8f78ebbcfddeea9637ee50cc
