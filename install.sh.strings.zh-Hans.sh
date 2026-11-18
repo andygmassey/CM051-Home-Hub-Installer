@@ -1361,15 +1361,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="说话人识别只在这台 Mac 上进行。Cr
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="查询你保存内容的公开信息吗？"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler 可以为它发现的内容补充公开的参考信息，例如一本书、一部电影、一张专辑或一个地点。为此，它会把这一项内容的名称发送给维基数据（Wikidata）、MusicBrainz 和 OpenLibrary 等公共参考服务，并将结果保存在这台 Mac 上。
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 
-离开你的 Mac 的内容：被查询内容的名称，仅此而已。不包括你的消息、联系人、文件，也不包括是谁提到了它。
+Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
 
-对方服务能看到的内容：你的 IP 地址，以及请求来自 Ostler。查询直接从你的 Mac 发送给对方，不经过我们的服务器，因此无法在不让对方知道有人查询的情况下进行查询。
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
 
-如果你选择“否”：不会进行任何查询，后台补充信息的任务也根本不会安装。其他一切功能完全照常。你的资料库将只保留你提供的内容，而不会加入公共目录提供的补充信息。
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
 
-你现在可以选择“否”，以后想改变主意，可以重新运行安装程序。"
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+
+You can say No now and change your mind later by re-running the installer."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="最后一件事：第三方数据如何处理"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="你从第三方导入的任何数据（Google Takeout、Meta 下载、LinkedIn 导出等）都保留在这台 Mac 上。Ostler 将其存储在你本地的知识图谱中，不会有任何内容离开你的设备。

@@ -1365,15 +1365,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Die Sprechererkennung bleibt auf diesem Mac. C
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Öffentliche Fakten zu gespeicherten Dingen nachschlagen?"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler kann zu Dingen, die es findet, öffentliche Referenzangaben ergänzen – ein Buch, ein Film, ein Album, ein Ort. Dazu sendet es den NAMEN dieser einen Sache an öffentliche Referenzdienste wie Wikidata, MusicBrainz und OpenLibrary und speichert die Antwort auf diesem Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 
-Was deinen Mac verlässt: der Name der nachgeschlagenen Sache. Sonst nichts. Nicht deine Nachrichten, nicht deine Kontakte, nicht deine Dateien und nicht, wer sie erwähnt hat.
+Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
 
-Was der Dienst auf der anderen Seite sehen kann: deine IP-Adresse und dass die Anfrage von Ostler kam. Die Abfrage geht direkt von deinem Mac zu ihnen - nichts läuft über unsere Server - daher lässt sich nicht anfragen, ohne dass sie erfahren, dass jemand angefragt hat.
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
 
-Wenn du Nein sagst: Es werden keine Abfragen gemacht, und der Anreicherungsjob im Hintergrund wird gar nicht installiert. Alles andere funktioniert genau gleich. Deine Bibliothek enthält dann nur das, was du ihr gegeben hast, und nicht das, was ein öffentlicher Katalog ergänzt.
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
 
-Du kannst jetzt Nein sagen und es dir später anders überlegen, indem du das Installationsprogramm erneut ausführst."
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+
+You can say No now and change your mind later by re-running the installer."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="Eine letzte Sache: Wie Daten von Drittanbietern behandelt werden"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="Alle Daten, die du von Drittanbietern importierst (Google Takeout, Meta-Downloads, LinkedIn-Exporte usw.), bleiben auf diesem Mac. Ostler speichert sie in deinem lokalen Wissensgraphen; nichts verlässt dein Gerät.

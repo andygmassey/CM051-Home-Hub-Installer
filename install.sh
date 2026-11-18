@@ -13711,18 +13711,18 @@ echo ""
 # means the sentence underneath can state what was actually chosen instead of
 # describing a behaviour the customer may have just declined.
 #
-# Default seeded "n", for the same reason as consent_third_party: the GUI's
-# yesValue() treats an empty string as true, so an unseeded yesno arrives with
-# the Yes toggle pre-checked, and a pre-ticked box is not an opt-in.
+# Default seeded "y" (owner ruling this session: on by default, opt out at install
+# or later). The seed is explicit because the GUI's yesValue() treats an empty
+# string as true; an unseeded yesno is therefore Yes, and the seed must say so.
 #
 # Question registered as gui_read id=consent_enrichment, the same annotation
 # form ViewCopy.json uses for consent_third_party, consent_article_9 and
 # consent_spoken_capture. It renders through the generic help-text path today;
 # a dedicated SwiftUI body is a follow-up, not a blocker, because the HELP
 # string is written to read correctly as one run.
-OSTLER_ENRICH_AGENT_ENABLED=0
+OSTLER_ENRICH_AGENT_ENABLED=1
 legal_prevails_note
-ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "n" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"
+ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "y" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"
 case "${ENRICH_CHOICE:-}" in
     y|Y) OSTLER_ENRICH_AGENT_ENABLED=1 ;;
     *)   OSTLER_ENRICH_AGENT_ENABLED=0 ;;
@@ -26017,7 +26017,7 @@ except Exception:
         # another data export into ~/Downloads, because that was the only
         # path in the product that reached enrichment at all.
         #
-        # OFF UNLESS EXPLICITLY ENABLED. Andy's decision, 2026-08-18.
+        # ON BY DEFAULT, OPT OUT AVAILABLE. owner ruling this session.
         #
         # This agent runs every 30 minutes, indefinitely, and each pass sends
         # preference subjects to third-party services (Wikidata, MusicBrainz,
@@ -26025,14 +26025,14 @@ except Exception:
         # directive is that the customer decides whether public-data
         # enrichment runs at all rather than discovering it later.
         #
-        # DEFAULTING TO OFF PRESERVES SHIPPED BEHAVIOUR RATHER THAN CHANGING
-        # IT, which is the part that is easy to get backwards. The call above
-        # was unreachable in every DMG to date: the function was defined 4,906
-        # lines BELOW this line, so bash had not created it yet and the
-        # install died here. No customer Mac has ever run this agent. Enabling
-        # it by default would therefore not be restoring an existing feature,
-        # it would be switching on a new unattended network behaviour in the
-        # launch cut.
+        # ON BY DEFAULT (owner ruling this session, superseding the earlier
+        # off-by-default ruling). The customer opts out at the install question
+        # (consent_enrichment, default yes) or later. Before this ruling the
+        # agent was installed on no customer Mac: the function was defined
+        # below this call and the install died here (#409). It is now a new
+        # unattended network behaviour in the launch cut, by design; the install
+        # screen says so.
+        #
         #
         # The one-shot enrichment pass earlier in this step is unaffected and
         # still runs, and the #410 provenance gate covers what it may send.

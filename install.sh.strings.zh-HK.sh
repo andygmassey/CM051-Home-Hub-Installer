@@ -1360,15 +1360,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="說話者辨識只在這部 Mac 上進行。Cr
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="查詢你儲存內容的公開資料嗎？"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler 可以為它找到的事物補充公開參考資料，例如書籍、電影、專輯或地點。為此，它會把該項事物的「名稱」傳送到 Wikidata、MusicBrainz 和 OpenLibrary 等公開參考服務，並把結果儲存在這部 Mac 上。
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 
-離開你 Mac 的內容：只有被查詢事物的名稱。僅此而已。不包括你的訊息、聯絡人、檔案，也不包括是誰提到它。
+Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
 
-對方服務可以看到的內容：你的 IP 位址，以及請求來自 Ostler。查詢會直接從你的 Mac 發送給對方，不會經過我們的伺服器，所以無法在不讓對方知道有人查詢的情況下進行。
+What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
 
-如果你選擇「否」：不會進行任何查詢，背景補充資料的工作也完全不會安裝。其他一切功能運作完全相同，只是你的收藏只會保留你提供的內容，而不會加入公開目錄的補充資料。
+What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
 
-你現在可以選擇「否」，日後想改變主意，重新執行安裝程式即可。"
+If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+
+You can say No now and change your mind later by re-running the installer."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="最後一點：第三方資料如何處理"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="你從第三方匯入的任何資料（Google Takeout、Meta 下載檔、LinkedIn 匯出檔等）都會留在這部 Mac 上。Ostler 把它儲存在你本機的知識圖譜中，不會有任何內容離開你的裝置。
