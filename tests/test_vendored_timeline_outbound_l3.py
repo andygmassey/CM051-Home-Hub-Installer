@@ -60,9 +60,15 @@ class _Harness:
         self.thread.join(timeout=2)
 
     def get(self, path):
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}{path}",
-            headers={"Authorization": "Bearer synthetic-token"})
+        # The destination is declared by header only (a query string is ignored
+        # by design); a ?destination= in the path is moved into the header.
+        import re as _re
+        headers = {"Authorization": "Bearer synthetic-token"}
+        m = _re.search(r"[?&]destination=([a-z_]+)", path)
+        if m:
+            headers["X-Ostler-Destination"] = m.group(1)
+            path = _re.sub(r"[?&]destination=[a-z_]+", "", path).replace("?&", "?").rstrip("?")
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", headers=headers)
         with self.opener.open(req, timeout=5) as resp:
             return resp.status, json.loads(resp.read())
 

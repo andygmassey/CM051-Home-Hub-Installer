@@ -1328,7 +1328,9 @@ stage-payload: download-python
 	[ -d "$$CM019_SRC" ] || MISSING="$$MISSING vendor/cm019_preferences"; \
 	[ -f "$$ASSISTANT_API_SRC/ical-server.py" ] || MISSING="$$MISSING vendor/cm041/assistant_api/ical-server.py"; \
 	[ -f "$$PWG_PRIVACY_SRC" ] || MISSING="$$MISSING vendor/cm041/pwg_privacy.py"; \
-	for f in pwg_privacy_readers.py privacy_scale.py privacy_scale_canonical.tsv; do [ -f "$$SRC_ROOT/vendor/cm041/$$f" ] || MISSING="$$MISSING vendor/cm041/$$f"; done; \
+	[ -f "$$SRC_ROOT/vendor/cm041/pwg_privacy_readers.py" ] || MISSING="$$MISSING vendor/cm041/pwg_privacy_readers.py"; \
+	[ -f "$$SRC_ROOT/vendor/cm041/privacy_scale.py" ] || MISSING="$$MISSING vendor/cm041/privacy_scale.py"; \
+	[ -f "$$SRC_ROOT/vendor/cm041/privacy_scale_canonical.tsv" ] || MISSING="$$MISSING vendor/cm041/privacy_scale_canonical.tsv"; \
 	[ -d "$$HYGIENE_SRC" ] || MISSING="$$MISSING vendor/cm041/ostler_hygiene"; \
 	[ -f "$$CONTEXT_REFRESH_SRC/INSTALL_SNIPPET.sh" ] || MISSING="$$MISSING context-refresh/INSTALL_SNIPPET.sh"; \
 	[ -f "$$UNINSTALL_SRC/stop_orphan_ticks.sh" ] || MISSING="$$MISSING uninstall/stop_orphan_ticks.sh"; \
@@ -1360,7 +1362,9 @@ stage-payload: download-python
 	cp -R "$$CM019_SRC" "$$PAYLOAD/services/cm019"; \
 	cp -R "$$ASSISTANT_API_SRC" "$$PAYLOAD/services/assistant_api"; \
 	cp "$$PWG_PRIVACY_SRC" "$$PAYLOAD/services/pwg_privacy.py"; \
-	for f in pwg_privacy_readers.py privacy_scale.py privacy_scale_canonical.tsv; do cp "$$SRC_ROOT/vendor/cm041/$$f" "$$PAYLOAD/services/$$f"; done; \
+	cp "$$SRC_ROOT/vendor/cm041/pwg_privacy_readers.py" "$$PAYLOAD/services/pwg_privacy_readers.py"; \
+	cp "$$SRC_ROOT/vendor/cm041/privacy_scale.py" "$$PAYLOAD/services/privacy_scale.py"; \
+	cp "$$SRC_ROOT/vendor/cm041/privacy_scale_canonical.tsv" "$$PAYLOAD/services/privacy_scale_canonical.tsv"; \
 	cp -R "$$HYGIENE_SRC" "$$PAYLOAD/services/ostler_hygiene"; \
 	cp -R "$$CONTEXT_REFRESH_SRC" "$$PAYLOAD/services/context-refresh"; \
 	cp -R "$$UNINSTALL_SRC" "$$PAYLOAD/services/uninstall"; \
