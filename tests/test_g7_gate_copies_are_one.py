@@ -41,7 +41,7 @@ COPIES = (
     REPO / "vendor" / "cm052_ai_conversations" / "src" / "cm052" / "subscription_gate.py",
 )
 FDA_GATE = COPIES[0]
-PINNED_SHA256 = "563284aca03499bfa1c9400fa2b4027c0b2a50df88ffe4139e3b174fd225a91d"
+PINNED_SHA256 = "e80d2d908ce20411ea1fecb3c2c01448ed1dcc3d4bcdfa2529ee4356692935e2"
 
 
 def _env(state: Path) -> dict:
