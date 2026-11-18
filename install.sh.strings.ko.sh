@@ -1360,17 +1360,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="화자 인식은 이 Mac에서만 이루어집
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="저장한 항목의 공개 정보를 조회하시겠습니까?"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler는 책, 영화, 앨범, 장소처럼 찾아낸 항목에 공개 참고 정보를 추가할 수 있습니다. 이를 위해 해당 항목 하나의 이름을 Wikidata, MusicBrainz, OpenLibrary 같은 공개 참고 서비스로 보내고, 받은 답변을 이 Mac에 저장합니다.
 
-Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
+Ostler는 음악, 책, 영화, 장소처럼 공개된 주제를 온라인에서 찾아보고 당신의 취향을 이해합니다. 건강, 돈, 법률 문제, 주소, 당신이 아는 사람들에 대해서는 절대 찾아보지 않습니다.
 
-What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+Mac에서 나가는 정보: 조회하는 항목의 이름뿐입니다. 그 외에는 아무것도 나가지 않습니다. 메시지, 연락처, 파일, 그 항목을 누가 언급했는지도 나가지 않습니다.
 
-What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+상대 서비스가 볼 수 있는 정보: 사용자의 IP 주소와 요청이 Ostler에서 왔다는 사실입니다. 조회는 Mac에서 해당 서비스로 직접 전달되며 저희 서버를 거치지 않으므로, 누군가 요청했다는 사실이 알려지지 않게 할 방법은 없습니다.
 
-If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+아니요를 선택하면: 조회가 이루어지지 않으며 백그라운드 보강 작업도 아예 설치되지 않습니다. 그 외의 모든 기능은 똑같이 작동합니다. 라이브러리에는 공개 카탈로그가 더하는 정보 없이 직접 넣은 정보만 담깁니다.
 
-You can say No now and change your mind later by re-running the installer."
+지금은 아니요를 선택하고, 나중에 설치 프로그램을 다시 실행하여 마음을 바꿀 수도 있습니다."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="마지막으로, 외부 데이터의 처리 방식"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="외부 서비스에서 가져오는 모든 데이터(Google Takeout, Meta 다운로드, LinkedIn 내보내기 등)는 이 Mac에 남습니다. Ostler는 이를 로컬 지식 그래프에 저장하며 어떤 것도 기기 밖으로 나가지 않습니다.

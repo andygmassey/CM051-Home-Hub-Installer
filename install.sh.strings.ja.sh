@@ -1364,17 +1364,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="話者認識はこのMac内で行われます�
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="保存した内容の公開情報を調べますか?"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostlerは、見つけた本、映画、アルバム、場所などに、公開されている参照情報を追加できます。そのために、その1つの対象の名前を、Wikidata、MusicBrainz、OpenLibraryなどの公開参照サービスに送信し、返ってきた結果をこのMacに保存します。
 
-Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
+Ostlerは、音楽、本、映画、場所などの公開されている話題をオンラインで調べ、あなたの好みを理解します。健康、お金、法律に関すること、住所、あなたの知り合いについては、決して調べません。
 
-What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+Macから送信されるもの:調べる対象の名前のみです。それ以外は一切送信されません。メッセージ、連絡先、ファイル、誰がそれに言及したかも送られません。
 
-What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+相手側のサービスから見えるもの:あなたのIPアドレスと、リクエストがOstlerから来たことです。検索はMacから相手へ直接送られ、当社のサーバを経由しません。そのため、誰かが問い合わせたことを相手に知られずに調べる方法はありません。
 
-If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+「いいえ」を選んだ場合:検索は行われず、バックグラウンドの情報補完ジョブもまったくインストールされません。それ以外はすべてまったく同じように動作します。ライブラリには、公開カタログによる追加情報ではなく、あなたが入れた内容だけが残ります。
 
-You can say No now and change your mind later by re-running the installer."
+今は「いいえ」を選び、あとからインストーラを再実行して変更することもできます。"
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="最後に:サードパーティのデータの扱いについて"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="サードパーティから読み込んだデータ(Google Takeout、Metaのダウンロード、LinkedInのエクスポートなど)は、このMacの中にとどまります。Ostlerはそれをローカルのナレッジグラフに保存し、データがデバイスの外へ出ることはありません。

@@ -1368,17 +1368,17 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="يبقى التعرف على المتحدثي�
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="هل تريد البحث عن حقائق عامة حول ما تحفظه؟"
-MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
+MSG_PROMPT_CONSENT_ENRICHMENT_HELP="يمكن لـ Ostler إضافة تفاصيل مرجعية عامة إلى ما يعثر عليه – كتاب أو فيلم أو ألبوم أو مكان. ولفعل ذلك يرسل اسم ذلك الشيء وحده إلى خدمات مرجعية عامة مثل Wikidata وMusicBrainz وOpenLibrary، ويخزّن الإجابة على هذا Mac.
 
-Ostler looks up public topics such as music, books, films and places online, to understand your tastes. It never looks up health, money or legal matters, addresses, or the people you know.
+يبحث Ostler عبر الإنترنت عن موضوعات عامة مثل الموسيقى والكتب والأفلام والأماكن، ليفهم ذوقك. ولا يبحث أبدًا عن الصحة أو المال أو الشؤون القانونية أو العناوين أو الأشخاص الذين تعرفهم.
 
-What leaves your Mac: the name of the thing being looked up. Nothing else. Not your messages, not your contacts, not your files, and not who mentioned it.
+ما الذي يغادر جهاز Mac: اسم الشيء الذي يُبحث عنه. لا شيء غيره. لا رسائلك ولا جهات اتصالك ولا ملفاتك، ولا من ذكره.
 
-What the service on the other end can see: your IP address, and that the request came from Ostler. The lookup goes straight from your Mac to them - nothing passes through our servers - so there is no way to ask without them knowing someone asked.
+ما الذي تستطيع الخدمة في الطرف الآخر رؤيته: عنوان IP الخاص بك، وأن الطلب جاء من Ostler. يذهب الطلب مباشرة من Mac إلى تلك الخدمات – لا يمر شيء عبر خوادمنا – لذا لا توجد طريقة للسؤال دون أن يعرفوا أن أحدًا سأل.
 
-If you say No: no lookups are made, and the background enrichment job is not installed at all. Everything else works exactly the same. Your library simply carries what you gave it rather than what a public catalogue adds.
+إذا اخترت لا: لن تُجرى أي عمليات بحث، ولن تُثبَّت مهمة الإثراء في الخلفية إطلاقًا. يعمل كل شيء آخر تمامًا كما هو. وستحتوي مكتبتك فقط على ما أضفته أنت، لا على ما يضيفه فهرس عام.
 
-You can say No now and change your mind later by re-running the installer."
+يمكنك اختيار لا الآن ثم تغيير رأيك لاحقًا بإعادة تشغيل المثبّت."
 
 MSG_PROMPT_CONSENT_THIRD_PARTY_TITLE="أمر أخير: كيف تعمل بيانات الجهات الخارجية"
 MSG_PROMPT_CONSENT_THIRD_PARTY_HELP="تبقى أي بيانات تستوردها من جهات خارجية (Google Takeout وتنزيلات Meta وملفات LinkedIn المصدَّرة وغيرها) على هذا Mac. يخزّنها Ostler في رسمك المعرفي المحلي؛ ولا يغادر شيء جهازك.
