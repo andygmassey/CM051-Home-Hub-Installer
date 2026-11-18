@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import socket
 import sys
 import tempfile
@@ -78,6 +79,10 @@ def _free_port() -> int:
     return port
 
 
+_TEST_SERVICE_TOKEN = "synthetic-moat-test-token"
+os.environ["OSTLER_SERVICE_TOKEN"] = _TEST_SERVICE_TOKEN
+
+
 class _ServerHarness:
     def __init__(self) -> None:
         self.port = _free_port()
@@ -101,10 +106,16 @@ class _ServerHarness:
 
     _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    def get(self, path: str) -> tuple[int, dict]:
+    def get(self, path: str, destination: str | None = None) -> tuple[int, dict]:
+        # The server is token-gated (fail closed) and reads the destination from
+        # the X-Ostler-Destination header only; a query string is ignored by design.
         url = f"http://127.0.0.1:{self.port}{path}"
+        headers = {"Authorization": f"Bearer {_TEST_SERVICE_TOKEN}"}
+        if destination is not None:
+            headers["X-Ostler-Destination"] = destination
+        req = urllib.request.Request(url, headers=headers)
         try:
-            with self._OPENER.open(url, timeout=5) as resp:
+            with self._OPENER.open(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read() or b"{}")
@@ -314,7 +325,7 @@ class TestCommitmentsL3(unittest.TestCase):
     def test_l2_present_l3_and_untagged_absent_and_counted(self) -> None:
         with patch.object(server, "_sparql_select", side_effect=self._fake()):
             with _ServerHarness() as h:
-                status, body = h.get("/api/v1/commitments?destination=owner_own_brief")
+                status, body = h.get("/api/v1/commitments", destination="owner_own_brief")
         self.assertEqual(status, 200)
         actions = [c["action"] for c in body["commitments"]]
         # owner_own_brief: L2 served; L3 withheld (counted l3); untagged is
