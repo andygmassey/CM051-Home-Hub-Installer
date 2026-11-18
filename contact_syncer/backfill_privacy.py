@@ -12,11 +12,14 @@ live writers can never drift.
 
 Erring private
 --------------
-The rule ERRS PRIVATE: any node whose provenance is a private channel
-(WhatsApp / iMessage / email / user-asserted / LinkedIn message content)
-is tagged L1, NEVER L2. A node of unknown provenance also fails closed to
-L1 (private, owner-pages only), not L2 (publishable). Public/social signals
-(LinkedIn connection/career, Twitter, Facebook friend) become L2.
+LEGACY-BEGIN (old PWG / CM041 ladder; the canonical meaning is
+privacy_scale_canonical.tsv at the repo root, relabel per writer in privacy
+scale PR 4). The rule ERRS PRIVATE: any node whose provenance is a private
+channel (WhatsApp / iMessage / email / user-asserted / LinkedIn message
+content) is tagged L1, NEVER L2. A node of unknown provenance also fails
+closed to L1 (private, owner-pages only), not L2 (publishable).
+Public/social signals (LinkedIn connection/career, Twitter, Facebook
+friend) become L2. LEGACY-END
 
 Safety
 ------

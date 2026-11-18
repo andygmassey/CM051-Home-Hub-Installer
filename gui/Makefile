@@ -1328,6 +1328,9 @@ stage-payload: download-python
 	[ -d "$$CM019_SRC" ] || MISSING="$$MISSING vendor/cm019_preferences"; \
 	[ -f "$$ASSISTANT_API_SRC/ical-server.py" ] || MISSING="$$MISSING vendor/cm041/assistant_api/ical-server.py"; \
 	[ -f "$$PWG_PRIVACY_SRC" ] || MISSING="$$MISSING vendor/cm041/pwg_privacy.py"; \
+	[ -f "$$SRC_ROOT/vendor/cm041/pwg_privacy_readers.py" ] || MISSING="$$MISSING vendor/cm041/pwg_privacy_readers.py"; \
+	[ -f "$$SRC_ROOT/vendor/cm041/privacy_scale.py" ] || MISSING="$$MISSING vendor/cm041/privacy_scale.py"; \
+	[ -f "$$SRC_ROOT/vendor/cm041/privacy_scale_canonical.tsv" ] || MISSING="$$MISSING vendor/cm041/privacy_scale_canonical.tsv"; \
 	[ -d "$$HYGIENE_SRC" ] || MISSING="$$MISSING vendor/cm041/ostler_hygiene"; \
 	[ -f "$$CONTEXT_REFRESH_SRC/INSTALL_SNIPPET.sh" ] || MISSING="$$MISSING context-refresh/INSTALL_SNIPPET.sh"; \
 	[ -f "$$UNINSTALL_SRC/stop_orphan_ticks.sh" ] || MISSING="$$MISSING uninstall/stop_orphan_ticks.sh"; \
@@ -1359,6 +1362,9 @@ stage-payload: download-python
 	cp -R "$$CM019_SRC" "$$PAYLOAD/services/cm019"; \
 	cp -R "$$ASSISTANT_API_SRC" "$$PAYLOAD/services/assistant_api"; \
 	cp "$$PWG_PRIVACY_SRC" "$$PAYLOAD/services/pwg_privacy.py"; \
+	cp "$$SRC_ROOT/vendor/cm041/pwg_privacy_readers.py" "$$PAYLOAD/services/pwg_privacy_readers.py"; \
+	cp "$$SRC_ROOT/vendor/cm041/privacy_scale.py" "$$PAYLOAD/services/privacy_scale.py"; \
+	cp "$$SRC_ROOT/vendor/cm041/privacy_scale_canonical.tsv" "$$PAYLOAD/services/privacy_scale_canonical.tsv"; \
 	cp -R "$$HYGIENE_SRC" "$$PAYLOAD/services/ostler_hygiene"; \
 	cp -R "$$CONTEXT_REFRESH_SRC" "$$PAYLOAD/services/context-refresh"; \
 	cp -R "$$UNINSTALL_SRC" "$$PAYLOAD/services/uninstall"; \
@@ -1366,7 +1372,7 @@ stage-payload: download-python
 	cp "$$CUT_BOM_SRC" "$$PAYLOAD/cut-bom.tsv"; \
 	cp "$$VENDOR_MANIFEST_SRC" "$$PAYLOAD/vendor-manifest.toml"; \
 	/usr/bin/xattr -cr "$$PAYLOAD" 2>/dev/null || true; \
-	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv services/uninstall/stop_orphan_ticks.sh; do \
+	for req in VERSION install.sh cut-bom.tsv vendor-manifest.toml assistant-agent/INSTALL_SNIPPET.sh assistant-agent/ostler-whatsapp-keepalive.sh assistant-agent/OstlerAssistant.app/Contents/MacOS/ostler-assistant services/doctor services/knowledge services/cm048 services/cm019/requirements.txt services/assistant_api/ical-server.py services/pwg_privacy.py services/pwg_privacy_readers.py services/privacy_scale.py services/privacy_scale_canonical.tsv services/ostler_hygiene services/context-refresh/INSTALL_SNIPPET.sh services/care/write_agents_md.sh services/care/AGENTS_CARE.md.tmpl services/care/helplines.tsv services/uninstall/stop_orphan_ticks.sh; do \
 	    if [ ! -e "$$PAYLOAD/$$req" ]; then \
 	        echo "ERROR: payload assembly incomplete -- missing $$req after copy." >&2; \
 	        exit 1; \

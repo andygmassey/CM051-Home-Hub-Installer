@@ -105,6 +105,7 @@ test_abort_still_reports_when_the_close_fails.sh	WIRED	.github/workflows/install
 test_address_book_photos_reach_photo_dir.py	WIRED	.github/workflows/address-book-source-guard.yml
 test_ai_conversations_default_to_the_locked_privacy_level.py	WIRED	.github/workflows/privacy-spine.yml
 test_ai_conversations_leg_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
+test_ai_conversations_source_default_pin.py	WIRED	.github/workflows/g7-gate-copies.yml
 test_ai_model_env_contract.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_aiconv_agent_not_registered_without_owner_email.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_aiconv_hydrate_honesty.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -625,6 +626,7 @@ test_meeting_briefs_say_when_they_cannot_run.py	WIRED	.github/workflows/status-h
 test_memory_about_you.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_memory_assert_answers_inside_the_probe_timeout.py	WIRED	.github/workflows/memory-assert-answers-under-load.yml
 test_memory_embeddings_wired.sh	WIRED	.github/workflows/memory-embeddings.yml
+test_memory_list_l3_never_leaves_for_non_owner.py	WIRED	.github/workflows/writer-reader-vocabulary.yml
 test_merge_journal_records_keyed_identifier_hashes.py	WIRED	.github/workflows/exact-identifier-merge.yml
 test_merge_survivor_takes_highest_name_tier.py	WIRED	.github/workflows/walk-record-gate.yml
 test_mergeable_unknown_is_not_clean.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
@@ -653,6 +655,8 @@ test_no_function_is_called_before_it_is_defined.sh	WIRED	.github/workflows/cold-
 test_no_gate_execs_a_pinned_image.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_no_heavy_job_bypasses_the_chat_yield.sh	WIRED	.github/workflows/ingest-slot.yml
 test_no_internal_codenames_in_customer_strings.sh	WIRED	.github/workflows/rule-09-strings-check.yml
+test_no_l3_probe_selftests.sh	WIRED	.github/workflows/cannotrun-instruments.yml
+test_no_l3_seed_real_store.py	WIRED	.github/workflows/cannotrun-instruments.yml
 test_no_literal_backslash_n_in_strings.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_no_live_command_substitution_in_heredocs.sh	WIRED	.github/workflows/install-heredoc-honesty.yml
 test_no_local_cuts.sh	WIRED	.github/workflows/cut.yml
@@ -895,6 +899,7 @@ test_store_port_first_install_stale_store.sh	WIRED	.github/workflows/cut-gate-wr
 test_stores_guard_fires.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_stores_publish_no_host_port.sh	WIRED	.github/workflows/store-host-exposure.yml
 test_strict_checks_are_back_on_before_a_cut.py	WIRED	.github/workflows/cut.yml
+test_strings_never_claim_30_days_included_pro.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_subscription_activation_path.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_sudo_gate_accepts_passwordless_sudo.sh	WIRED	.github/workflows/colima-autostart.yml
 test_suppress_suggestions_loopback_reaches_the_store.py	WIRED	.github/workflows/suppress-suggestions-loopback.yml
@@ -1257,6 +1262,7 @@ context-refresh/tests/test_about_you_excludes_other_peoples_facts.py	WIRED	.gith
 context-refresh/tests/test_confirmed_section_projects_the_privacy_level.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_context_digest_auth.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_cap_trims_lines_not_blocks.py	WIRED	.github/workflows/context-digest-auth.yml
+context-refresh/tests/test_digest_declares_model_route.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_knows_its_owner.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_reads_derived_preferences.py	WIRED	.github/workflows/context-digest-auth.yml
 context-refresh/tests/test_digest_size_cap_keeps_preferences.py	WIRED	.github/workflows/context-digest-auth.yml

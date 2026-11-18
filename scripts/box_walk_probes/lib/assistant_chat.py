@@ -139,6 +139,7 @@ def ws_chat(question, deadline_s=420):
     t_sent = time.time()
     s.sendall(hdr + m + mk)
     text, final, t_first, err, n_chunks = "", None, None, None, 0
+    tools = []  # tool_call names, in order (the trace the no_l3 topics arm reads)
     while time.time() < deadline:
         try:
             op, pay = frame()
@@ -160,6 +161,8 @@ def ws_chat(question, deadline_s=420):
             text += ev["content"]
         elif t == "chunk_reset":
             text = ""
+        elif t == "tool_call":
+            tools.append(str(ev.get("name") or ""))
         elif t == "done":
             final = ev.get("full_response") if "full_response" in ev else text
             break
@@ -168,7 +171,7 @@ def ws_chat(question, deadline_s=420):
             break
     s.close()
     t_end = time.time()
-    return {"text": final if final is not None else text,
+    return {"text": final if final is not None else text, "tools": tools,
             "ttft_s": round(t_first - t_sent, 2) if t_first else None,
             "total_s": round(t_end - t_sent, 2), "chunks": n_chunks, "error": err}
 

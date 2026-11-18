@@ -149,7 +149,13 @@ class RealHub:
     TOKEN = "fixture-service-token"
 
     def get(self, path):
+        # The owner's own brief reader declares its destination. The Hub
+        # reads an undeclared request as unknown and withholds every field,
+        # so a bare GET tested the withholding, not the brief. L3 is still
+        # absent under owner_own_brief (arm 2 asserts it).
         req = urllib.request.Request(
-            self.url + path, headers={"Authorization": "Bearer " + self.TOKEN})
+            self.url + path,
+            headers={"Authorization": "Bearer " + self.TOKEN,
+                     "X-Ostler-Destination": "owner_own_brief"})
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read())

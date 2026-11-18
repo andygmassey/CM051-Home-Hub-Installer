@@ -55,10 +55,10 @@ def sparql(today=ANCHOR, with_named_graph=True):
         pwg:factText "Private medical detail that must never surface" ; pwg:privacyLevel "L3" .
     <urn:ostler-walk-fixture:m1> a pwg:Meeting ; pwg:meetingAttendee <urn:ostler-walk-fixture:alexandra> ;
         pwg:meetingSummary "Lisbon workshop budget review" ;
-        pwg:meetingDate "{d(40)}" ; pwg:meetingLocation "Studio Nine" ; pwg:meetingId "m1" .
+        pwg:meetingDate "{d(40)}" ; pwg:meetingLocation "Studio Nine" ; pwg:meetingId "m1" ; pwg:privacyLevel "L1" .
     <urn:ostler-walk-fixture:m2> a pwg:Meeting ; pwg:meetingAttendee <urn:ostler-walk-fixture:alexandra> ;
         pwg:meetingSummary "Autumn roadmap check-in" ;
-        pwg:meetingDate "{d(200)}" ; pwg:meetingLocation "Riverside Town" ; pwg:meetingId "m2" .
+        pwg:meetingDate "{d(200)}" ; pwg:meetingLocation "Riverside Town" ; pwg:meetingId "m2" ; pwg:privacyLevel "L1" .
     {_person("urn:ostler-walk-fixture:philip", NONE["name"], NONE["email"],
         f'; pwg:organization "Globex Corp" ; pwg:relationship "client" '
         f'; pwg:lastContactWhatsApp "{d(30)}"')}
@@ -75,7 +75,12 @@ def sparql(today=ANCHOR, with_named_graph=True):
         <urn:ostler:todoText> "Share the workshop deck with Alexandra" ;
         <urn:ostler:owner> "user" ; <urn:ostler:ownerDisplay> "Sam" ;
         <urn:ostler:status> "open" ; <urn:ostler:deadline> "2030-01-31" ;
-        <urn:ostler:todoCreatedAt> "{d(10)}T09:00:00Z" .
+        <urn:ostler:todoCreatedAt> "{d(10)}T09:00:00Z" ; <urn:ostler:privacyLevel> "L2" .
+    <urn:ostler:todo/t4> a <urn:ostler:OutstandingTodo> ;
+        <urn:ostler:aboutPerson> <urn:ostler-walk-fixture:alexandra> ;
+        <urn:ostler:todoText> "Private todo that must never be served" ;
+        <urn:ostler:owner> "user" ; <urn:ostler:status> "open" ; <urn:ostler:deadline> "2030-02-14" ;
+        <urn:ostler:todoCreatedAt> "{d(8)}T09:00:00Z" ; <urn:ostler:privacyLevel> "L3" .
     <urn:ostler:todo/t2> a <urn:ostler:OutstandingTodo> ;
         <urn:ostler:aboutPerson> <urn:ostler-walk-fixture:alexandra> ;
         <urn:ostler:todoText> "Share the venue shortlist" ;

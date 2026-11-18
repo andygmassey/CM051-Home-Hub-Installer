@@ -242,7 +242,7 @@ class TimelineDegradedShapeTests(unittest.TestCase):
         idx = source.find(anchor)
         self.assertGreater(idx, 0, "could not locate /api/v1/timeline handler")
         # Take a generous slice that covers the try/except.
-        block = source[idx : idx + 1500]
+        block = source[idx : idx + 1800]
         self.assertIn('"entries": []', block,
                       "F-1 regression: timeline degraded fallback must "
                       "include `entries: []` for the iOS decoder")
@@ -289,7 +289,7 @@ class TimelineMeetingDedupeTests(unittest.TestCase):
         with p_run, p_gcal, mock.patch.object(
             ical_server, "_sparql_select", return_value=graph_rows
         ):
-            result = ical_server.api_timeline(days=7)
+            result = ical_server.api_timeline(days=7, destination="owner_local")
 
         meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
         self.assertEqual(
@@ -317,7 +317,7 @@ class TimelineMeetingDedupeTests(unittest.TestCase):
         with p_run, p_gcal, mock.patch.object(
             ical_server, "_sparql_select", return_value=graph_rows
         ):
-            result = ical_server.api_timeline(days=30)
+            result = ical_server.api_timeline(days=30, destination="owner_local")
         meetings = [i for i in result["items"] if i.get("kind") == "meeting"]
         self.assertEqual(
             len(meetings), 2,
