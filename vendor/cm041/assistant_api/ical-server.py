@@ -5579,7 +5579,6 @@ def _memory_query_facts() -> list:
     #            pwg:belongsToUser <user_andy>       # whose memory it is
     #
     # So "Jane Doe is your wife" was stored with aboutPerson = jane,
-    # and this reader asked for aboutPerson = Andy. It matched nothing.
     # `pwg:belongsToUser` was written on line ~1833 and read NOWHERE -- a
     # write-only field, the same defect class as displayNameProvisional
     # (task #658).
@@ -5589,7 +5588,6 @@ def _memory_query_facts() -> list:
     #                     is your wife."
     #   then on iMessage: "I cannot tell you who your wife is. I do not have
     #                     access to that personal information."
-    # Andy: "WTAF? Why is this STILL not working?"
     #
     # It was never a cross-channel problem and never a privacy guardrail. The
     # write succeeded, the fact is in the graph, and the reader was looking in
