@@ -8086,13 +8086,13 @@
 -    if _is_business_shaped_name(name):
 -        return True
 -    return False
-+
-+
-+
-+
-+
  
  
++
++
++
++
++
 +def _person_name_before_org_phrase(name, given, family):
 +    """\"<given> <family> <org phrase>\" is a person's name with a company
 +    appended. Return \"<given> <family>\" when the card-less record has a
@@ -8147,12 +8147,10 @@
  
      Batched (one VALUES query for every candidate URI), same shape as the
      rest of this file's identifier joins -- never one query per person.
-@@ -832,8 +858,58 @@
-     except Exception:
-         return set()
+@@ -834,6 +860,56 @@
      return {r["person"] for r in rows if r.get("person")}
-+
-+
+ 
+ 
 +def _qdrant_payloads_by_uri(uris):
 +    """Best-effort {person_uri: Qdrant payload} for the given URIs, so the
 +    SPARQL-fed paths (recent, birthdays) can apply the same SHARED RULE B
@@ -8183,8 +8181,8 @@
 +    except Exception:
 +        return {}
 +    return out
- 
- 
++
++
 +def _apply_name_ladder_to_rows(rows):
 +    """SHARED RULE B for SPARQL rows ({'p','name',...}): rewrite an
 +    identifier-shaped name to the better name on the person's Qdrant payload.
@@ -8219,10 +8217,11 @@
  # ~/.ostler/processing, NOT under PWG_HOME (~/.pwg). Confirmed by
  # src/ostler_paths.py:42-44 (`processing_dir()` default), src/settings.py:
  # 93-94 (`Settings.processing_state_dir` default) and shipped production
-@@ -976,6 +1054,32 @@
+@@ -975,7 +1053,33 @@
+     "tauri://localhost",
      "https://tauri.localhost",
  }
- 
++
 +# CM048 ships as its own venv'd service installed by CM051 install.sh
 +# phase 3.10b. The installer symlinks
 +# ${OSTLER_DIR}/services/cm048/.venv/bin/pwg-convo → /usr/local/bin/pwg-convo,
@@ -8232,7 +8231,7 @@
 +# where CM048 may be installed elsewhere on PATH.
 +def _default_pwg_convo_bin(home=None, exists=None):
 +    """The pwg-convo CLI this server runs when PWG_CONVO_BIN is unset.
-+
+ 
 +    Owner-side link first: the GUI installer cannot write /usr/local/bin on a
 +    stock Mac (no chown any more), so it links pwg-convo into
 +    ${OSTLER_DIR}/bin instead (install.sh _ostler_link_cli). Then the
@@ -8694,8 +8693,8 @@
      payload = json.loads(resp.read())
      _record_embed_usage(payload, EMBED_MODEL)
      return payload["embeddings"][0]
-+
-+
+ 
+ 
 +# ----------------------------------------------------------------------
 +# Graph scope (v1018-D012b). ONE implementation, shared -- see
 +# identity_resolver/compartment.py for the full rationale.
@@ -8728,8 +8727,8 @@
 +def _graph_scoped(sparql):
 +    """Scope a SELECT to the default graph plus this user's CM048 graphs."""
 +    return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
- 
- 
++
++
 +# CM051-LOCAL (133 regraft of CM041 #278 @2dbac8c). CM041's
 +# _conversation_levels_for wraps its body in read_across_graphs, which this
 +# tree does not import (see the note above). Every _sparql_select here is
@@ -8952,11 +8951,10 @@
          # Emit the stable person_uri so consumers (pwg_people dedup #6, the
          # citation slug->uri chain #4) can key on identity, not display name.
          if p.get("person_uri"):
-@@ -1888,6 +2475,22 @@
-             "observations": [],
+@@ -1889,6 +2476,22 @@
              "db_state": "absent",
              "note": f"coach database not yet created at {COACH_DB}",
-+        }
+         }
 +    # A 0-byte file is a database nothing has initialised yet (an early
 +    # caller connected to the path before the installer or the writer laid
 +    # the schema down). There is nothing in it to read, and opening it with
@@ -8972,9 +8970,10 @@
 +            "count": 0,
 +            "db_state": "empty",
 +            "note": f"coach database at {COACH_DB} is empty (not yet initialised)",
-         }
++        }
  
      cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+ 
 @@ -1916,6 +2519,18 @@
              (user_id, cutoff, limit),
          ).fetchall()
@@ -9273,15 +9272,15 @@
      queued = _conversation_retry_rearm(force=True)
      threading.Thread(target=_conversation_retry_sweep, daemon=True).start()
      return {"queued": queued, "status": "accepted"}, 202
- 
- 
+-
+-
 -_MEETING_ID_UUID_RE = re.compile(
 -    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
 -    re.IGNORECASE,
 -)
 -_MEETING_ID_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
--
--
+ 
+ 
 -def _is_safe_meeting_id(meeting_id):
 -    """True when meeting_id is a UUID or a plain slug with no path
 -    characters (no '/', '.', or whitespace). Guards metadata.meeting_id
@@ -9374,10 +9373,14 @@
  
      # Generate conversation_id. metadata.meeting_id is the per-session
      # UUID the iOS/Watch capture app sends with every recording; when
-@@ -2547,155 +3241,38 @@
-         # A producer with its own STABLE id (CM052's wire sends one on every
-         # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
-         # away for the date+participant scheme below, whose collision guard
+@@ -2543,159 +3237,42 @@
+     producer_id = metadata.get("conversation_id")
+     if meeting_id and _is_safe_meeting_id(meeting_id):
+         conversation_id = meeting_id
+-    elif producer_id and _is_safe_meeting_id(producer_id):
+-        # A producer with its own STABLE id (CM052's wire sends one on every
+-        # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
+-        # away for the date+participant scheme below, whose collision guard
 -        # gives a CHANGED re-post (a Slack day that grew, an edited thread)
 -        # a fresh random suffix, so CM048 wrote a second bundle beside the
 -        # stale one instead of updating it. Same id rules as meeting_id.
@@ -9518,6 +9521,10 @@
 -        clauses.append(
 -            "DELETE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }} "
 -            "WHERE {{ GRAPH <" + graph + "> {{ <{uri}> ?p ?o }} }};"
++    elif producer_id and _is_safe_meeting_id(producer_id):
++        # A producer with its own STABLE id (CM052's wire sends one on every
++        # POST: ``sk-``/``cc-``/``og-``/``ch-`` + hash). It used to be thrown
++        # away for the date+participant scheme below, whose collision guard
 +        # gives a CHANGED re-post (a Slack day that grew, an edited thread)
 +        # a fresh random suffix, so CM048 wrote a second bundle beside the
 +        # stale one instead of updating it. Same id rules as meeting_id.
@@ -11395,11 +11402,10 @@
      except Exception as exc:
          return {
              "found": False,
-@@ -6554,15 +7887,6 @@
-             "reason": f"oxigraph_lookup_failed: {exc}",
+@@ -6555,15 +7888,6 @@
              "error": str(exc),
          }, 503
--
+ 
 -    person_uri = None
 -    pname = ""
 -    for cand in candidates:
@@ -11408,9 +11414,10 @@
 -            person_uri = cand["person"]
 -            pname = cand_name
 -            break
- 
+-
      if person_uri is None:
          return {
+             "slug": slug,
 @@ -6652,7 +7976,7 @@
          # matches in both arms of the UNION.
          conv_rows = _sparql_select(
@@ -11420,12 +11427,10 @@
                  '  ?fact <urn:ostler:about> <{uri}> ; '
                  '<urn:ostler:fromConversation> ?conv .\n'
                  '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-@@ -6806,6 +8130,89 @@
-     if limit > _MOAT_MAX_LIMIT:
-         limit = _MOAT_MAX_LIMIT
+@@ -6808,6 +8132,89 @@
      return limit, None
-+
-+
+ 
+ 
 +def _decision_facts_from_conversations(about=None, query=None):
 +    """Decision facts from the Qdrant ``conversations`` collection.
 +
@@ -11507,9 +11512,11 @@
 +            "store": "conversations",
 +        })
 +    return rows, None
- 
- 
++
++
  def _new_withheld():
+     """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
+     items. ``legacy_untagged`` is NOT withheld: those items are served and
 @@ -6945,13 +8352,10 @@
                  "error": "Invalid 'about' slug. Expected lowercase ASCII "
                           "letters, digits, hyphens (max 80 chars).",
@@ -11592,7 +11599,7 @@
  
  
  def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
-@@ -7239,14 +8662,22 @@
+@@ -7239,12 +8662,20 @@
      }, 200
  
  
@@ -11608,19 +11615,17 @@
 +# untagged legacy row is served at the level the operator's own data has
 +# always been treated at, and is never silently promoted to L0/L1.
 +_COMMITMENT_DEFAULT_PRIVACY_LEVEL = "L2"
- 
- 
++
++
 +def _commitment_privacy_level(raw):
 +    """Per-row level: tagged+valid -> that level; untagged -> the default;
 +    tagged but unparseable -> L3 (fail closed)."""
 +    if raw is None or str(raw).strip() == "":
 +        return _COMMITMENT_DEFAULT_PRIVACY_LEVEL
 +    return pwg_privacy.parse_privacy_level(raw) or "L3"
-+
-+
+ 
+ 
  def commitments_list(owner=None, due_before=None, status="open",
-                      limit=_MOAT_DEFAULT_LIMIT, destination=None):
-     """Handle GET /api/v1/commitments?owner=<user|other>&due_before=<iso>&status=open&limit=N.
 @@ -7294,7 +8725,7 @@
          # Rows are gated per row in the loop, fail closed.
          rows = _sparql_select(
@@ -11744,18 +11749,17 @@
              )
              if val not in bucket[typ]:
                  bucket[typ].append(val)
-@@ -7737,7 +9188,22 @@
-         name = p.get("display_name") or p.get("name") or ""
+@@ -7738,6 +9189,21 @@
          given = (p.get("given_name") or "").strip()
          family = (p.get("family_name") or "").strip()
-+
+ 
 +        # F7b: "<given> <family> <org phrase>" is a person with a company
 +        # appended: show the person's name, never hide the person.
 +        if not (p.get("icloud_uid") or "").strip():
 +            _resolved = _person_name_before_org_phrase(name, given, family)
 +            if _resolved:
 +                name = _resolved
- 
++
 +        # F7: the assistant's own Contacts card is not a person to list. Matched
 +        # by the assistant's EMAIL or PHONE (ASSISTANT_EMAIL / ASSISTANT_PHONE
 +        # from the plist), never by name alone: a friend can share the name.
@@ -12164,9 +12168,8 @@
      contacts = []
      for r in rows:
          name = r.get("name", "")
--        uri = r.get("p") or ""
+         uri = r.get("p") or ""
 -        if not name or name in seen:
-+        uri = r.get("p") or ""
 +        # One entry per PERSON: several names or several same-day meetings
 +        # give one person several rows; the first that passes the screens wins.
 +        if not name or name in seen or (uri and uri in seen_uris):
@@ -12915,7 +12918,7 @@
          # The payload's own level, for the request's destination, always
          # (undeclared = unknown). owner_local sees L3/untagged labelled.
          if _pr.outbound_hidden(payload, destination=destination):
-@@ -8833,17 +10767,44 @@
+@@ -8833,15 +10767,42 @@
              # what-happened-when view; conversation content is L2+ and has its
              # own privacy-gated surfaces. A channel + counterpart is enough to
              # place the event without publishing what was said.
@@ -12958,11 +12961,8 @@
 +
 +
  def _timeline_photos(past_days=730, limit=200, destination=None):
--    """Aggregated Photos rows for the Timeline: one row per (day, place).
-+    """Aggregated photo rows for the Timeline: one row per (day, place).
+     """Aggregated Photos rows for the Timeline: one row per (day, place).
  
-     Source: the per-photo ``pwg:PhotoEvent`` nodes that
-     ``vendor/ostler_fda/pwg_ingest.py`` ``ingest_photo_events`` writes from the
 @@ -8928,7 +10889,10 @@
      return out, None
  
