@@ -1367,6 +1367,8 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Die Sprechererkennung bleibt auf diesem Mac. C
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Öffentliche Fakten zu gespeicherten Dingen nachschlagen?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler kann zu Dingen, die es findet, öffentliche Referenzangaben ergänzen – ein Buch, ein Film, ein Album, ein Ort. Dazu sendet es den NAMEN dieser einen Sache an öffentliche Referenzdienste wie Wikidata, MusicBrainz und OpenLibrary und speichert die Antwort auf diesem Mac.
 
+Ostler sucht online nach öffentlichen Themen wie Musik, Büchern, Filmen und Orten, um deinen Geschmack zu verstehen. Es sucht nie nach Gesundheit, Geld oder rechtlichen Angelegenheiten, Adressen oder den Menschen, die du kennst.
+
 Was deinen Mac verlässt: der Name der nachgeschlagenen Sache. Sonst nichts. Nicht deine Nachrichten, nicht deine Kontakte, nicht deine Dateien und nicht, wer sie erwähnt hat.
 
 Was der Dienst auf der anderen Seite sehen kann: deine IP-Adresse und dass die Anfrage von Ostler kam. Die Abfrage geht direkt von deinem Mac zu ihnen - nichts läuft über unsere Server - daher lässt sich nicht anfragen, ohne dass sie erfahren, dass jemand angefragt hat.

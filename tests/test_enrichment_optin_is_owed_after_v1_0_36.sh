@@ -37,6 +37,11 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
+# OWNER RULING, 2026-11-18 (supersedes the 2026-08-18 off-by-default ruling
+# above): public-data enrichment is ON by default, and the customer opts OUT at
+# the install question (consent_enrichment, default yes) or later. The question
+# this gate requires is therefore the opt-out, and it defaults to yes. The
+# predicate is unchanged: an assignment AND a question naming enrichment.
 DEFERRED_THROUGH="1.0.36"
 PLIST="gui/OstlerInstaller/Info.plist"
 TARGET="${TARGET_INSTALL_SH:-install.sh}"
@@ -133,8 +138,8 @@ if [ "$newer_than_deferral" = "yes" ]; then
     echo "  which is safe but is not the product."
     echo
     echo "  Setting OSTLER_ENRICH_AGENT_ENABLED=1 without a question does NOT"
-    echo "  satisfy this gate, and that is deliberate: it would switch the agent"
-    echo "  on by default, which is the thing the directive forbids."
+    echo "  satisfy this gate, and that is deliberate: an assignment with no"
+    echo "  customer question is a default the customer never saw."
     exit 1
 fi
 
