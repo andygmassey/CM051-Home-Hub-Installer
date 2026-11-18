@@ -24,6 +24,25 @@ CREATOR_CATEGORIES = frozenset({"artist", "music", "track", "album", "book", "bo
 # Free-text topic categories: a person's name typed as an interest is refused.
 INTEREST_CATEGORIES = frozenset({"interest", "topic", "search_interest", "instagram_creator"})
 
+# The seven client groups the walk reports per batch (counts only, never a subject).
+LOOKUP_CLIENT_GROUPS = ("music", "books", "films", "podcasts", "places", "food", "interests")
+_LOOKUP_GROUP_BY_CLIENT = {
+    "musicbrainz": "music", "openlibrary": "books",
+    "wikidata_film": "films", "tmdb": "films",
+    "podcast_index": "podcasts",
+    "wikidata_place": "places", "osm_cuisine": "places",
+    "foursquare": "places", "google_places": "places",
+}
+
+
+def lookup_group(category, client_name):
+    """The reported client group a dispatched look-up belongs to, or None."""
+    if category == "food":
+        return "food"
+    if category in INTEREST_CATEGORIES:
+        return "interests"
+    return _LOOKUP_GROUP_BY_CLIENT.get(client_name)
+
 
 PLAY_HISTORY_SOURCES = frozenset({"apple_music", "spotify"})
 
@@ -854,6 +873,11 @@ INSERT DATA {{
                       "author": creator if category in ("book", "books") else None,
                       "creator": creator}
 
+        # Per-client look-up count for the batch line (a number, never the subject).
+        _group = lookup_group(category, client_name)
+        if _group is not None:
+            self._count_lookup(_group)
+
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
@@ -1082,6 +1106,10 @@ INSERT DATA {{
 
         return None
 
+    def _count_lookup(self, group: str) -> None:
+        counts = self.__dict__.setdefault("_lookup_counts", {})
+        counts[group] = counts.get(group, 0) + 1
+
     def _count_creator(self, key: str) -> None:
         counts = self.__dict__.setdefault("_creator_counts",
                                           {"looked_up": 0, "dropped_unreadable": 0})
@@ -1097,6 +1125,7 @@ INSERT DATA {{
         """Enrich a batch, then print the creator counts for THIS run (every run, so the
         thin walk can see whether creator enrichment happened or was dropped)."""
         before = dict(self.__dict__.get("_creator_counts", {}))
+        before_lookups = dict(self.__dict__.get("_lookup_counts", {}))
         try:
             return await self._enrich_batch_inner(
                 preferences, stats, deadline=deadline, work_allowance=work_allowance)
@@ -1106,6 +1135,13 @@ INSERT DATA {{
             dropped = now.get("dropped_unreadable", 0) - before.get("dropped_unreadable", 0)
             logger.info("creators dropped: contact store unreadable: %d", dropped)
             logger.info("creators looked up: %d", looked)
+            now_lookups = self.__dict__.get("_lookup_counts", {})
+            # ONE counts-only line per batch. The walk probe enrichment_reaches_clients
+            # parses it: keep the prefix and the name=N tokens exactly.
+            logger.info(
+                "enrichment looked up per client: %s",
+                " ".join("%s=%d" % (g, now_lookups.get(g, 0) - before_lookups.get(g, 0))
+                         for g in LOOKUP_CLIENT_GROUPS))
 
     async def _enrich_batch_inner(
         self,

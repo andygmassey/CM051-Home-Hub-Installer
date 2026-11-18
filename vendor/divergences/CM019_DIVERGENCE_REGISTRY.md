@@ -338,3 +338,11 @@ Tree `cm019_preferences`. Pin HELD; grafted ahead of the upstream merge (Archie 
 - NOT carried here: the #539 apple.py health / notes changes (vendored apple.py already writes 0 at the four sites, without the L3 stamp or the notes ruling).
 - Retire: re-pin past the #539 merge commit.
 - Follow-up (PWG #539 head 34c61e4): base.py takes `CANONICAL_FLOOR_LEVEL` from the shared table (`privacy_scale.DEFAULT_LEVEL`) instead of the literal "L3", so it imports `privacy_scale` directly. The two lines are verbatim from upstream 34c61e4. `privacy_scale.py`, `privacy_scale_canonical.tsv` and `pwg_privacy.py` must all be present; a staged-layout import test (arm 5 of tests/test_vendored_whoop_health_floor.py) proves each is needed.
+
+## 2026-11-18: per-client look-up counts in the enrich batch log (CM051 walk134 enrich-counts; probe enrichment_reaches_clients)
+
+Tree `cm019_preferences`. CM051-only; NOT in personal-world-graph. Pin unchanged.
+- `services/enrich/src/enricher.py`: `LOOKUP_CLIENT_GROUPS`, `lookup_group()`, `_count_lookup()`; one count at the dispatch point of `enrich_preference` (after every gate, so a refused item is never counted); `enrich_batch`'s finally-block prints ONE extra line per batch, `enrichment looked up per client: music=N books=N films=N podcasts=N places=N food=N interests=N` (this batch's deltas). Counts only: no subject, name or id.
+- Why: the walk probe had nothing per client to read and was CANNOT-RUN. Emitter and judge share a test: tests/test_vendored_enrich_batch_client_counts.py (red on the old enricher, green here).
+- Retire: port the same hunk upstream, then re-pin past it.
+

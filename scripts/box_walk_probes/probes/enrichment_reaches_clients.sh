@@ -10,11 +10,12 @@
 # and "creators looked up: M", plus per-category "[PARALLEL] Completed <cat>:
 # N enriched" lines.
 #
-# WHAT IT DOES NOT MEASURE, AND SAYS SO: the 134 must-check names seven clients
-# (music, books, films, podcasts, places, food, interests). The enricher logs no
-# per-client count, so every client is listed as NOT MEASURED and the verdict
-# is CANNOT-RUN until it does. A batch that reached creators is necessary, not
-# sufficient, for "every client reached".
+# PER CLIENT: the enricher also prints, once per batch, a counts-only line
+#   enrichment looked up per client: music=N books=N films=N podcasts=N places=N food=N interests=N
+# (enricher.py enrich_batch). The verdict is PASS only when all seven are above
+# zero, FAIL when any is zero or absent, and CANNOT-RUN when the line is absent
+# (a box on a build older than the line). Counts only: no subject is logged.
+# Emitter and judge are tested together: tests/test_vendored_enrich_batch_client_counts.py.
 #
 # The seed: a walk that wants this to PASS runs an enrich batch on the seed
 # fixture first. This probe does not write.
@@ -24,7 +25,7 @@ set -u
 . "$(dirname "$0")/../lib/walk134_common.sh"
 
 PROBE_NAME="enrichment_reaches_clients"
-PROBE_QUESTION="after a seeded enrich batch, does enrich.log show creators looked up > 0, the contact-loader line, and a look-up count for each of the seven clients?"
+PROBE_QUESTION="after a seeded enrich batch, does enrich.log show creators looked up > 0, the contact-loader line, and a look-up count above zero for each of the seven clients?"
 PROBE_UNIT="log lines"
 
 run_probe() {

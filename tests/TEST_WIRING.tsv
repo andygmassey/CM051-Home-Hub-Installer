@@ -1126,6 +1126,7 @@ test_vendored_enrich_outbound_refuses_l2_and_legacy.py	WIRED	.github/workflows/d
 test_vendored_enrich_person_names.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_seed_lookups.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_batch_client_counts.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_venue_names.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows/derived-preferences.yml
