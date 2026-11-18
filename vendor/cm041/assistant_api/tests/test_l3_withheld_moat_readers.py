@@ -378,3 +378,39 @@ class TestPreferencesL3(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Positive control: owner_local SERVES the L3 seed (labelled). Without this arm,
+# every "absent" assertion above could pass on a reader that reads nothing.
+# ---------------------------------------------------------------------------
+
+class TestOwnerLocalServesL3Seed(unittest.TestCase):
+    def test_decisions_owner_local_serves_the_l3_decision(self) -> None:
+        fixture = TestDecisionsL3()
+        with patch.object(server, "_sparql_select", side_effect=fixture._fake()):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/decisions", destination="owner_local")
+        self.assertEqual(status, 200)
+        summaries = [d["summary"] for d in body["decisions"]]
+        self.assertIn("Secret L3 plan", summaries)
+
+    def test_topics_owner_local_serves_the_l3_topic(self) -> None:
+        fixture = TestTopicsL3()
+        with patch.object(server, "_sparql_select", side_effect=fixture._fake_list()):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/topics", destination="owner_local")
+        self.assertEqual(status, 200)
+        slugs = [t["slug"] for t in body["topics"]]
+        self.assertIn("secret-deal", slugs)
+
+    def test_preferences_owner_local_serves_the_l3_interest(self) -> None:
+        fixture = TestPreferencesL3()
+        with tempfile.TemporaryDirectory() as d:
+            art = fixture._artefact(Path(d))
+            with patch.object(server, "INTEREST_PROFILE_PATH", str(art)):
+                with _ServerHarness() as h:
+                    status, body = h.get("/api/v1/preferences", destination="owner_local")
+        self.assertEqual(status, 200)
+        subjects = [i.get("subject") for i in body["interests"]]
+        self.assertIn("subject-l3", subjects)

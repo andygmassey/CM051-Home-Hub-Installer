@@ -8203,9 +8203,14 @@ def _new_withheld():
     return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
 
 
-def _count_withheld(withheld, verdict):
-    """Tally one item by its verdict. Returns True when the item is served."""
+def _count_withheld(withheld, verdict, destination=None):
+    """Tally one item by its verdict. Returns True when the item is served.
+
+    owner_local (this Mac, loopback only) serves an L3 item, labelled private,
+    exactly as the shared table says; every other destination withholds it."""
     if verdict == "l3":
+        if destination == pwg_privacy.OWNER_LOCAL:
+            return True
         withheld["l3"] += 1
         return False
     if verdict == "unknown":
@@ -8285,7 +8290,7 @@ def _conversation_levels_for(convs):
     return out
 
 
-def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
+def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT, destination=None):
     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
 
     Read-only listing of ``pwg:Decision`` nodes (the typed "what did we
@@ -8421,7 +8426,7 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
         except Exception:
             about_people = []
             verdict = "unknown"
-        if not _count_withheld(withheld, verdict):
+        if not _count_withheld(withheld, verdict, destination):
             continue
         decisions.append({
             "summary": summary,
@@ -8452,7 +8457,7 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     return out, 200
 
 
-def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
+def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT, destination=None):
     """Handle GET /api/v1/topics?q=<text>&limit=N.
 
     Read-only listing of ``pwg:ConversationTopic`` nodes ranked by total
@@ -8525,7 +8530,7 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
         # The mention inherits its conversation's level: strictest wins.
         verdict = _topic_mention_verdict(
             r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(r.get("conv"), []))
-        if not _count_withheld(withheld, verdict):
+        if not _count_withheld(withheld, verdict, destination):
             continue
         agg["weight"] += _as_int(r.get("w"))
         agg["mentions"] += 1
@@ -13377,7 +13382,7 @@ def _level_verdict(raw):
     return pwg_privacy.provenance_verdict(raw)
 
 
-def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
+def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None, destination=None):
     """Read the CM059 interest-profile artefact and return a flat, filtered,
     score-sorted list of interest records for the daemon's pwg_preferences
     tool.
@@ -13449,7 +13454,7 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
             withheld["l3"] += 1
             continue
         verdict = _interest_privacy_verdict(it)
-        if _count_withheld(withheld, verdict):
+        if _count_withheld(withheld, verdict, destination):
             visible.append(it)
     interests = visible
 
@@ -14531,7 +14536,8 @@ class Handler(BaseHTTPRequestHandler):
             query = params.get("q", [None])[0]
             try:
                 result, status = decisions_list(
-                    about=about, query=query, limit=limit
+                    about=about, query=query, limit=limit,
+                    destination=self._destination,
                 )
             except Exception as exc:
                 result, status = {
@@ -14582,7 +14588,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = params.get("q", [None])[0]
             try:
-                result, status = topics_list(query=query, limit=limit)
+                result, status = topics_list(query=query, limit=limit,
+                                             destination=self._destination)
             except Exception as exc:
                 result, status = {
                     "topics": [], "count": 0, "degraded": True,
@@ -14819,6 +14826,7 @@ class Handler(BaseHTTPRequestHandler):
             status = 200
             try:
                 result = api_preferences(
+                    destination=self._destination,
                     domain=domain or None,
                     min_confidence=min_conf,
                     # Cursor/fields paginate the whole filtered set themselves.
