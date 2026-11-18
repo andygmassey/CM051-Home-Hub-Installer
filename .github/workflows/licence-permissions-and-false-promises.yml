@@ -62,6 +62,9 @@ on:
       - 'tests/test_a_calendar_export_is_found_where_exports_actually_sit.sh'
       # #30: the calendar predicate now lives in the shared loose-file table.
       - 'lib/ostler-detect-exports.sh'
+      - 'tests/test_weather_home_location.sh'
+      - 'tests/test_weather_home_location_mutant.sh'
+      - 'lib/ostler-weather-home.sh'
       - '.github/workflows/licence-permissions-and-false-promises.yml'
   push:
     branches: [main]
@@ -132,6 +135,12 @@ jobs:
       - name: The WhatsApp channel block still emits a usable config
         if: always()
         run: bash tests/test_whatsapp_channel_block.sh
+
+      - name: The brief weather line is seeded (home_location from the Mac timezone)
+        if: always()
+        run: |
+          bash tests/test_weather_home_location.sh
+          bash tests/test_weather_home_location_mutant.sh
 
       - name: The WhatsApp link step is on the first screen after install
         if: always()

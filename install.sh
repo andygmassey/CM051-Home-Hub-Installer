@@ -4282,7 +4282,7 @@ _ostler_promote_prelaunch_tree() {
     # behind `|| true`, do nothing while looking applied. That path is harmless
     # anyway: both armings (:9732, :17778) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20787 / :20965 / :21122 / :21567 path. There the
+    # :20788 / :20966 / :21123 / :21568 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -5672,7 +5672,7 @@ if [[ -n "${_ostler_modelfit_candidate}" ]]; then
     # shellcheck source=lib/ostler-model-fit.sh
     source "${_ostler_modelfit_candidate}"
 fi
-unset _ostler_modelfit_candidate
+unset _ostler_modelfit_candidate; if [[ -f "${SCRIPT_DIR}/lib/ostler-weather-home.sh" ]]; then source "${SCRIPT_DIR}/lib/ostler-weather-home.sh"; fi
 
 # ── Three-state data-source detection (CX-100, CX-101) ────────────
 #
@@ -18164,7 +18164,7 @@ else
     rm -f "$EMAIL_PASSWORD_FILE"
 fi
 
-umask_orig=$(umask)
+umask_orig=$(umask); _OSTLER_WEATHER_HOME=""; if declare -F ostler_weather_home_resolve >/dev/null; then _OSTLER_WEATHER_HOME="$(ostler_weather_home_resolve "$ASSISTANT_CONFIG")"; fi
 umask 0077
 {
     cat <<'TOMLPREAMBLE'
@@ -18738,6 +18738,7 @@ TOMLPREAMBLE
     # config.web_search.vane_url, and reqwest's RequestBuilder already takes
     # basic auth from a URL's userinfo automatically (see MEASURED note
     # below) -- `[tools.web_search]` -> `[web_search]` is the whole fix.
+    if declare -F ostler_weather_emit_block >/dev/null; then ostler_weather_emit_block "$_OSTLER_WEATHER_HOME"; fi
     echo "[web_search]"
     echo "provider = \"vane\""
     # reqwest takes basic auth from the URL's userinfo. MEASURED against the

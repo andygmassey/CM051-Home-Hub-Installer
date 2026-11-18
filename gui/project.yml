@@ -250,6 +250,9 @@ targets:
           # box can actually run at num_ctx 32768. Missing = legacy RAM-ladder
           # fallback, but bundle it so customers get the fit assessment.
           cp "${SRCROOT}/../lib/ostler-model-fit.sh"             "${DEST}/lib/ostler-model-fit.sh"
+          # ostler-weather-home.sh: install.sh sources it to seed [weather] home_location
+          # (city from the Mac timezone). Missing = no weather line in the brief.
+          cp "${SRCROOT}/../lib/ostler-weather-home.sh"          "${DEST}/lib/ostler-weather-home.sh"
           # ostler-vm-size.sh (v1.0.126): install.sh sources it from
           # ${SCRIPT_DIR}/lib/ostler-vm-size.sh to size the colima VM from host
           # RAM. Missing = the old fixed 4 GiB VM, which OOM-killed the wiki
@@ -423,6 +426,7 @@ targets:
           - $(SRCROOT)/../lib/ostler_store_auth.py
           - $(SRCROOT)/../lib/write_pipeline_signals.py
           - $(SRCROOT)/../lib/ostler-model-fit.sh
+          - $(SRCROOT)/../lib/ostler-weather-home.sh
           - $(SRCROOT)/../lib/ostler-vm-size.sh
           - $(SRCROOT)/../lib/settling_progress.sh
           - $(SRCROOT)/../lib/settling_channels.json
@@ -455,6 +459,7 @@ targets:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler_store_auth.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/write_pipeline_signals.py
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-model-fit.sh
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-weather-home.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/ostler-vm-size.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_progress.sh
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/lib/settling_channels.json

@@ -1172,6 +1172,8 @@ test_walk_timing_reaches_the_record.sh	WIRED	.github/workflows/walk-record-gate.
 test_walk_triage_never_baselines_a_vacuous_pass.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_unpairs_its_synthetic_companion.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walkaway_no_phase2_input_leak.sh	WIRED	.github/workflows/cold-box-source-truth.yml
+test_weather_home_location.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
+test_weather_home_location_mutant.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_whatsapp_channel_block.sh	WIRED	.github/workflows/licence-permissions-and-false-promises.yml
 test_whatsapp_export_autoprocess.py	WIRED	.github/workflows/no-whatsapp-chat-export.yml
 test_whatsapp_export_dedupe.py	WIRED	.github/workflows/no-whatsapp-chat-export.yml
