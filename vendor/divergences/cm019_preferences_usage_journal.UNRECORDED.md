@@ -481,6 +481,95 @@ Proof: `tests/test_vendored_max_privacy_fails_closed.py` (wired in `.github/work
 
 When #528 merges, the upstream SHA here must be the merge commit and the bytes must still match it.
 
+## 18 Nov 2026: enrich leaks and the enrichment look-up gate (personal-world-graph #540 merged as 35302c9d; CB134)
+
+Tree `cm019_preferences`. Pin NOT moved (d9797d88): the tree is still a shipping subset; this section records only the files below.
+
+Source of the ruling, verbatim: Aesop session, Claude Code, HKT afternoon of 2026-11-18.
+Speaker: the owner.
+Addressee: the coordinating agent.
+- "that's fine, right? (Unless user opted out at install time) The enrichment is really key to inteligence data generation" (on whether L2 lookups are fine)
+- Multiple-choice ruling that followed: "L0/L1 only, never L2 (Recommended)"
+- "I cannot launch without the data enrichment. End of."
+
+Files:
+- `services/enrich/src/derive/readers.py`, `services/enrich/src/derive/thematic.py`, `services/common/pwg_privacy.py`, `services/common/privacy_scale.py`, `services/common/privacy_scale_canonical.tsv`: byte-identical to personal-world-graph `35302c9d`. The helper and TSV are required by readers and thematic. The cm041 tree carries an OLDER `pwg_privacy.py`; not touched here.
+- `services/enrich/src/enricher.py`: NOT copied (CM051 divergence: eligibility gate, budget, no-match counting). Only the two upstream hunks from `35302c9d` (`PRIVACY_SCALE_KEY` import and its scroll `with_payload` entry).
+- `services/enrich/src/privacy_gate.py`: upstream `35302c9d` above a CM051 DIVERGENCE. The upstream `outbound_refusal` decides a destination `others` (third party) and refuses L1. CM051 replaces `outbound_refusal` with the ENRICHMENT look-up rule. The shared scale table is NOT changed (pinned across 5 repos); 135 adds the dedicated enrichment row (CB135-ENRICHMENT-L1-DESTINATION).
+
+The enrichment look-up rule (`outbound_refusal`):
+- L0 and L1 subjects: allowed, when an L0 carries the scale stamp. Unstamped L0 is legacy-ambiguous and refused.
+- L2, L3, unlevelled, unknown: refused.
+- Legacy numeric compartments, mapped by PWG `services/ingest/src/parsers/base.py`: legacy 1 is `SENSITIVE_LEVEL` and legacy 1 is `FINANCIAL_LEVEL` (lines 58-59: personal location, third-party people, spend), so it reads as L2 and is refused; legacy 0 is `HEALTH_LEVEL` (line 71) and is refused; 3 and 5 refused (base.py lines 67-69: 5 is L5Commercial, never a privacy floor). Legacy 2, 4 and 6 may map to L0/L1 and are allowed.
+- Category exclusions apply whatever the level: health, dietary, person, contacts, location, address, finance, minors (and `never_read_categories`). Refused.
+- Subject only: the gate decides on the subject; `enrich_preference` still passes the existing per-client hints (author, year, extra url/artist/cuisine) for the categories that use them. Not stripped here; see the report.
+
+Proof, all wired in `.github/workflows/derived-preferences.yml`:
+- `tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py`: 17 arms of the gate.
+- `tests/test_vendored_enrich_seed_lookups.py`: the REAL `EnrichmentService.enrich_preference` over a synthetic 26-item seed, network clients replaced by recorders. Look-ups sent, subject-level and category counts printed.
+- `tests/test_vendored_thematic_withholds_unlevelled_and_health.py`: 5 arms of the thematic reader.
+- `tests/test_vendored_derive_scroll_carries_privacy_level.py`: its L2 control now asserts refusal (`level_L2`).
+
+Red on CM051 origin/main: outbound arms 1, 2, 3 FAIL (L2 allowed; L1 and stamped L0 refused); seed test B and D FAIL (L2 subjects sent); thematic arms 1-3 FAIL. Green on the branch. Mutants red: allow L2; allow legacy 1; drop the category exclusion (arm test only; see the seed-test note in the report).
+
+Hints (Archie condition 2: the look-up carries the topic string only). Every hint the enrich path used to send, its record source, and what happens now:
+- `author` (openlibrary), from the record's `author` field: DROPPED.
+- `year` (tmdb, wikidata_film), from the record's `year` field: DROPPED.
+- `extra.artist`, `extra.song`, `extra.album` (musicbrainz), from the record's `extra` (Apple Music library state): DROPPED. The subject alone is looked up.
+- `extra.url`, `url`, `extra.domain` (url_fetcher), from the owner's bookmark record: DROPPED, and the bookmark category is not looked up (refusal `url_owner_data`) until a topic-public URL is proven.
+- `extra.area` (osm_cuisine), a location: DROPPED.
+- `extra.restaurant` (osm_cuisine): replaced by the subject name (a venue name is a permitted look-up).
+- `extra.video_id` (youtube): from the record's `extra`: DROPPED (no youtube key on a stock install).
+- Routing only (never sent): `extra.restaurant` and `extra.cuisine` choose the osm route; `category` chooses the client.
+
+Venue rule (Archie 2026-11-18, `privacy_gate.venue_name_refusal`, CM051 divergence): a venue NAME may be looked up as the name only. Refused: (a) address-shaped names (digits, commas, symbols) and location labels (home, work, office, near, address, postcode); (b) Art. 9-type venues (clinic, hospital, GP, pharmacy, therapist, dentist, church, mosque, temple, synagogue, party, campaign, sexual-health, rehab, law, lawyer, solicitor); (c) a name containing a contact name from `EnrichmentService.contact_names`. Reason codes `venue_not_a_name`, `venue_art9`, `venue_contains_contact_name`.
+
+Contact names (exclusion c), WIRED: `EnrichmentService._venue_contact_names` reads the owner's contacts from the local people store. The store is Oxigraph (`settings.oxigraph_url`, the same store this module already reads), SPARQL `SELECT ?name WHERE { ?p a pwg:Person ; pwg:displayName ?name }`, namespace `https://schema.ostler.ai/ontology#`. The CM041 contact syncer writes those triples (`vendor/cm041/contact_syncer/syncer.py` around lines 1300-1316, `<person> a pwg:Person ; pwg:displayName`). Read once per run. FAIL CLOSED: if the store answers non-200 or cannot be reached, the loader returns None, every venue look-up is refused (`venue_contacts_unavailable`), other topics are unaffected, and the failure class is logged. Tests: `tests/test_vendored_enrich_contact_loader.py` (5 arms, real loader, HTTP mock; empty-list and fail-open mutants red). Caveat: a one-word displayName matches any venue containing that word. Over-refusal is accepted; it is the safe direction.
+
+L1 end to end: L1 IS looked up in the shipped path. The enrich path calls only this gate (`privacy_gate.outbound_refusal`, from `enrich_preference` and both batch sites). The shared scale table's `others` row (`pwg_privacy.outbound_ok`) is not called anywhere in the enrich tree; it is called only by the thematic reader for `owner_own_brief`. The seed test shows L1 looked up for music and interest (2 of 2), and the batch-path gate test (arm 5, `privacy_level` L1) reaches the wire exactly once.
+
+Known gaps, stated: (1) `place`, `venue` and `restaurant` are looked up as venue names only, under the rule above. (2) `contact_names` is not wired to a feed (see NOT WIRED).
+
+## 2026-11-18: red-team fixes and the person-name ruling (CB134, #3607)
+
+Source of the ruling, verbatim: Archie, 2026-11-18, person names: a creator name may be looked up ONLY from the structured creator field of a media record (artist on a track, author on a book, and similar), never from a free-text interest or person label. Refused: a name that matches an owner contact (case, diacritics, whitespace and "Last, First" order ignored); a record about a minor; a media record that is health, finance or legal by content. The query carries the name and the media type only.
+
+Red-team report: `~/walkdriver/REDTEAM_134_ENRICH_2026-11-18.md`. Its suite is copied into the repo at `tests/redteam_enrich/` (46 tests) and wired in `.github/workflows/derived-preferences.yml`.
+
+Fixes, one line each:
+- Health and sensitive CONTENT on the topic string, every look-up path: `derive/sensitive.health_or_finance_content` (the full vocabulary plus a medicine and finance/legal list). Red-team A11, A12.
+- Shared topic node: a label goes out only when EVERY preference on its node may go out (strictest owner); a preference IRI outside `urn:ostler:preference:` is counted as an unreadable owner and refused. Red-team T02, T03.
+- Themes: legacy 1 refused beside canonical L1 (base.py lines 58-59); health by category or content withheld. Red-team M01, M02, M12.
+- Minor flag, one rule everywhere: any value other than None, False, 0 or a false-word means minor, at the top level or in `extra`; a JSON-string `extra` is parsed; an unparseable one fails closed. Keys: about_minor, child, minor, is_minor. Red-team M08-M10, A22, A23.
+- Locations: `place` addresses and `extra.area` are not sent (already fixed at e3ec67aa and 5d9af5f2; red-team A16, A17 pass).
+- Person names: structured creator only (`_structured_creator`: `extra.artist` for music, track, album; `author` for book). Contact match on the creator refuses the look-up. An interest label that reads as a person's name is refused (`person_shaped`: two or three capitalised alphabetic words, a heuristic). An artist-category subject is refused (`creator_free_text`). A music subject with " - " and no structured creator is refused (`creator_free_text`). The look-up for a structured artist is `musicbrainz.enrich(artist, "artist")`.
+
+Known limits, stated:
+- Contact names come from the people-store loader. When the store is unreadable, no creator name goes out (title only). In the red-team harness the store is not mocked, so the loader fails closed there. Red-team A15 (author name sent to openlibrary) therefore passes BECAUSE the contact store is unreadable, not because the ruling is implemented; the ruling allows an author name that matches no contact. Archie to confirm the expectation.
+- `person_shaped` over-refuses two- and three-word proper nouns typed as interests (for example a band or a film title). It is the cost of the interest rule.
+- The medicine and finance/legal lists are deny-lists. They are incomplete.
+- Music subjects with " - " and no structured artist are no longer looked up. This is a regression on the subject-parsed path, by design of the ruling.
+- The `artist` category is no longer looked up from its subject.
+
+## 2026-11-18: yield, interest rule, play history, album dispatch, creator log (CB134, #3607)
+
+Archie's calls, accepted (source: the coordinator's messages of 2026-11-18, HKT afternoon):
+- Interest strings: refused only when they match a person in the owner's people graph (any `pwg:Person` displayName, normalised) or a contact. Bands and films are allowed. When the graph cannot be read, the shape heuristic (`person_shaped`) is the fallback: never allow-all.
+- Play history: a `music` or `track` record whose source is `apple_music` or `spotify` and whose subject is "Artist - Track" has its artist (the part before the FIRST " - ") treated as the structured creator. The contact, minor and content rules apply to that artist.
+- Creator rule A15 split: store unreadable, the creator is dropped (title only); store readable and no contact match, the author is looked up.
+- Album dispatch: `album` maps to `musicbrainz`. Before this the category had no client, so album records were never enriched.
+- Per-run log, every `enrich_batch`: `creators dropped: contact store unreadable: N` and `creators looked up: M`.
+
+Contact store reachability on an installed Hub (traced 2026-11-18, not run on a live box):
+- The loader reads Oxigraph at `settings.oxigraph_url` (`config.py`, default 127.0.0.1:7878).
+- The Oxigraph bearer is required since store auth became default (`install.sh` ~line 17839, "Oxigraph proxy bearer"; `install.sh` ~line 17705 seeds `oxigraph_token`).
+- The bearer is attached by the store-auth shim (`lib/ostler_store_auth.py`, `_ROUTES` port 7878, `httpx.AsyncClient.send` wrapper, secret from `~/.ostler/secrets/oxigraph_token`), loaded by a `.pth` in each venv (`install.sh` ~line 663-768).
+- Measured with a stand-in store that requires the bearer: without the shim the loader returns None (HTTP 401, fail closed); with the shim it returns the contact names.
+- The enrichment agent is OFF by default: `OSTLER_ENRICH_AGENT_ENABLED=0` (`install.sh` 13723), set only by an explicit customer "yes" (13727). So creator enrichment is zero on a customer box that did not opt in. On a box that opted in, it runs if the tick's venv has the `.pth`. NOT measured on a live installed Hub: CANNOT-RUN here.
+- The enrich log prints the creator counts on every run, so the thin walk can see which case happened.
+
+Yield, synthetic 210-item seed (`scratch/yield`, not in the repo): see the PR body for the per-client table.
+
 ## 2026-11-17: Whoop writes the health floor; privacy helper, loader and table vendored (personal-world-graph #539, UNMERGED upstream), cm019_preferences
 
 Recorded here, not in a patch: the row's `divergence_patch` is empty and `verify = "skip"`. Every edit is a graft of upstream personal-world-graph e9f28b2 (PR #539, CB134-CM019-HEALTH, Archie ruling 2026-11-17):

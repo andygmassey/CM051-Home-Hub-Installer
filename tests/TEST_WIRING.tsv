@@ -1121,7 +1121,12 @@ test_vendored_derive_tiers_and_rollup.py	WIRED	.github/workflows/derived-prefere
 test_vendored_derived_negatives_survive_cap.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_derived_route_privacy_level.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_employer_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
+test_vendored_enrich_contact_loader.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_outbound_refuses_l2_and_legacy.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_person_names.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_enrich_representative_first.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_seed_lookups.py	WIRED	.github/workflows/derived-preferences.yml
+test_vendored_enrich_venue_names.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_fda_writes_the_usage_journal.sh	WIRED	.github/workflows/usage-journal-producers.yml
 test_vendored_food_evidence_reaches_smart_preferences.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_gws_never_spawned_without_consent.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
@@ -1136,6 +1141,7 @@ test_vendored_social_writers_store_the_preserved_fields.py	WIRED	.github/workflo
 test_vendored_stated_preferences_reach_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_stated_transcripts_reach_the_derive_engine.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_syncer_refuses_a_non_phone_value_as_a_phone_identifier.py	WIRED	.github/workflows/walk-defect-d-phone-identifier-guard.yml
+test_vendored_thematic_withholds_unlevelled_and_health.py	WIRED	.github/workflows/derived-preferences.yml
 test_vendored_tidy_cross_strategy_phone_visibility.py	WIRED	.github/workflows/walk-defect-e-duplicate-evidence-guard.yml
 test_vendored_timeline_outbound_l3.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_vendored_whoop_health_floor.py	WIRED	.github/workflows/derived-preferences.yml

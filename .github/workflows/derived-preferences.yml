@@ -84,6 +84,22 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_derive_patterns.py'
       - 'tests/test_vendored_max_privacy_fails_closed.py'
+      - 'tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py'
+      - 'tests/test_vendored_thematic_withholds_unlevelled_and_health.py'
+      - 'tests/test_vendored_enrich_seed_lookups.py'
+      - 'tests/test_vendored_enrich_venue_names.py'
+      - 'tests/test_vendored_enrich_contact_loader.py'
+      - 'tests/test_vendored_enrich_person_names.py'
+      - 'tests/redteam_enrich/**'
+      - 'vendor/cm019_preferences/services/enrich/src/derive/sensitive.py'
+      - 'tests/test_cm019_enrich_privacy_gate_vendored.py'
+      - 'vendor/cm019_preferences/services/enrich/src/enricher.py'
+      - 'vendor/cm019_preferences/services/common/pwg_privacy.py'
+      - 'vendor/cm019_preferences/services/common/privacy_scale.py'
+      - 'vendor/cm019_preferences/services/common/privacy_scale_canonical.tsv'
+      - 'vendor/cm019_preferences/services/enrich/src/derive/thematic.py'
+      - 'vendor/cm019_preferences/services/enrich/src/derive/readers.py'
+
       - 'tests/test_vendored_whoop_health_floor.py'
       - 'vendor/cm019_preferences/services/common/**'
       - 'tests/test_vendored_enrich_representative_first.py'
@@ -256,6 +272,26 @@ jobs:
         # derives L2. Exit 2 (cannot-run) fails the step, never reads as a pass.
         if: always()
         run: python3 tests/test_vendored_max_privacy_fails_closed.py
+
+      - name: Online enrichment never sends L2 or L3 to others, and themes withhold unlevelled and health (CB134 enrich leaks)
+        if: always()
+        run: |
+          python3 tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py
+          python3 tests/test_vendored_thematic_withholds_unlevelled_and_health.py
+      - name: Enrichment still produces look-ups on a synthetic seed, and sends only L0/L1 subjects (CB134)
+        if: always()
+        run: |
+          python3 -m pip install --quiet 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
+          python3 tests/test_vendored_enrich_seed_lookups.py
+          python3 tests/test_vendored_enrich_venue_names.py
+          python3 tests/test_vendored_enrich_contact_loader.py
+          python3 tests/test_vendored_enrich_person_names.py
+      - name: Red-team regression suite for the enrichment gate (CB134, report 2026-11-18)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pytest-asyncio 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
+          python3 -m pytest -q -p no:cacheprovider tests/redteam_enrich/test_redteam_enrich.py tests/redteam_enrich/test_redteam_topics_and_themes.py
+
       - name: Whoop health data is written at the floor and never leaves the box
         # Shipped Whoop parser + shipped helper/table (CM041 #296 6c5f709): compartment 0,
         # privacy_level L3, stamp under privacyScale; owner_local labelled, every

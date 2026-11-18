@@ -16,7 +16,43 @@ import httpx
 from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
-from .privacy_gate import outbound_refusal, REASON_UNKNOWN_LEVEL
+from .privacy_gate import (outbound_refusal, PRIVACY_SCALE_KEY, REASON_UNKNOWN_LEVEL,
+                           VENUE_CATEGORIES, venue_name_refusal, contact_match, person_shaped)
+
+# Categories whose look-up can carry a creator name (artist, author, track record).
+CREATOR_CATEGORIES = frozenset({"artist", "music", "track", "album", "book", "books"})
+# Free-text topic categories: a person's name typed as an interest is refused.
+INTEREST_CATEGORIES = frozenset({"interest", "topic", "search_interest", "instagram_creator"})
+
+
+PLAY_HISTORY_SOURCES = frozenset({"apple_music", "spotify"})
+
+
+def _structured_creator(preference, category, subject=""):
+    """The creator name from a STRUCTURED field of a media record, or None.
+    Track/album: extra.artist. Book: the author field (or extra.author). A play-history
+    record (source apple_music or spotify) whose subject is "Artist - Track": the part
+    before the FIRST " - " is its artist (Archie 2026-11-18). Anything else, including a
+    free-text subject, is not a structured creator."""
+    import json
+    extra = preference.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            extra = None
+    extra = extra if isinstance(extra, dict) else {}
+    if category in ("music", "track", "album"):
+        value = extra.get("artist")
+        if not (isinstance(value, str) and value.strip()) and category in ("music", "track"):
+            if preference.get("source") in PLAY_HISTORY_SOURCES and " - " in str(subject):
+                value = str(subject).split(" - ", 1)[0]
+    elif category in ("book", "books"):
+        value = preference.get("author") or extra.get("author")
+    else:
+        value = None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -30,12 +66,21 @@ from .clients.events import EventClient
 from .clients.domain_topics import DomainTopicMapper
 from .clients.youtube import YouTubeClient
 from .clients.places import PlacesClient
-from .derive.sensitive import never_read_categories
+from .derive.sensitive import never_read_categories, health_or_finance_content
 from .derive.thematic import HIERARCHY_GRAPH, WD_ENTITY, leaf_is_sensitive
 from .clients.osm_cuisine import OsmCuisineClient
 from .models.enrichment import EnrichmentResult, EnrichmentSource, TopicResult, EntityResult
 
 logger = logging.getLogger(__name__)
+
+# Owner contact names from the local people store (CM041 contact syncer writes these).
+# Owner marker for a topic-node row whose preference IRI cannot be checked (T03).
+UNREADABLE_OWNER = "\x00unreadable"
+
+_CONTACT_NAMES_QUERY = """
+PREFIX pwg: <https://schema.ostler.ai/ontology#>
+SELECT DISTINCT ?name WHERE { ?p a pwg:Person ; pwg:displayName ?name . }
+"""
 
 # Every httpx client in this module that talks to the LOCAL stores (Qdrant,
 # Oxigraph) passes trust_env=False. With the default, an ambient
@@ -215,6 +260,11 @@ def is_enrichment_miss(result) -> bool:
 
 
 class EnrichmentService:
+    # Class-level defaults so a subclass or harness that skips __init__ still fails
+    # closed (not AttributeError): the contact loader then reads the store once.
+    _contacts_loaded = False
+    _contact_names_value = None
+
     """
     Main enrichment orchestrator.
 
@@ -232,6 +282,9 @@ class EnrichmentService:
         # Books - Open Library
         "book": "openlibrary",
         "books": "openlibrary",
+        # Albums: with a structured artist (extra.artist) the look-up is the creator query.
+        # Before this, "album" had no client at all, so album records were never enriched.
+        "album": "musicbrainz",
 
         # Films and television - Wikidata, because we ship no TMDB key.
         #
@@ -348,6 +401,9 @@ class EnrichmentService:
             if not cls._credential_present(client_name)
         }
 
+    def _refuse(self, reason: str) -> None:
+        self.privacy_refusals[reason] = self.privacy_refusals.get(reason, 0) + 1
+
     def __init__(self):
         """Initialize the enrichment service."""
         # Shared cache across clients
@@ -378,6 +434,10 @@ class EnrichmentService:
         # Items refused by the per-item privacy gate in enrich_preference,
         # by reason code. Counts only.
         self.privacy_refusals: Dict[str, int] = {}
+        # Owner contact names, read once per run from the local people store (see
+        # _venue_contact_names). None means "could not be read": every venue is refused.
+        self._contacts_loaded = False
+        self._contact_names_value = None
 
     @property
     def _foursquare(self) -> FoursquareClient:
@@ -538,6 +598,44 @@ class EnrichmentService:
             logger.error(f"Error querying Qdrant: {e}")
             return [], None
 
+    async def _venue_contact_names(self):
+        """Owner contact names from the local people store, or None when they cannot be read.
+
+        The people store is the Oxigraph graph the CM041 contact syncer writes: every
+        contact is a ``pwg:Person`` with a ``pwg:displayName`` (contact_syncer/syncer.py
+        ~L1300-1316, ``<person> a pwg:Person ; pwg:displayName``; namespace
+        ``https://schema.ostler.ai/ontology#``). Read once per run, on loopback, with
+        trust_env off, like every other store read in this module.
+
+        Fail closed: an unreadable store returns None, and the caller refuses every venue
+        look-up. Other topics are unaffected. Only the failure CLASS is logged, never a name.
+        """
+        if self._contacts_loaded:
+            return self._contact_names_value
+        self._contacts_loaded = True
+        try:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                response = await client.post(
+                    f"{settings.oxigraph_url}/query",
+                    content=_CONTACT_NAMES_QUERY,
+                    headers={
+                        "Content-Type": "application/sparql-query",
+                        "Accept": "application/sparql-results+json",
+                    },
+                )
+            if response.status_code != 200:
+                raise RuntimeError(f"people store answered HTTP {response.status_code}")
+            bindings = response.json()["results"]["bindings"]
+            names = frozenset(b["name"]["value"].strip().lower()
+                              for b in bindings if b.get("name", {}).get("value", "").strip())
+            logger.info("owner contact names loaded: %d", len(names))
+            self._contact_names_value = names
+        except Exception as exc:  # noqa: BLE001 - fail closed, class only
+            logger.warning("owner contact names unavailable (%s): venue look-ups refused",
+                           type(exc).__name__)
+            self._contact_names_value = None
+        return self._contact_names_value
+
     async def _check_already_enriched(self, preference_id: str) -> bool:
         """
         Check if a preference has already been enriched in Oxigraph.
@@ -695,9 +793,72 @@ INSERT DATA {{
             if _extra.get("restaurant") and not _extra.get("cuisine"):
                 client_name = "osm_cuisine"
 
+        # CB134 red-team: the content gate runs on the TOPIC STRING for every look-up
+        # path. Health, medicine, finance and legal terms are never sent.
+        if health_or_finance_content(subject):
+            self._refuse("sensitive_content")
+            return None
+
+        # Person names (Archie 2026-11-18). A creator name goes out only from the
+        # STRUCTURED creator field of a media record, never from a free-text label.
+        creator = _structured_creator(preference, category, subject)
+        names = (await self._venue_contact_names()
+                 if (category in CREATOR_CATEGORIES or category in INTEREST_CATEGORIES or creator)
+                 else frozenset())
+        if category in CREATOR_CATEGORIES:
+            if creator is not None and names is None:
+                creator = None  # contacts unreadable: no creator name goes out, title only
+                self._count_creator("dropped_unreadable")
+            if creator is not None and names is not None and contact_match(creator, names):
+                self._refuse("creator_is_contact")
+                return None
+            if category == "artist":
+                self._refuse("creator_free_text")  # the subject IS a creator name, free text
+                return None
+            if category in ("music", "track", "album") and creator is None and " - " in subject:
+                self._refuse("creator_free_text")  # "Artist - Track" carries a creator in free text
+                return None
+        if category in INTEREST_CATEGORIES:
+            # Unknown proper nouns (bands, films) are allowed. A string that matches a
+            # person in the owner's people graph (any pwg:Person displayName) is refused.
+            # If the graph cannot be read, fall back to the shape heuristic: never allow-all.
+            if names is None:
+                if person_shaped(subject):
+                    self._refuse("person_label_graph_unreadable")
+                    return None
+            elif contact_match(subject, names):
+                self._refuse("person_label")
+                return None
+
+        # CB134 (Archie condition 2): a look-up carries the topic string only.
+        # Hints read from the owner's record (author, year, extra.artist/song/album,
+        # extra.url, url, extra.area, extra.video_id) are NOT sent. Routing above
+        # used the record; the request below does not.
+        venue_clients = {"osm_cuisine", "wikidata_place", "foursquare", "google_places"}
+        if category in VENUE_CATEGORIES or client_name in venue_clients:
+            names = await self._venue_contact_names()
+            if names is None:
+                self.privacy_refusals["venue_contacts_unavailable"] = (
+                    self.privacy_refusals.get("venue_contacts_unavailable", 0) + 1)
+                return None
+            reason = venue_name_refusal(subject, category, names)
+            if reason is not None:
+                self.privacy_refusals[reason] = self.privacy_refusals.get(reason, 0) + 1
+                return None
+        if client_name == "url_fetcher":
+            # A bookmark's URL is the owner's browsing record, not the topic's
+            # public URL. No look-up until a topic-public URL is proven.
+            self.privacy_refusals["url_owner_data"] = self.privacy_refusals.get("url_owner_data", 0) + 1
+            return None
+        preference = {"id": pref_id, "subject": subject, "category": category,
+                      "author": creator if category in ("book", "books") else None,
+                      "creator": creator}
+
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
+            if author:
+                self._count_creator("looked_up")
             return await self._openlibrary.enrich(pref_id, subject, author)
 
         elif client_name == "tmdb":
@@ -727,6 +888,11 @@ INSERT DATA {{
             # Use lower confidence threshold for movies (titles often have prefixes/suffixes)
             min_conf = 0.3 if media_type == "movie" else 0.5
             return await self._tmdb.enrich(pref_id, search_title, year, media_type, min_confidence=min_conf)
+
+        elif client_name == "musicbrainz" and preference.get("creator"):
+            # The structured creator is the query: name and media type only.
+            self._count_creator("looked_up")
+            return await self._musicbrainz.enrich(pref_id, preference["creator"], "artist")
 
         elif client_name == "musicbrainz":
             # Extract metadata from extra if available (Apple Music provides this)
@@ -890,9 +1056,8 @@ INSERT DATA {{
             return await self._google_places.enrich_venue(pref_id, subject)
 
         elif client_name == "osm_cuisine":
-            extra = preference.get("extra", {}) or {}
-            restaurant = extra.get("restaurant")
-            return await self._osm_cuisine.enrich_venue(pref_id, restaurant, extra.get("area") or "")
+            # The venue NAME is the topic string; the record's area is a location, never sent.
+            return await self._osm_cuisine.enrich_venue(pref_id, subject, "")
 
         elif client_name == "events":
             return await self._events.enrich_event(pref_id, subject)
@@ -917,7 +1082,32 @@ INSERT DATA {{
 
         return None
 
+    def _count_creator(self, key: str) -> None:
+        counts = self.__dict__.setdefault("_creator_counts",
+                                          {"looked_up": 0, "dropped_unreadable": 0})
+        counts[key] = counts.get(key, 0) + 1
+
     async def enrich_batch(
+        self,
+        preferences: List[dict],
+        stats: EnrichmentStats,
+        deadline: Optional[datetime] = None,
+        work_allowance: Optional[int] = None,
+    ) -> List[EnrichmentResult]:
+        """Enrich a batch, then print the creator counts for THIS run (every run, so the
+        thin walk can see whether creator enrichment happened or was dropped)."""
+        before = dict(self.__dict__.get("_creator_counts", {}))
+        try:
+            return await self._enrich_batch_inner(
+                preferences, stats, deadline=deadline, work_allowance=work_allowance)
+        finally:
+            now = self.__dict__.get("_creator_counts", {})
+            looked = now.get("looked_up", 0) - before.get("looked_up", 0)
+            dropped = now.get("dropped_unreadable", 0) - before.get("dropped_unreadable", 0)
+            logger.info("creators dropped: contact store unreadable: %d", dropped)
+            logger.info("creators looked up: %d", looked)
+
+    async def _enrich_batch_inner(
         self,
         preferences: List[dict],
         stats: EnrichmentStats,
@@ -1428,6 +1618,7 @@ INSERT DATA {{
                 resp = await client.post(url, json={
                     "ids": ids,
                     "with_payload": ["privacy_level", "compartment_level",
+                                     PRIVACY_SCALE_KEY,
                                      "about_minor", "extra", "category"],
                     "with_vector": False,
                 })
@@ -1444,7 +1635,7 @@ INSERT DATA {{
             banned = set(never_read_categories())
             for p in points:
                 pid = str(p.get("id"))
-                if pid in out:
+                if pid in out and pid != UNREADABLE_OWNER:
                     payload = p.get("payload") or {}
                     reason = outbound_refusal(payload)
                     if reason is None and str(payload.get("category") or "").strip().lower() in banned:
@@ -1480,7 +1671,8 @@ INSERT DATA {{
         for label in list(topics):
             if leaf_is_sensitive(label):
                 withhold(label, REASON_SENSITIVE_LABEL)
-        all_ids = sorted({pid for lab in topics for pid in owners.get(lab, ())})
+        all_ids = sorted({pid for lab in topics for pid in owners.get(lab, ())
+                          if pid != UNREADABLE_OWNER})
         refusals = await self._topic_owner_refusals(client, all_ids) if all_ids else {}
         if refusals is None:
             stats["privacy_check_failed"] = True
@@ -1488,11 +1680,14 @@ INSERT DATA {{
             topics.clear()
             return False
         for label in list(topics):
+            # Strictest owner wins: the label goes out only when EVERY preference on
+            # its node may go out. An unreadable owner counts as refused (T02, T03).
             reasons = [refusals.get(pid, REASON_UNKNOWN_LEVEL)
                        for pid in sorted(owners.get(label, ()))]
-            if any(r is None for r in reasons):
+            if reasons and all(r is None for r in reasons):
                 continue
-            withhold(label, reasons[0] if reasons else REASON_NO_OWNER)
+            withhold(label, next((r for r in reasons if r is not None),
+                                 REASON_NO_OWNER))
         return True
 
     async def normalize_topics_with_wikidata(
@@ -1563,9 +1758,9 @@ INSERT DATA {{
                     pref = binding.get("pref", {}).get("value", "")
                     if label and topic_uri:
                         topics_to_normalize[label] = topic_uri
-                        if pref.startswith("urn:ostler:preference:"):
-                            owners.setdefault(label, set()).add(
-                                pref[len("urn:ostler:preference:"):])
+                        owners.setdefault(label, set()).add(
+                            pref[len("urn:ostler:preference:"):]
+                            if pref.startswith("urn:ostler:preference:") else UNREADABLE_OWNER)
 
                 # Per-item gate, AFTER consent (see _gate_topic_labels): P9
                 # sensitive labels and P10 minors never reach wikidata.org.
@@ -1692,8 +1887,9 @@ INSERT DATA {{
                     if not label or not qid:
                         continue
                     label_qids.setdefault(label, set()).add(qid)
-                    if pref.startswith("urn:ostler:preference:"):
-                        owners.setdefault(label, set()).add(pref[len("urn:ostler:preference:"):])
+                    owners.setdefault(label, set()).add(
+                        pref[len("urn:ostler:preference:"):]
+                        if pref.startswith("urn:ostler:preference:") else UNREADABLE_OWNER)
                 if not await self._gate_topic_labels(client, label_qids, owners, stats):
                     stats["status"] = "failed:privacy_unreadable"
                     return stats

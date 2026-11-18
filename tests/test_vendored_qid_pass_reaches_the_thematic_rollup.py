@@ -121,7 +121,7 @@ class Box:
         self.points = []
         self.external = []
 
-    def pref(self, pid, label, category="book", privacy="L2", **extra):
+    def pref(self, pid, label, category="book", privacy="L1", **extra):
         payload = {"category": category, "subject": f"Synthetic item {pid}", "source": "synthetic",
                    "strength": 0.7, "observed_at": "2026-09-01T00:00:00Z", "user_id": USER,
                    "extra": extra}
@@ -312,7 +312,9 @@ def main():
         check(box.qid_of(lab) is None and QIDS[lab] not in box.sent_qids(),
               f"{lab}: no QID stored, no QID sent")
         check(lab not in err, f"{lab} is not named in the log")
-    for reason in ("'sensitive': 1", "'minor': 1", "'level_L3': 1", "'never_read_category': 1"):
+    # dietary is refused by the enrich gate's category exclusion (category_excluded) before the
+    # never-read check runs; both are refusals, and the reason code is the gate's now.
+    for reason in ("'sensitive': 1", "'minor': 1", "'level_L3': 1", "'category_excluded': 1"):
         check(bool(lines) and reason in lines[0], f"withheld counted as {reason}")
 
     print("arm 4: a never_read-category item alone sends nothing")
@@ -320,7 +322,7 @@ def main():
     solo.pref("107", "cookery", category="dietary")
     code, err, lines = run_cli(solo)
     check(code == 0 and solo.external == [], f"exit {code}, external requests {len(solo.external)} (want 0)")
-    check(bool(lines) and "'never_read_category': 1" in lines[0], "withheld as never_read_category")
+    check(bool(lines) and "'category_excluded': 1" in lines[0], "withheld as category_excluded (dietary)")
 
     print("arm 5: declined consent sends nothing")
     consent("declined")

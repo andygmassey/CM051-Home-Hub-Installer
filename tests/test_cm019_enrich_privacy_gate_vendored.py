@@ -11,8 +11,9 @@ stops an item here is the privacy gate, nothing else.
   arm 1  L3 (string, legacy 3, named node) -> 0 outbound requests
   arm 2  a minor (extra.about_minor) at a publishable level -> 0
   arm 3  no level at all -> 0
-  arm 4  L0, L1, legacy 0/1/5, unknown, and a disagreeing pair -> 0
-  arm 5  CONTROL: publishable (legacy 2, string L2) -> exactly 1, so the
+  arm 4  unstamped L0 (legacy-ambiguous), legacy 0/1/5, unknown, L2 with a
+         disagreeing legacy 3 -> 0 (CB134 ruling: L2 never goes out)
+  arm 5  CONTROL: publishable (legacy 2; string L1) -> exactly 1, so the
          counter is live and the gate does not block publishable data
   arm 6  no consent, publishable -> 0 (the consent gate still holds)
   arm 7  enrich_all from a Qdrant scroll: the level in the stored payload
@@ -158,19 +159,18 @@ async def main():
           EXTERNAL == [] and stats.by_privacy_reason == {"level_unknown": 1},
           f"external={EXTERNAL} reasons={stats.by_privacy_reason}")
 
-    for fields, reason in (({"privacy_level": "L0"}, "level_L0"),
-                           ({"privacy_level": "L1"}, "level_L1"),
+    for fields, reason in (({"privacy_level": "L0"}, "level_legacy_L0"),
                            ({"compartment_level": 0}, "level_legacy_0"),
                            ({"compartment_level": 1}, "level_legacy_1"),
                            ({"compartment_level": 5}, "level_legacy_5"),
                            ({"privacy_level": "nonsense"}, "level_unknown"),
-                           ({"privacy_level": "L2", "compartment_level": 3}, "level_legacy_3")):
+                           ({"privacy_level": "L2", "compartment_level": 3}, "level_L2")):
         stats = await run_batch(pref("p", **fields))
         check(f"arm 4  {fields}: 0 outbound, reason {reason}",
               EXTERNAL == [] and stats.by_privacy_reason == {reason: 1},
               f"external={EXTERNAL} reasons={stats.by_privacy_reason}")
 
-    for fields in ({"compartment_level": 2}, {"privacy_level": "L2"}):
+    for fields in ({"compartment_level": 2}, {"privacy_level": "L1"}):
         stats = await run_batch(pref("p", **fields))
         check(f"arm 5  CONTROL {fields} with consent: exactly 1 outbound",
               len(EXTERNAL) == 1 and stats.skipped_private == 0,

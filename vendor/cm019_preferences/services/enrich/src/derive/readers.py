@@ -24,7 +24,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Protocol
 
+import sys
+
 import yaml
+
+# The vendored canonical helper (services/common, sha-pinned). No fallback.
+_COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if _COMMON_DIR.is_dir() and str(_COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(_COMMON_DIR))
+import pwg_privacy  # noqa: E402
 
 from .model import ENRICH_NS, PREF_URN_PREFIX, EvidenceItem
 from .sensitive import never_read_categories
@@ -36,8 +44,10 @@ RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 SCROLL_FIELDS = [
     "category", "preference_id", "subject", "source", "strength", "observed_at", "extra",
     # The privacy level, so an online lookup driven from these points can refuse
-    # private items (src/privacy_gate.py). Both the canonical and legacy keys.
-    "privacy_level", "compartment_level",
+    # private items (src/privacy_gate.py). Both the canonical and legacy keys,
+    # and the canonical scale stamp (a stamped L0 is public, an unstamped one
+    # is legacy owner-private).
+    "privacy_level", "compartment_level", pwg_privacy.CANONICAL_SCALE_KEY,
     "user_id",
 ]
 
@@ -183,6 +193,38 @@ def canonical_labels(text: str, vocab: Optional[str], strict: bool = False) -> L
     return [] if strict else [text]
 
 
+def _about_minor_record(pl: dict) -> bool:
+    """Fail-closed minor flag, the same rule as privacy_gate._is_about_minor (CB134
+    red-team M08-M10, A22, A23): any flag other than None, False, 0 or a false-word
+    means minor, at the top level or inside extra (a JSON-string extra is parsed)."""
+    import json
+    not_minor_text = {"", "false", "0", "no", "none"}
+
+    def says(v):
+        if v is None or v is False:
+            return False
+        if isinstance(v, int) and not isinstance(v, bool) and v == 0:
+            return False
+        if isinstance(v, str) and v.strip().lower() in not_minor_text:
+            return False
+        return True
+
+    keys = ("about_minor", "child", "minor", "is_minor")
+    if any(says(pl.get(k)) for k in keys):
+        return True
+    extra = pl.get("extra")
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except ValueError:
+            return True
+    if extra is None:
+        return False
+    if not isinstance(extra, dict):
+        return True
+    return any(says(extra.get(k)) for k in keys)
+
+
 def _not_minor(points):
     """Drop evidence ABOUT a minor (a person node or chat flagged by its producer
     with extra.about_minor), and evidence stored under a never-read category
@@ -193,7 +235,7 @@ def _not_minor(points):
     for p in points:
         pl = p.get("payload") or {}
         extra = pl.get("extra") or {}
-        if isinstance(extra, dict) and extra.get("about_minor") in (True, "true", "True", 1, "1"):
+        if _about_minor_record(pl):
             continue
         if str(pl.get("category") or "").strip().lower() in banned:
             continue
