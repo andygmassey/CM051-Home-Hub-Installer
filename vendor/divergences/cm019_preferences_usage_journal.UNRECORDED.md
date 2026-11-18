@@ -582,3 +582,10 @@ Recorded here, not in a patch: the row's `divergence_patch` is empty and `verify
 Proof: `tests/test_vendored_whoop_health_floor.py` (wired in `.github/workflows/derived-preferences.yml`). Base (helper files added so it can import): 54 failed checks, exit 1. Branch: 0 failed. Mutants: clamp removed 12 red; writer stamps the old `privacy_scale` key 18 red; table L3 others -> full 19 red; table L3 owner_local -> no 19 red.
 
 When #539 merges, re-pin past its merge commit and retire this section.
+
+## 2026-11-18: per-client look-up counts in the enrich batch log (CM051 walk134 enrich-counts)
+
+Tree `cm019_preferences`. CM051-only, not in personal-world-graph; pin unchanged.
+- `services/enrich/src/enricher.py`: `LOOKUP_CLIENT_GROUPS`, `lookup_group()` and `EnrichmentService._count_lookup()` added; one `_count_lookup` call at the dispatch point of `enrich_preference` (after every gate, so a refused item is never counted); `enrich_batch`'s finally-block logs ONE more line per batch: `enrichment looked up per client: music=N books=N films=N podcasts=N places=N food=N interests=N`. Counts only, no subject.
+- Why: the walk probe `enrichment_reaches_clients` had no per-client evidence and was CANNOT-RUN. Test: tests/test_vendored_enrich_batch_client_counts.py (red on the old enricher). Registry entry: CM019_DIVERGENCE_REGISTRY.md, same date.
+- Retire: port the hunk upstream, re-pin past it.
