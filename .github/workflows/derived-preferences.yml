@@ -84,6 +84,8 @@ on:
       - 'vendor/ostler_fda/pwg_ingest.py'
       - 'tests/test_vendored_derive_patterns.py'
       - 'tests/test_vendored_max_privacy_fails_closed.py'
+      - 'tests/test_vendored_whoop_health_floor.py'
+      - 'vendor/cm019_preferences/services/common/**'
       - 'tests/test_vendored_enrich_representative_first.py'
       - 'tests/test_derive_half_life_matches_hygiene.py'
       - 'tests/test_vendored_linkedin_career_reaches_the_derive_engine.py'
@@ -254,6 +256,15 @@ jobs:
         # derives L2. Exit 2 (cannot-run) fails the step, never reads as a pass.
         if: always()
         run: python3 tests/test_vendored_max_privacy_fails_closed.py
+      - name: Whoop health data is written at the floor and never leaves the box
+        # Shipped Whoop parser + shipped helper/table (CM041 #296 6c5f709): compartment 0,
+        # privacy_level L3, stamp under privacyScale; owner_local labelled, every
+        # other destination withheld; pin check; stamped-L0 control. Red on the
+        # base (54 failed checks). Exit 2 (cannot-run) fails the step.
+        if: always()
+        run: |
+          python3 -m pip install --quiet pydantic pydantic-settings aiofiles beautifulsoup4 httpx
+          python3 tests/test_vendored_whoop_health_floor.py
       - name: Enrichment goes representative-first (one lookup per rollup group)
         # Biggest artist/album/series/restaurant group first, one lookup each,
         # before the id-order tail; consent NO makes zero network calls (with a
