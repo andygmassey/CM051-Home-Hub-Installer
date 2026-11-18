@@ -1,8 +1,49 @@
-diff --git a/run.py b/run.py
-index 46da11d6..d9693b7b 100644
+--- a/graph_io.py
++++ b/graph_io.py
+@@ -21,7 +21,6 @@
+ from datetime import datetime
+ from typing import Any, Dict, List, Optional
+ 
+-import pwg_privacy_readers as _pr
+ from ostler_hygiene.model import (
+     FactRecord,
+     HygieneVerdict,
+@@ -92,7 +91,7 @@
+     OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}
+     OPTIONAL {{ ?fact pwg:validTo ?validTo }}
+     OPTIONAL {{ ?fact pwg:observedAt ?observedAt }}
+-    {_pr.optional_level('fact', 'privacyLevel')}
++    OPTIONAL {{ ?fact pwg:privacyLevel ?privacyLevel }}
+   }} UNION {{
+     GRAPH ?g {{
+       ?fact a <urn:ostler:Fact> ;
+@@ -101,11 +100,11 @@
+       OPTIONAL {{ ?fact <urn:ostler:domain> ?domain }}
+       OPTIONAL {{ ?fact <urn:ostler:candidate> ?candidate }}
+       OPTIONAL {{ ?fact <urn:ostler:observedAt> ?observedAt }}
+-      {_pr.optional_level('fact', 'privacyLevel')}
++      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?privacyLevel }}
+     }}
+   }}
+-  {_pr.optional_level('person', 'personPrivacy')}
+-  
++  OPTIONAL {{ ?person pwg:privacyLevel ?personPrivacy }}
++  OPTIONAL {{ GRAPH ?pg {{ ?person <urn:ostler:privacyLevel> ?personPrivacyNG }} }}
+ }}"""
+     if limit:
+         q += f"\nLIMIT {int(limit)}"
+@@ -213,7 +212,7 @@
+             valid_from=_parse_dt(b.get("validFrom")),
+             valid_to=_parse_dt(b.get("validTo")),
+             observed_at=_parse_dt(b.get("observedAt")),
+-            privacy_level=_pr.level_input(b.get("privacyLevel")),
++            privacy_level=b.get("privacyLevel"),
+             person_privacy_level=_most_restrictive_privacy(
+                 b.get("personPrivacy"), b.get("personPrivacyNG")),
+         ))
 --- a/run.py
 +++ b/run.py
-@@ -18,12 +18,22 @@ A periodic, off-hot-path job. Safety posture copies CM048's discipline:
+@@ -18,12 +18,22 @@
  Outputs:
  - verdicts (supersession / archival tombstones / active-with-weight)
    into the ``<urn:ostler:hygiene>`` named graph;

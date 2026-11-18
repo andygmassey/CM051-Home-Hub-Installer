@@ -132,6 +132,11 @@ CM051_VENDOR_CM041_SUBDIRS=(
     # layout. ostler_hygiene/ is the memory-hygiene engine (CM041 #98),
     # resolved fail-open from the same parent dir.
     "pwg_privacy.py"
+    # CM041 #296: pwg_privacy.py imports privacy_scale.py (which reads the
+    # .tsv beside it); ical-server.py imports pwg_privacy_readers.py.
+    "pwg_privacy_readers.py"
+    "privacy_scale.py"
+    "privacy_scale_canonical.tsv"
     "ostler_hygiene"
 )
 

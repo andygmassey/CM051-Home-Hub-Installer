@@ -25,8 +25,15 @@ is Scheme A. This module makes the string scheme the single source of
 truth and provides a one-way, read-time-only mapping to interpret any
 legacy numeric data.
 
-The canonical levels (string scheme)
-------------------------------------
+The levels this writer stamps (OLD ladder, LEGACY)
+--------------------------------------------------
+The CANONICAL meaning of each level is privacy_scale_canonical.tsv at the
+repo root (loaded by privacy_scale.py): L0 public, L1 redacted-only
+outbound, L2 private / sensitive, L3 most private, owner-only. This writer
+still stamps the OLD ladder below; the move is privacy scale PR 2 (CM041
+#277) and stored labels are relabelled per writer in PR 4.
+
+LEGACY-BEGIN
 * ``L0`` - owner-private. Never shared. The owner's own identity
   (me-card), health, finance. Most restrictive.
 * ``L1`` - private. Assistant-usable; the wiki renders it only on the
@@ -49,7 +56,7 @@ Numeric is mapped by *sensitivity*, not by digit:
 
 so a higher numeric digit (more public) can map to the SAME string level.
 Never map ``compartmentLevel N`` to ``"L<N>"`` naively - use
-:func:`numeric_compartment_to_string` / :data:`LEGACY_NUMERIC_NAME_TO_STRING`.
+:func:`numeric_compartment_to_string` / :data:`LEGACY_NUMERIC_NAME_TO_STRING`. LEGACY-END
 """
 from __future__ import annotations
 
@@ -162,7 +169,7 @@ def normalise_level(value) -> str:
 # -- Type + source -> level rule ----------------------------------------------
 
 #: Provenance sources treated as PRIVATE channels. Content from these MUST
-#: err to L1 (private), never L2 (publishable). Matched case-insensitively
+#: err to L1 (private), never L2 (LEGACY: publishable). Matched case-insensitively
 #: as a substring of the source string so e.g. "whatsapp_contact",
 #: "linkedin_messaging", "user_asserted" all classify correctly.
 PRIVATE_CHANNEL_SOURCE_MARKERS = (

@@ -1300,6 +1300,19 @@
                  # Write messaging relationship signal
                  if not dry_run:
                      conv["conv_id"] = conv_id
+--- a/owner_node.py
++++ b/owner_node.py
+@@ -50,9 +50,7 @@
+ 
+ PWG_NS = "https://schema.ostler.ai/ontology#"
+ 
+-#: LEGACY scale: L0 here meant owner-private; canonical L0 is public. Relabel
+-#: pending (design PR 4). No behaviour change until the relabel.
+-#: The owner's own identity node is owner-private by default (LEGACY meaning).
++#: The owner's own identity node is owner-private by default.
+ OWNER_PRIVACY_LEVEL = pm.LEVEL_L0
+ 
+ 
 --- a/places_ingest.py
 +++ b/places_ingest.py
 @@ -489,6 +489,22 @@
@@ -1325,6 +1338,17 @@
  
      return {
          "status": status,
+--- a/privacy_model.py
++++ b/privacy_model.py
+@@ -65,7 +65,7 @@
+ # -- Canonical string levels --------------------------------------------------
+ 
+ #: The four canonical privacy levels, most-private first.
+-LEVEL_L0 = "L0"  # LEGACY: owner-private here; canonical L0 is public. Relabel pending (design PR 4)
++LEVEL_L0 = "L0"  # owner-private, never shared
+ LEVEL_L1 = "L1"  # private, assistant-usable, owner-pages only
+ LEVEL_L2 = "L2"  # trusted / publishable to the wiki
+ LEVEL_L3 = "L3"  # body-private / index-only
 --- a/requirements.txt
 +++ b/requirements.txt
 @@ -1,12 +1,23 @@

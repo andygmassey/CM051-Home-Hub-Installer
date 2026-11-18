@@ -128,7 +128,7 @@ ics.parse_ical_output = lambda out: []
 ics.query_google_calendar = lambda days: list(LIVE)
 
 print("timeline entries carry source (#2565): producer")
-res = ics.api_timeline(days=7, past_days=730, limit=200)
+res = ics.api_timeline(days=7, past_days=730, limit=200, destination="owner_local")
 items, entries = res["items"], res["entries"]
 check("the stub produced rows from all three sources",
       {i.get("kind") for i in items} >= {"calendar", "conversation"} and len(entries) >= 4,
@@ -149,7 +149,7 @@ check("a conversation title (composed by Ostler) is source ostler, not verbatim"
       convo and all(e.get("source") == "ostler" and e.get("title_verbatim") is False for e in convo))
 # An error sentinel is Ostler's own text too.
 ics._sparql_select = lambda q: (_ for _ in ()).throw(RuntimeError("graph down"))
-err = ics.api_timeline(days=7)
+err = ics.api_timeline(days=7, destination="owner_local")
 err_items = [i for i in err["items"] if i.get("kind") == "meeting_error"]
 check("an error sentinel carries source ostler", err_items and err_items[0].get("source") == "ostler")
 ics._sparql_select = fake_sparql
@@ -157,7 +157,7 @@ ics._sparql_select = fake_sparql
 orig = ics._timeline_from_graph
 ics._timeline_from_graph = lambda **k: ([{"kind": "event", "date": day(-3), "start": day(-3),
                                           "summary": "No provenance", "participants": []}], None)
-unk = [e for e in ics.api_timeline(days=7)["entries"] if e["title"] == "No provenance"]
+unk = [e for e in ics.api_timeline(days=7, destination="owner_local")["entries"] if e["title"] == "No provenance"]
 check("an item with no source is 'unknown' and NOT verbatim",
       unk and unk[0]["source"] == "unknown" and unk[0]["title_verbatim"] is False)
 ics._timeline_from_graph = orig

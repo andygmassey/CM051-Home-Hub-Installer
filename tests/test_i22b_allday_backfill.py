@@ -174,7 +174,8 @@ def test_store_failure_is_fail_soft_and_writes_no_marker(world):
 
 def test_consumer_timeline_shows_old_all_day_as_all_day(world):
     def entries():
-        out = world.server.api_timeline(days=7, past_days=3650, limit=200)
+        # The Hub on this Mac (owner_local); undeclared is "unknown" (CM041 6c5f709).
+        out = world.server.api_timeline(days=7, past_days=3650, limit=200, destination="owner_local")
         return {e["title"]: e for e in out["entries"]}
     assert entries()[ALLDAY]["all_day"] is False  # the reported bug
     _run(world)

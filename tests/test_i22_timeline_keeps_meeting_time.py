@@ -112,7 +112,8 @@ def world(tmp_path, monkeypatch):
 def _entries(w):
     result = w.ing.ingest_calendar(w.fda)
     assert result["meetings_created"] == 2, result
-    out = w.server.api_timeline(days=7, past_days=3650, limit=200)
+    # The Hub on this Mac (owner_local); undeclared is "unknown" (CM041 6c5f709).
+    out = w.server.api_timeline(days=7, past_days=3650, limit=200, destination="owner_local")
     return {e["title"]: e for e in out["entries"]}
 
 

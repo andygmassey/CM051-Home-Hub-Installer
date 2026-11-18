@@ -23,7 +23,8 @@ written blind. A registry row naming a function that no longer exists is RED
 (a rename would otherwise drop it from the scan).
 
 WHAT "HAS AN L3 FILTER" MEANS. In the function's CODE (docstring excluded): a
-call to pwg_privacy.is_l3 / filter_l3_facts / _effective_privacy_level, or a
+call to pwg_privacy.is_l3 / filter_l3_facts / _effective_privacy_level / a
+pwg_privacy_readers gate (outbound_hidden, outbound_ok, outbound_filter, level_serves), or a
 string constant "L3" / a [Ll][0-2] clearance regex. A structural check, not a
 proof of behaviour: behaviour is pinned by CM041's per-reader tests
 (test_brief_outbound_l3.py, test_employer_outbound_l3.py).
@@ -54,7 +55,10 @@ READERS = {ICAL: {"_sparql_select", "graph_scoped_select"},
 HELPERS = {"_sparql_select", "_sparql_query", "_graph_scoped", "_sparql_select_unscoped"}
 MIN_CALLERS = {ICAL: 25, BRIEF: 4}  # denominator control (33 and 5 on 2026-11-03)
 
-FILTER_CALLS = {"is_l3", "filter_l3_facts", "_effective_privacy_level"}
+# CM041 #296 (6c5f709): readers gate through pwg_privacy_readers (imported as _pr),
+# which applies the shared outbound table for the request's destination.
+FILTER_CALLS = {"is_l3", "filter_l3_facts", "_effective_privacy_level",
+                "outbound_hidden", "outbound_ok", "outbound_filter", "level_serves"}
 CLEARANCE_RE = re.compile(r"\[Ll\]\[0-2\]")
 
 _ID = "identity/plumbing: returns identifiers or counts, no fact or meeting content"
@@ -87,6 +91,7 @@ ONBOX = {
     # (identifier only). Its timeline comes from _person_timeline_body, which is
     # OUTBOUND and filters L3, so the L3 rule is enforced there.
     (ICAL, "person_timeline_by_uri"): _ID,
+    (ICAL, "_persons_named"): "write path: resolves a mute target to a person URI for the instruction store; returns names and URIs only, no fact content, never an outbound response",
     (ICAL, "_hygiene_verdicts"): "hygiene overlay verdicts (fact ids), no content",
     (ICAL, "_assert_fact_person"): "write path (resolves the subject), not a read for output",
     (ICAL, "_memory_query_facts"):
@@ -178,6 +183,14 @@ def verdict(root, outbound=OUTBOUND, known_gap=KNOWN_GAP, onbox=ONBOX, quiet=Fal
     return 0
 
 
+def _must_replace(text, old, new):
+    """A mutant whose anchor is gone would leave the tree unchanged and the
+    case would test nothing: refuse instead."""
+    if text.count(old) != 1:
+        raise SystemExit("self-test CANNOT-RUN: mutant anchor %r found %d times" % (old, text.count(old)))
+    return text.replace(old, new)
+
+
 def self_test():
     tmp = tempfile.mkdtemp()
     try:
@@ -200,8 +213,8 @@ def self_test():
             ("unclassified caller", orig + plant_bad, {}, 1),
             ("known gap that gained a filter", orig + plant_ok, {"known_gap": {**KNOWN_GAP, key: "t"}}, 1),
             ("a real outbound reader loses its filter",
-             orig.replace("owner_level=r.get(\"ownerPriv\")", "owner_level=None").replace(
-                 "pwg_privacy.is_l3({\"privacy_level\": r.get(\"fpriv\")}", "(lambda *a, **k: False)({\"privacy_level\": r.get(\"fpriv\")}"),
+             _must_replace(orig, "_pr.outbound_hidden(lvl, destination=destination)",
+                           "(lambda *a, **k: False)(lvl, destination=destination)"),
              {}, 1),
         ]
         ok = True

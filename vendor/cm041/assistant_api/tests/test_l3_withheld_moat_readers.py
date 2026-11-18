@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import socket
 import sys
 import tempfile
@@ -78,6 +79,10 @@ def _free_port() -> int:
     return port
 
 
+_TEST_SERVICE_TOKEN = "synthetic-moat-test-token"
+os.environ["OSTLER_SERVICE_TOKEN"] = _TEST_SERVICE_TOKEN
+
+
 class _ServerHarness:
     def __init__(self) -> None:
         self.port = _free_port()
@@ -101,10 +106,16 @@ class _ServerHarness:
 
     _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    def get(self, path: str) -> tuple[int, dict]:
+    def get(self, path: str, destination: str | None = None) -> tuple[int, dict]:
+        # The server is token-gated (fail closed) and reads the destination from
+        # the X-Ostler-Destination header only; a query string is ignored by design.
         url = f"http://127.0.0.1:{self.port}{path}"
+        headers = {"Authorization": f"Bearer {_TEST_SERVICE_TOKEN}"}
+        if destination is not None:
+            headers["X-Ostler-Destination"] = destination
+        req = urllib.request.Request(url, headers=headers)
         try:
-            with self._OPENER.open(url, timeout=5) as resp:
+            with self._OPENER.open(req, timeout=5) as resp:
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read() or b"{}")
@@ -314,13 +325,16 @@ class TestCommitmentsL3(unittest.TestCase):
     def test_l2_present_l3_and_untagged_absent_and_counted(self) -> None:
         with patch.object(server, "_sparql_select", side_effect=self._fake()):
             with _ServerHarness() as h:
-                status, body = h.get("/api/v1/commitments")
+                status, body = h.get("/api/v1/commitments", destination="owner_own_brief")
         self.assertEqual(status, 200)
         actions = [c["action"] for c in body["commitments"]]
-        self.assertEqual(actions, ["Untagged action", "Send the L2 deck"])
+        # owner_own_brief: L2 served; L3 withheld (counted l3); untagged is
+        # canonical L3 now (counted unknown, not served).
+        self.assertEqual(actions, ["Send the L2 deck"])
         self.assertNotIn("Confidential L3 action", json.dumps(body))
-        self.assertEqual(body["withheld"], {"l3": 1, "unknown": 0})
-        self.assertEqual(body["legacy_untagged"], 1)
+        self.assertNotIn("Untagged action", json.dumps(body))
+        self.assertEqual(body["withheld"], {"l3": 1, "unknown": 1})
+        self.assertEqual(body["legacy_untagged"], 0)
 
 
 # ---------------------------------------------------------------------------
@@ -364,3 +378,39 @@ class TestPreferencesL3(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Positive control: owner_local SERVES the L3 seed (labelled). Without this arm,
+# every "absent" assertion above could pass on a reader that reads nothing.
+# ---------------------------------------------------------------------------
+
+class TestOwnerLocalServesL3Seed(unittest.TestCase):
+    def test_decisions_owner_local_serves_the_l3_decision(self) -> None:
+        fixture = TestDecisionsL3()
+        with patch.object(server, "_sparql_select", side_effect=fixture._fake()):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/decisions", destination="owner_local")
+        self.assertEqual(status, 200)
+        summaries = [d["summary"] for d in body["decisions"]]
+        self.assertIn("Secret L3 plan", summaries)
+
+    def test_topics_owner_local_serves_the_l3_topic(self) -> None:
+        fixture = TestTopicsL3()
+        with patch.object(server, "_sparql_select", side_effect=fixture._fake_list()):
+            with _ServerHarness() as h:
+                status, body = h.get("/api/v1/topics", destination="owner_local")
+        self.assertEqual(status, 200)
+        slugs = [t["slug"] for t in body["topics"]]
+        self.assertIn("secret-deal", slugs)
+
+    def test_preferences_owner_local_serves_the_l3_interest(self) -> None:
+        fixture = TestPreferencesL3()
+        with tempfile.TemporaryDirectory() as d:
+            art = fixture._artefact(Path(d))
+            with patch.object(server, "INTEREST_PROFILE_PATH", str(art)):
+                with _ServerHarness() as h:
+                    status, body = h.get("/api/v1/preferences", destination="owner_local")
+        self.assertEqual(status, 200)
+        subjects = [i.get("subject") for i in body["interests"]]
+        self.assertIn("subject-l3", subjects)

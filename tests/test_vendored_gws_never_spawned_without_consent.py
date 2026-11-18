@@ -188,7 +188,12 @@ class _Box:
 
     def get(self, path):
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}",
-                                     headers={"X-Ostler-Service": "test-token"})
+                                     # The Hub on this Mac (loopback) declares owner_local:
+                                     # the only destination the live-calendar strip is read for
+                                     # (CM041 6c5f709), so the no-consent arms still prove gws
+                                     # is never spawned on the path that would call it.
+                                     headers={"X-Ostler-Service": "test-token",
+                                              "X-Ostler-Destination": "owner_local"})
         try:
             with _NO_PROXY.open(req, timeout=30) as r:
                 return r.status, json.loads(r.read() or b"{}")

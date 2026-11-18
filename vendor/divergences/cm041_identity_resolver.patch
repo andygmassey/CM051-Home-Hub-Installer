@@ -2235,12 +2235,12 @@
  from identity_resolver.person_audit import record_person_removal
  
  logger = logging.getLogger(__name__)
-@@ -100,6 +102,49 @@
-     """
-     rows = _sparql_query(url, client, retirement.untyped_merge_subjects_query())
+@@ -102,21 +104,47 @@
      return [r["s"] for r in rows if r.get("s")]
-+
-+
+ 
+ 
+-def _contradictory_subjects(url: str, client: httpx.Client) -> List[str]:
+-    """Nodes asserting BOTH the live and the retired type.
 +def misnamed_survivors(url: str, client: httpx.Client):
 +    """(survivors_examined, [(survivor_uri, new_name)]): live Persons that are the
 +    target of a mergedInto whose displayName is a LOWER tier than a merged-in
@@ -2263,8 +2263,19 @@
 +        if new:
 +            out.append((s_uri, new))
 +    return len(keep), out
-+
-+
+ 
+-    See retirement.contradictory_type_query for why this state exists and why
+-    it is an improvement on the one it replaced. In short: a writer that
+-    guards on pwg:Person specifically still reads a RetiredPerson as absent
+-    and adds the live type back.
+ 
+-    PRINTED EVEN WHEN ZERO. The lesson of 2026-09-18 is that "0 still typed"
+-    was TRUE while the graph was broken, because the number that mattered was
+-    never printed at all. A count that only appears when it is non-zero
+-    cannot be distinguished from a count nobody takes.
+-    """
+-    rows = _sparql_query(url, client, retirement.contradictory_type_query())
+-    return [r["s"] for r in rows if r.get("s")]
 +def rename_survivors_upward(
 +    oxigraph_url: str, qdrant_url: str, collection: str, *, apply: bool,
 +):
@@ -2285,8 +2296,78 @@
  
  
  def repair(
-@@ -205,6 +250,19 @@
-            len(still_untyped))
+@@ -139,7 +167,6 @@
+             still_typed = _still_typed_subjects(oxigraph_url, client)
+             retired = _retired_subjects(oxigraph_url, client)
+             resurrectable = _resurrectable_subjects(oxigraph_url, client)
+-            contradictory = _contradictory_subjects(oxigraph_url, client)
+ 
+             # NEGATIVE CONTROL. The retirement predicate must not claim a
+             # subject that cannot exist. If it does, every count above is
+@@ -157,10 +184,9 @@
+                 "merge subjects examined : %d\n"
+                 "  still typed as Person : %d   (counted as live people they are not)\n"
+                 "  correctly retired     : %d\n"
+-                "  of those, UNTYPED     : %d   (will be RE-CREATED by the next ingest)\n"
+-                "  BOTH types asserted   : %d   (a Person-specific writer re-typed a retired node)"
++                "  of those, UNTYPED     : %d   (will be RE-CREATED by the next ingest)"
+                 % (len(merged), len(still_typed), len(retired),
+-                   len(resurrectable), len(contradictory))
++                   len(resurrectable))
+             )
+ 
+     except Exception as exc:  # noqa: BLE001 -- a failed READ is CANNOT-RUN
+@@ -176,7 +202,6 @@
+     # sentence would be false in exactly the way this module exists to stop.
+     attempted = 0
+     upgraded = 0
+-    decontradicted = 0
+     try:
+         with httpx.Client(timeout=30, trust_env=False) as client:
+             if apply:
+@@ -201,16 +226,6 @@
+                         oxigraph_url, client, retirement.retire_update(uri),
+                     )
+                     upgraded += 1
+-                # A CONTRADICTORY NODE LOSES ITS LIVE TYPE, NOT ITS RETIRED
+-                # ONE. It carries mergedInto, so it IS retired; the live type
+-                # is the later mistaken addition. Removing the retired type
+-                # instead would resurrect the person properly and put the
+-                # node back in the people count.
+-                for uri in contradictory:
+-                    _sparql_update(
+-                        oxigraph_url, client, retirement.retire_update(uri),
+-                    )
+-                    decontradicted += 1
+             # COUNT THE EFFECT, NOT THE ATTEMPT. Incrementing a counter after
+             # issuing an update reports what we asked for, not what happened,
+             # in a module whose whole subject is two stores publishing counts
+@@ -219,27 +234,35 @@
+             retired_now = len(still_typed) - len(remaining)
+             still_untyped = _resurrectable_subjects(oxigraph_url, client)
+             upgraded_now = len(resurrectable) - len(still_untyped)
+-            still_contradictory = _contradictory_subjects(oxigraph_url, client)
+-            fixed_now = len(contradictory) - len(still_contradictory)
+     except Exception as exc:  # noqa: BLE001
+         print(
+             "PARTIAL: the repair failed part-way (%s). %d subject(s) had "
+             "already been attempted and the graph is in a half-repaired state. "
+             "Re-run this step; it is idempotent."
+-            % (exc, attempted + upgraded + decontradicted)
++            % (exc, attempted + upgraded)
+         )
+         return EXIT_PARTIAL
+     print(
+         "  retired by this run   : %d   (attempted %d, apply=%s)\n"
+         "  upgraded to RetiredPerson: %d   (attempted %d)\n"
+-        "  STILL RESURRECTABLE   : %d   <- must be 0, or the next ingest undoes this\n"
+-        "  both-types fixed      : %d   (attempted %d)\n"
+-        "  STILL CONTRADICTORY   : %d   <- must be 0"
++        "  STILL RESURRECTABLE   : %d   <- must be 0, or the next ingest undoes this"
+         % (retired_now, attempted, apply, upgraded_now, upgraded,
+-           len(still_untyped), fixed_now, decontradicted,
+-           len(still_contradictory))
++           len(still_untyped))
      )
  
 +    try:
@@ -2305,7 +2386,7 @@
      report = sweep_qdrant_orphans_of_merged_people(
          qdrant_url, collection, oxigraph_url,
          apply=apply, backup_dir=backup_dir,
-@@ -220,10 +278,14 @@
+@@ -255,10 +278,14 @@
      print(
          "vector points examined  : %d\n"
          "  distinct person_uris  : %d\n"
@@ -3450,6 +3531,49 @@
      def _identity_conflicts_with_node(
          self, identity: PersonIdentity, person_uri: str
      ) -> Optional[str]:
+--- a/retirement.py
++++ b/retirement.py
+@@ -141,40 +141,6 @@
+     )
+ 
+ 
+-def contradictory_type_query() -> str:
+-    """Subjects asserting BOTH the live and the retired type.
+-
+-    A STATE THIS FIX MAKES REACHABLE, WHICH IS WHY IT IS DETECTED HERE. A
+-    writer whose existence guard asks for ``pwg:Person`` SPECIFICALLY -- not
+-    any type -- still reads a retired node as absent, because RetiredPerson
+-    answers that with 0 exactly as a missing type did. Such a writer adds the
+-    live type back, and the node then carries both.
+-
+-    IT IS STILL AN IMPROVEMENT, AND THAT IS NOT A CONSOLATION. Before, a
+-    retired node and a never-created node were the SAME STATE and no query
+-    could separate them. A node carrying both types is a CONTRADICTION, which
+-    means it can be found, counted and repaired. The failure moved from
+-    invisible to detectable; it did not move from wrong to right, and the
+-    people count is wrong for as long as it lasts because ``?p a pwg:Person``
+-    matches it.
+-
+-    THE REPAIR IS TO REMOVE THE LIVE TYPE, NOT THE RETIRED ONE. A node
+-    carrying ``mergedInto`` is retired; the live type is the later mistaken
+-    addition. Getting this backwards would resurrect the person properly.
+-
+-    THE MERGE LINK IS REQUIRED. A node with both types but no ``mergedInto``
+-    is not a retired merge; the repair must not retire it, so the query only
+-    returns nodes that carry the link.
+-    """
+-    return (
+-        f"SELECT DISTINCT ?s WHERE {{ "
+-        f"  ?s a <{PERSON_TYPE}> . "
+-        f"  ?s a <{RETIRED_TYPE}> . "
+-        f"  ?s <{PWG}mergedInto> ?t "
+-        f"}}"
+-    )
+-
+-
+ def resolve_to_live_person(uri, next_hop, max_hops: int = 16, log=None):
+     """Follow ``mergedInto`` to the surviving node. Returns the terminus.
+ 
 --- a/tidy.py
 +++ b/tidy.py
 @@ -265,6 +265,11 @@

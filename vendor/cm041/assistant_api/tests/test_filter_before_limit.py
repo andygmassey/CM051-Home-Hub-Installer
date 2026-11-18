@@ -227,7 +227,8 @@ class StaleAndTimelineReadEverything(unittest.TestCase):
         self.assertEqual(names[0], "Tom Jones", names)
 
     def test_the_newest_conversation_is_on_the_timeline_even_past_the_old_window(self):
-        rows, err = server._timeline_conversations(past_days=3650, limit=10)
+        rows, err = server._timeline_conversations(past_days=3650, limit=10,
+                                                   destination="owner_local")
         self.assertIsNone(err)
         self.assertEqual(rows[0]["date"], _day(1), rows[:2])
 

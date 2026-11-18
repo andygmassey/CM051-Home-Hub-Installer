@@ -2492,3 +2492,5 @@ phrase	smart prefs	walk probe and feature name (scripts/box_walk_probes smart_pr
 phrase	smart preferences	feature name (derived preferences), not a person
 phrase	reply debt	Hub screen and feature name, not a person
 phrase	dark mode	macOS appearance setting, not a person
+nonperson	vendor/divergences/cm041_assistant_api.patch::3805b4ae12ffabc4	PRODUCT: the Apple Photos app, named as the source of the Timeline photo rows in an upstream docstring; a third-party product, not a person.
+nonperson	vendor/cm041/assistant_api/ical-server.py::3805b4ae12ffabc4	PRODUCT: the Apple Photos app, named as the source of the Timeline photo rows in an upstream docstring; a third-party product, not a person.
