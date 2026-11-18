@@ -15099,17 +15099,17 @@ else
             # uninstaller's colima block).
             _ostler_vm_lib="${SCRIPT_DIR}/lib/ostler-vm-size.sh"; OSTLER_VM_MEM_GIB=4; OSTLER_VM_CPUS=2
             if [[ -f "$_ostler_vm_lib" ]]; then source "$_ostler_vm_lib"; ostler_vm_size_resolve; info "$OSTLER_VM_SIZE_LINE"
-            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the old 4 GiB"; ostler_vm_mark_owned() { :; }; ostler_vm_default_exists() { return 0; }; fi  # i18n-exempt
-            _ostler_vm_existed=0; if ostler_vm_default_exists; then _ostler_vm_existed=1; fi
+            else warn "VM sizing table missing from this installer (${_ostler_vm_lib}); the container VM gets the 2 CPU / 4 GiB floor"; ostler_vm_install_start() { OSTLER_VM_RECORD_LINE="VM size record skipped (sizing table missing)"; if colima list 2>/dev/null </dev/null | awk 'NR>1 && $1=="default"{f=1} END{exit f?0:1}'; then colima start; else colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30; fi 2>>"${INSTALL_LOG:-/dev/null}" && docker info &>/dev/null 2>&1; }; fi  # i18n-exempt
             COLIMA_START_MAX_ATTEMPTS=3
             COLIMA_START_BACKOFF=5
             colima_started=0
             for colima_attempt in $(seq 1 "$COLIMA_START_MAX_ATTEMPTS"); do
                 info "$(printf "$MSG_INFO_COLIMA_START_ATTEMPT" "$colima_attempt" "$COLIMA_START_MAX_ATTEMPTS")"
-                # Sized by lib/ostler-vm-size.sh (see above), not a fixed 4 GiB.
-                if colima start --cpu "$OSTLER_VM_CPUS" --memory "$OSTLER_VM_MEM_GIB" --disk 30 2>>"${INSTALL_LOG:-/dev/null}" \
-                    && docker info &>/dev/null 2>&1; then
-                    colima_started=1; [[ "$_ostler_vm_existed" == 1 ]] || ostler_vm_mark_owned "created by the Ostler installer's colima start"
+                # lib/ostler-vm-size.sh: sizes only a VM Ostler creates or owns; a
+                # customer's own VM keeps its size. After a start, records and
+                # persists the size colima reads back (never the requested one).
+                if ostler_vm_install_start 2>>"${INSTALL_LOG:-/dev/null}"; then
+                    colima_started=1; info "$OSTLER_VM_RECORD_LINE"
                     break
                 fi
                 if [[ "$colima_attempt" -lt "$COLIMA_START_MAX_ATTEMPTS" ]]; then

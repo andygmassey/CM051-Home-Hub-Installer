@@ -157,6 +157,7 @@ test_autologin_consent_opt_in.sh	WIRED	.github/workflows/consent-contract.yml
 test_automated_senders_are_not_people.py	WIRED	.github/workflows/privacy-spine.yml
 test_backfill_strip_tracking_urls.py	WIRED	.github/workflows/url-clean.yml
 test_background_copy_promises_no_deadline.sh	WIRED	.github/workflows/background-copy-honesty.yml
+test_background_engine_size_row.py	WIRED	.github/workflows/vendor-integrity.yml
 test_background_pause_gates_contact_and_email.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_background_qos_yields_to_chat.sh	WIRED	.github/workflows/ingest-slot.yml
 test_beta_licence_expiry_warns_before_and_is_read_only.sh	WIRED	.github/workflows/the-trial-must-actually-end.yml
@@ -1146,6 +1147,7 @@ test_verify_seeded_pyc_matches_source.py	WIRED	.github/workflows/cut-gate-wrappe
 test_verify_test_wiring.sh	WIRED	.github/workflows/test-wiring.yml
 test_version_gate_refuses_a_tautology.sh	WIRED	.github/workflows/version-gate-not-tautological.yml
 test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
+test_vm_size_record.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
@@ -1330,3 +1332,4 @@ scripts/tests/test_walk_probes_l3_and_maps.sh	WIRED	.github/workflows/keyless-st
 scripts/tests/test_walk_safari_seed.sh	WIRED	.github/workflows/keyless-store-probe-tests.yml
 scripts/tests/test_walk_screens_never_land_in_the_repo.sh	WIRED	.github/workflows/walk-record-gate.yml
 scripts/tests/test_wiki_digest_pin_assertion.sh	WIRED	.github/workflows/cut-manifest.yml
+test_vm_size_floor_and_ownership.sh	WIRED	.github/workflows/vendor-integrity.yml

@@ -276,6 +276,7 @@ PINNED = {
     "routine_status.py": 1,         # launchctl print
     "status_collector.py": 4,       # docker ps, docker version, docker inspect + docker events of the store containers (126, store OOM restart row)
     "test_health_gate.py": 1,       # pytest (dev-only __main__)
+    "vm_size_row.py": 1,            # colima list --json (VM state only: no file metadata, no app data; swept 2026-11-16)
 }
 METADATA_TOOLS = {"tmutil", "mdls", "mdfind", "xattr", "sqlite3", "osascript", "defaults",
                   "plutil", "tccutil", "ls", "cat", "find", "stat", "du", "open", "mdutil"}
