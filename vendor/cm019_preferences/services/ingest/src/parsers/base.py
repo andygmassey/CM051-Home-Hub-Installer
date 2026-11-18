@@ -19,6 +19,7 @@ _COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
 if _COMMON_DIR.is_dir() and str(_COMMON_DIR) not in sys.path:
     sys.path.insert(0, str(_COMMON_DIR))
 import pwg_privacy  # noqa: E402
+import privacy_scale as _privacy_scale  # noqa: E402
 
 
 
@@ -92,7 +93,7 @@ NOTES_LEVEL = 1
 # stamp, so the canonical readers (pwg_privacy.effective_level, which reads
 # ``privacy_level`` and never the numeric compartment) see L3 directly:
 # owner_local serves it labelled "private", every other destination withholds.
-CANONICAL_FLOOR_LEVEL = "L3"
+CANONICAL_FLOOR_LEVEL = _privacy_scale.DEFAULT_LEVEL  # most private rung, read from the shared table
 
 
 def stricter_level(default_level: int, floor_level: int) -> int:
@@ -254,7 +255,7 @@ class ParsedPreference:
         }
         if self.privacy_level:
             payload["privacy_level"] = self.privacy_level
-            payload[pwg_privacy.CANONICAL_SCALE_KEY] = pwg_privacy.CANONICAL_SCALE_VALUE
+            payload[_privacy_scale.SCALE_STAMP_FIELD] = _privacy_scale.SCALE_STAMP_VALUE
         # Include extra metadata (frequency, source_count, etc.)
         #
         # PROVENANCE IS ALWAYS STATED, NEVER IMPLIED BY ABSENCE. Enrichment

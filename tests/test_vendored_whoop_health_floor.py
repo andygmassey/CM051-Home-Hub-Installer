@@ -15,6 +15,8 @@ and services/common/pwg_privacy.py), not a copy. Synthetic values only.
          other table destination, and an undeclared one, withholds it
   arm 3  the three vendored privacy files match their sha256 pin
   arm 4  CONTROL: a stamped public L0 record leaves for every destination
+  arm 5  the staged layout imports the floor base; without any one of the three
+         helper files it fails (proves each file is needed)
 Exit: 0 pass, 1 fail, 2 cannot-run (the vendored parser or helper did not import).
 """
 from __future__ import annotations
@@ -65,6 +67,42 @@ def collect(agen):
     return asyncio.run(run())
 
 
+def arm_staged_layout() -> None:
+    """Copy the vendored services tree to a bundle-shaped temp dir and import the
+    floor base in a fresh interpreter. Complete: imports. Without any one of the
+    three helper files: must fail (base.py imports privacy_scale directly, and
+    pwg_privacy and privacy_scale load the shared table)."""
+    import shutil
+    import subprocess
+
+    code = ("import sys; sys.path.insert(0, 'services/ingest'); "
+            "from src.parsers import base; "
+            "assert base.CANONICAL_FLOOR_LEVEL == 'L3', base.CANONICAL_FLOOR_LEVEL")
+    needed = ("privacy_scale.py", "privacy_scale_canonical.tsv", "pwg_privacy.py")
+    with tempfile.TemporaryDirectory() as td:
+        stage = Path(td)
+        shutil.copytree(VENDOR, stage / "services",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+
+        def run():
+            return subprocess.run([sys.executable, "-c", code], cwd=stage,
+                                  capture_output=True, text=True, timeout=120)
+
+        full = run()
+        check(full.returncode == 0, "staged layout, all helper files: floor imports "
+              f"(rc {full.returncode}; {full.stderr.strip()[-160:]!r})")
+        for name in needed:
+            target = stage / "services" / "common" / name
+            kept = target.read_bytes()
+            target.unlink()
+            try:
+                got = run()
+            finally:
+                target.write_bytes(kept)
+            check(got.returncode != 0 and "Error" in got.stderr,
+                  f"without {name}: the import fails (rc {got.returncode})")
+
+
 def main() -> int:
     payloads = []
     with tempfile.TemporaryDirectory() as td:
@@ -104,6 +142,8 @@ def main() -> int:
     public = {"privacy_level": "L0", pwg_privacy.CANONICAL_SCALE_KEY: pwg_privacy.CANONICAL_SCALE_VALUE}
     check(all(pwg_privacy.outbound_ok(public, destination=d) for d in pwg_privacy.DESTINATIONS),
           "stamped L0 leaves for every destination")
+    print("arm 5: the staged layout imports the floor, and each helper file is needed")
+    arm_staged_layout()
     print(f"{'FAIL' if FAILS else 'PASS'}: {len(FAILS)} failed check(s)")
     return 1 if FAILS else 0
 
