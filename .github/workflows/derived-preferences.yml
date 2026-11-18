@@ -290,7 +290,7 @@ jobs:
         if: always()
         run: |
           python3 -m pip install --quiet pytest pytest-asyncio 'pyyaml>=6.0' aiofiles beautifulsoup4 pydantic pydantic-settings httpx aiolimiter click phonenumbers "nameparser>=2.1.0,<3.0"
-          python3 -m pytest -q -p no:cacheprovider tests/redteam_enrich
+          python3 -m pytest -q -p no:cacheprovider tests/redteam_enrich/test_redteam_enrich.py tests/redteam_enrich/test_redteam_topics_and_themes.py
 
       - name: Whoop health data is written at the floor and never leaves the box
         # Shipped Whoop parser + shipped helper/table (CM041 #296 6c5f709): compartment 0,

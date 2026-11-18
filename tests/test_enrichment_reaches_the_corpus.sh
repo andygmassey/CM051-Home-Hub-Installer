@@ -325,7 +325,9 @@ _svc._wikidata = _Wd()
 _svc._EnrichmentService__osm_cuisine = _Osm()
 def _route(extra):
     del _calls[:]
-    pref = {"id": "p", "category": "food", "subject": "ramen", "privacy_level": "L2"}
+    # L1 stamped: a look-up is allowed only for L0/L1 (owner ruling). L2 here would
+    # refuse before routing, so the routing assertion would test nothing.
+    pref = {"id": "p", "category": "food", "subject": "ramen", "privacy_level": "L1", "privacyScale": "canonical-2026-11"}
     if extra is not None:
         pref["extra"] = extra
     asyncio.run(_svc.enrich_preference(pref))

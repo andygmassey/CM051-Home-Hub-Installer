@@ -1098,7 +1098,8 @@ INSERT DATA {{
         thin walk can see whether creator enrichment happened or was dropped)."""
         before = dict(self.__dict__.get("_creator_counts", {}))
         try:
-            return await self._enrich_batch_inner(preferences, stats, deadline, work_allowance)
+            return await self._enrich_batch_inner(
+                preferences, stats, deadline=deadline, work_allowance=work_allowance)
         finally:
             now = self.__dict__.get("_creator_counts", {})
             looked = now.get("looked_up", 0) - before.get("looked_up", 0)
