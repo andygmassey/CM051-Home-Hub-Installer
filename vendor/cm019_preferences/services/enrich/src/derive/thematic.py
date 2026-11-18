@@ -92,7 +92,7 @@ THEME_DESTINATION = "owner_own_brief"
 _LEGACY_BLOCKED = frozenset({"0", "l0personal", "1", "l1family", "l1private",
                              "5", "l5commercial"})
 # Health by category, or by content on the subject, never feeds a theme (M12).
-_HEALTH_CATEGORIES = frozenset({"health", "health_record", "medical", "dietary", "diet"})
+_HEALTH_CATEGORIES = frozenset({"health", "health_record", "medical", "dietary", "diet"})  # dietary-guard: refuses the category, never reads it for display
 
 
 def _topic_triple(var_pref: str, var_topic: str, graph_var: str) -> str:
