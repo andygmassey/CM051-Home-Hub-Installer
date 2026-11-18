@@ -72,10 +72,79 @@ def outbound_arm(reply, m0, m3):
     return CANNOT, OUTBOUND_NOT_ON_BOX
 
 
+# THE PER-KIND ARMS. Each reader of a kind the probe seeds at L3 is its own arm: its
+# L3 row must be WITHHELD from its own tool response, and the matched L2 row of the
+# same kind must be SERVED by the L2 control tool. (arm, L3 tool, L2 control tool,
+# L3 marker key, L2 marker key, the kind's positive-control key). The readers:
+#   topic           ical-server.py topics_list       (GET /api/v1/topics?q=)
+#   topic_mentions  ical-server.py topic_mentions    (GET /api/v1/topics/<slug>/mentions)
+#   decision        ical-server.py decisions_list    (GET /api/v1/decisions?q=)
+#   preference      ical-server.py api_preferences   (GET /api/v1/preferences)
+KIND_ARMS = (
+    ("topic", "pwg_topics", "pwg_topics_l2", "l3_topic", "l2_topic", "topic"),
+    ("topic_mentions", "pwg_topic_mentions", "pwg_topic_mentions_l2", "l3_topic", "l2_topic", "topic"),
+    ("decision", "pwg_decisions", "pwg_decisions_l2", "l3_decision", "l2_decision", "decision"),
+    ("preference", "pwg_preferences", "pwg_preferences", "l3_pref", "l2_pref", "pref"),
+)
+
+
+def kind_arm(name, tools, markers, l3_tool, l2_tool, mk3_key, mk2_key, control, out=sys.stdout):
+    """One kind's arm -> (verdict, why). CANNOT when the L3 row did not exist (positive
+    control zero), when a tool was not examined, or when the L2 control is silent: an
+    absent L3 marker is only a withholding if the row was there and the reader was
+    read. FAIL only on the L3 marker in its own tool."""
+    mk3, mk2 = markers.get(mk3_key), markers.get(mk2_key)
+    if not mk3 or not mk2:
+        return CANNOT, f"{name} arm: the {mk3_key}/{mk2_key} markers were not seeded"
+    if not control:
+        return CANNOT, f"{name} arm: the L3 row was not in the store before the read (positive control {control!r}); absence proves nothing"
+    r3, r2 = tools.get(l3_tool) or {}, tools.get(l2_tool) or {}
+    for label, r in ((l3_tool, r3), (l2_tool, r2)):
+        if "error" in r or r.get("status") != 200:
+            return CANNOT, f"{name} arm: {label} not examined ({r.get('error') or 'status=' + str(r.get('status'))})"
+    if mk2 not in (r2.get("text") or ""):
+        return CANNOT, f"{name} arm: the L2 control {mk2} is silent in {l2_tool}; the L3 result cannot be judged"
+    if mk3 in (r3.get("text") or ""):
+        return FAIL, f"{name} arm: the L3 marker {mk3_key} reached {l3_tool}"
+    return PASS, f"{name} arm: L3 withheld from {l3_tool}; the L2 control is served by {l2_tool}"
+
+
+def kind_arms(cap, out=sys.stdout):
+    """Run every KIND_ARM. -> (fail_count, cannot_count, arm_count)."""
+    markers, tools = cap.get("markers", {}), cap.get("tools", {})
+    ctl = cap.get("kind_controls", {}) or {}
+    mt = cap.get("model_topics") or {}
+    print(f"  ok question (verbatim): {mt.get('question', '<not asked>')!r}", file=out)
+    fails = cannots = 0
+    for name, l3_tool, l2_tool, mk3_key, mk2_key, ctl_key in KIND_ARMS:
+        if name == "topic" and not mt.get("invoked"):
+            # THE MODEL NEVER CALLED pwg_topics for the topics question: the topics arm
+            # has not been exercised by the assistant at all. CANNOT-RUN, never PASS.
+            why = (f"the model did not invoke pwg_topics for the topics question "
+                   f"(status={mt.get('status', 'absent')}, tools={mt.get('tools', [])}, error={mt.get('error')})")
+            print(f"  CANNOT path topic {why}", file=out)
+            cannots += 1
+            continue
+        v, why = kind_arm(name, tools, markers, l3_tool, l2_tool, mk3_key, mk2_key, ctl.get(ctl_key), out)
+        tag = {PASS: "ok", FAIL: "FAIL", CANNOT: "CANNOT"}[v]
+        print(f"  {tag} path {name} {why}", file=out)
+        fails += v == FAIL
+        cannots += v == CANNOT
+    return fails, cannots, len(KIND_ARMS)
+
+
 def judge(cap, out=sys.stdout):
     if "error" in cap:
         print(f"  CANNOT {cap['error']}", file=out)
         return CANNOT
+    # The seed's exact-teardown counts (counts only), so the walk record shows how many
+    # quads were on the box before the seed and kept out of the teardown.
+    xs = (cap.get("fixture") or {}).get("exact_stats")
+    if xs:
+        print(f"  info exact teardown: excluded_pre_existing={xs.get('excluded')} "
+              f"to_delete={xs.get('to_delete')} (counts only)", file=out)
+    else:
+        print("  info exact teardown: counts not recorded", file=out)
     m3, m2 = cap["markers"]["l3"], cap["markers"]["l2"]
     m0 = cap["markers"].get("l0")
     paths = cap.get("paths", {})
@@ -139,6 +208,9 @@ def judge(cap, out=sys.stdout):
             print(f"  CANNOT seed {name} did not complete (rc={s.get('cli_rc')}, bundle={s.get('bundle')})", file=out)
             return CANNOT
     tools = cap.get("tools", {})
+    # every L3 / L2 marker this run seeded, the legacy pair and the per-kind ones
+    l3_all = [m3] + [cap["markers"][k] for k in ("l3_topic", "l3_decision", "l3_pref") if cap["markers"].get(k)]
+    l2_all = [m2] + [cap["markers"][k] for k in ("l2_topic", "l2_decision", "l2_pref") if cap["markers"].get(k)]
     examined, leaks, control = [], [], False
     for tool, res in sorted(tools.items()):
         if "error" in res or res.get("status") != 200:
@@ -147,12 +219,12 @@ def judge(cap, out=sys.stdout):
             continue
         text = res.get("text", "")
         examined.append(tool)
-        if m3 in text:
+        if any(mk in text for mk in l3_all):
             leaks.append(tool)
-            print(f"  FAIL {tool} returned the L3 marker", file=out)
+            print(f"  FAIL {tool} returned an L3 marker", file=out)
         else:
             print(f"  ok {tool} no L3 marker ({len(text)} bytes)", file=out)
-        if m2 in text:
+        if any(mk in text for mk in l2_all):
             control = True
     if not examined:
         print("  CANNOT no tool response was examined", file=out)
@@ -160,11 +232,12 @@ def judge(cap, out=sys.stdout):
     if not control:
         print("  CANNOT the L2 twin marker surfaced nowhere; without the control an L3 result cannot be judged", file=out)
         return CANNOT
-    if leaks:
+    k_fail, k_cannot, k_n = kind_arms(cap, out)
+    if leaks or k_fail:
         return FAIL
-    print(f"  ok L2 control surfaced; {len(examined)} tool responses examined", file=out)
-    if arm_cannot:
-        print("  CANNOT a timeline arm could not be judged on the box (see above); not a pass", file=out)
+    print(f"  ok L2 control surfaced; {len(examined)} tool responses examined; {k_n} kind arms", file=out)
+    if arm_cannot or k_cannot:
+        print("  CANNOT a timeline or kind arm could not be judged on the box (see above); not a pass", file=out)
         return CANNOT
     return PASS
 
@@ -365,6 +438,70 @@ def self_test():
         judge(cap, out=buf)
         if needle not in buf.getvalue():
             bad.append(f"{label}: reason {needle!r} not printed")
+    # --- the per-kind arms: a capture whose L3 topic, decision and preference rows
+    # exist, with the L2 control of each kind served, judged through the SAME judge.
+    def kind_cap(leak=(), drop_control=(), zero_control=(), old_shape=False):
+        cap = _case(None, None, True, False)
+        mk = {"l3_topic": "ZEPHYRT1", "l2_topic": "QUARTZT1", "l3_decision": "ZEPHYRD1",
+              "l2_decision": "QUARTZD1", "l3_pref": "ZEPHYRP1", "l2_pref": "QUARTZP1"}
+        if not old_shape:
+            cap["markers"].update(mk)
+        ctl = {"topic": 1, "decision": 1, "pref": 1}
+        for k in zero_control:
+            ctl[k] = 0
+        cap["kind_controls"] = ctl
+        ok = lambda *ms: {"status": 200, "text": json.dumps({"x": list(ms)})}  # noqa: E731
+        cap["tools"].update({
+            "pwg_topics": ok("[]"), "pwg_topics_l2": ok(mk["l2_topic"]),
+            "pwg_topic_mentions": ok("[]"), "pwg_topic_mentions_l2": ok(mk["l2_topic"]),
+            "pwg_decisions": ok("[]"), "pwg_decisions_l2": ok(mk["l2_decision"]),
+            "pwg_preferences": ok(mk["l2_pref"]),
+        })
+        for arm_tool, m in leak:
+            cap["tools"][arm_tool] = ok(m)
+        for t in drop_control:
+            cap["tools"][t] = ok("[]")
+        return cap
+    kind_cases = (
+        ("kind: L3 topic in pwg_topics -> FAIL", kind_cap(leak=[("pwg_topics", "ZEPHYRT1")]), FAIL),
+        ("kind: L3 topic in mentions -> FAIL", kind_cap(leak=[("pwg_topic_mentions", "ZEPHYRT1")]), FAIL),
+        ("kind: L3 decision in pwg_decisions -> FAIL", kind_cap(leak=[("pwg_decisions", "ZEPHYRD1")]), FAIL),
+        ("kind: L3 preference in pwg_preferences -> FAIL", kind_cap(leak=[("pwg_preferences", "ZEPHYRP1")]), FAIL),
+        ("kind: clean on all four arms -> CANNOT (outbound arm), never PASS", kind_cap(), CANNOT),
+        ("kind: decision L2 control silent -> CANNOT", kind_cap(drop_control=["pwg_decisions_l2"]), CANNOT),
+        ("kind: topic L3 row absent before the read -> CANNOT", kind_cap(zero_control=["topic"]), CANNOT),
+        ("kind: capture predates the per-kind markers -> CANNOT", kind_cap(old_shape=True), CANNOT),
+    )
+    for label, cap, want in kind_cases:
+        buf = io.StringIO()
+        got = judge(cap, out=buf)
+        if got != want:
+            bad.append(f"{label}: wanted {want}, got {got}")
+    buf = io.StringIO()
+    judge(kind_cap(leak=[("pwg_topic_mentions", "ZEPHYRT1")]), out=buf)
+    if "the L3 marker l3_topic reached pwg_topic_mentions" not in buf.getvalue():
+        bad.append("kind leak did not name its arm and tool")
+    # --- the topics question: the model must call pwg_topics, or the topic arm is
+    # CANNOT-RUN; the question is printed verbatim.
+    Q = "What topics have come up in my conversations recently?"
+    cap = kind_cap()
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_overview"], "invoked": False}
+    buf = io.StringIO()
+    got = judge(cap, out=buf)
+    if got != CANNOT or "the model did not invoke pwg_topics" not in buf.getvalue():
+        bad.append("model did not invoke pwg_topics: topic arm must be CANNOT with the reason")
+    if repr(Q) not in buf.getvalue():
+        bad.append("the question is not printed verbatim")
+    cap = kind_cap(leak=[("pwg_topics", "ZEPHYRT1")])
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_overview"], "invoked": False}
+    if judge(cap, out=io.StringIO()) != FAIL:
+        bad.append("a leak must still FAIL when the model did not invoke pwg_topics")
+    cap = kind_cap()
+    cap["model_topics"] = {"question": Q, "tools": ["pwg_topics"], "invoked": True}
+    buf = io.StringIO()
+    judge(cap, out=buf)
+    if "did not invoke" in buf.getvalue():
+        bad.append("an invoked pwg_topics was still reported as not invoked")
     for b in bad:
         print("SELF-TEST CASE WRONG: " + b, file=sys.stderr)
     return 0 if not bad else 1
