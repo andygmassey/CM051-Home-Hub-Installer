@@ -4239,11 +4239,11 @@ _ostler_promote_prelaunch_tree() {
 
     # RE-ARM THE STORE CREDENTIAL AGAINST THE PATH THAT NOW EXISTS.
     #
-    # _ostler_write_store_curl_config (defined :9677) captures the path BY
+    # _ostler_write_store_curl_config (defined :9692) captures the path BY
     # VALUE and never re-reads it:
-    #     :9678   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
-    #     :9723   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
-    # Its two top-level arming calls are :9732 and :17778, both of which run
+    #     :9693   local _conf="${OSTLER_DIR}/secrets/store-curl.conf"
+    #     :9738   _OSTLER_STORE_CURL_ARGS=( -K "$_conf" )
+    # Its two top-level arming calls are :9747 and :17793, both of which run
     # while _ostler_set_paths still has OSTLER_DIR bound to the
     # /tmp/ostler-prelaunch-<pid> staging tree. :4225 above has just deleted
     # that tree and :4229 has just rebound OSTLER_DIR to the final one, so
@@ -4261,13 +4261,13 @@ _ostler_promote_prelaunch_tree() {
     # it four times over, all catalogued at :696: #177 baked a staging path
     # into the ollama-logrotate and ollama agent plists, #578 did it in nine
     # more plists, and the store-credential wiring default did it too. The
-    # WhatsApp Web session path did it again at :18573, where the note reads
+    # WhatsApp Web session path did it again at :18588, where the note reads
     # "The config FILE is promoted onto ~/.ostler/ later; the VALUE inside it
     # is not." This is the fifth. Counting it correctly matters, because the
     # recurrence is the finding.
     #
     # AND THE FIX BELOW IS AN INSTANCE FIX, WHICH THE FILE HAS ALREADY WARNED
-    # IS NOT ENOUGH. :18590 says of the previous one that its gate "is keyed to
+    # IS NOT ENOUGH. :18605 says of the previous one that its gate "is keyed to
     # the PLISTS by name", and that a gate keyed to a name does not cover a
     # class. The same is true of the gate added with this change: it is keyed
     # to THIS array. A gate that enumerates every staging-time capture and
@@ -4276,13 +4276,13 @@ _ostler_promote_prelaunch_tree() {
     # only changes that do. It is owed, not done.
     #
     # GUARDED, because promote has one call site EARLIER IN THE FILE than the
-    # writer's own definition: :7023 against a definition at :9677. Top-level
+    # writer's own definition: :7038 against a definition at :9692. Top-level
     # source order is execution order, so on that path the function does not
     # exist yet, and an unguarded call would print "command not found" and,
     # behind `|| true`, do nothing while looking applied. That path is harmless
-    # anyway: both armings (:9732, :17778) then run with OSTLER_DIR ALREADY
+    # anyway: both armings (:9747, :17793) then run with OSTLER_DIR ALREADY
     # rebound. The defect bites only when promote runs AFTER them, which is the
-    # :20787 / :20965 / :21122 / :21567 path. There the
+    # :20802 / :20980 / :21137 / :21582 path. There the
     # writer is defined, OSTLER_DIR is already final, and this call is the one
     # that actually closes the defect described above.
     if declare -f _ostler_write_store_curl_config >/dev/null 2>&1; then
@@ -6337,6 +6337,21 @@ if [[ $MACOS_MAJOR -lt $OSTLER_MACOS_FLOOR_MAJOR ]]; then
     fail_with_code "ERR-02-PREREQ-MACOS-OLD" "$(printf "$MSG_FAIL_MACOS_BELOW_FLOOR" "${MACOS_VERSION}" "${OSTLER_MACOS_FLOOR_MAJOR}")"
 fi
 gui_emit PCT "step=prereq_check" "pct=20"
+# ── Homebrew owned by another account (O3, 2026-11-15) ──────────
+# On Apple Silicon /opt/homebrew belongs to the account that installed it.
+# Another account cannot brew into it, and the install would die later at
+# python@3.11 or colima with a cryptic error. Stop here, in plain English,
+# before anything changes. Never chown, chmod or sudo another account's brew.
+# OSTLER_BREW_PREFIX is a path override for tests/test_foreign_homebrew_refuses_before_install.sh.
+_BREW_PREFIX="${OSTLER_BREW_PREFIX:-/opt/homebrew}"
+if [[ -e "$_BREW_PREFIX" ]]; then
+    _brew_owner="$(stat -f %u "$_BREW_PREFIX" 2>/dev/null || true)"
+    if [[ -z "$_brew_owner" ]]; then
+        fail_with_code "ERR-02-HOMEBREW-CANNOT-CHECK" "$MSG_FAIL_HOMEBREW_CANNOT_CHECK"
+    elif [[ "$_brew_owner" != "$(id -u)" && ! -w "$_BREW_PREFIX" ]]; then
+        fail_with_code "ERR-02-HOMEBREW-OTHER-ACCOUNT" "$MSG_FAIL_HOMEBREW_OTHER_ACCOUNT"
+    fi
+fi
 
 # Xcode Command Line Tools -- needed for git, make, and as a hard
 # prereq for Homebrew (which the install phase invokes later).

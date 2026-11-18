@@ -234,6 +234,9 @@ jobs:
           if TEST_INSTALL_STRINGS_MUTATE=1 bash tests/test_install_strings_translations.sh; then
             echo "self-test: a dropped placeholder was NOT caught"; exit 1
           fi
+      - name: a Homebrew owned by another account stops the installer in preflight (O3)
+        if: always()
+        run: bash tests/test_foreign_homebrew_refuses_before_install.sh
       - name: customer copy states the real source count
         if: always()
         run: bash tests/test_source_count_copy.sh
