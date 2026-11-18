@@ -2826,12 +2826,22 @@ def _step_link(
     # the fact triples exist in Oxigraph and Qdrant for SPARQL/search
     # to find them.
     from .candidates import promote_corroborated
-    candidate_stats = promote_corroborated(
-        conversation_id=conversation_id,
-        state_dir=state_dir,
-        settings=settings,
-        dry_run=dry_run,
-    )
+    # Minor flag: corroboration promotes candidate facts to settled ones,
+    # so a conversation with a flagged person does not take part. An
+    # unreadable flag skips it too (fail closed, as step 07). See
+    # src/minors.py.
+    skip_reason = _minor_skip_reason(state_dir, settings)
+    if skip_reason:
+        logger.info("Step 08 corroboration skipped for %s: %s",
+                    conversation_id, skip_reason)
+        candidate_stats = {"skipped": skip_reason}
+    else:
+        candidate_stats = promote_corroborated(
+            conversation_id=conversation_id,
+            state_dir=state_dir,
+            settings=settings,
+            dry_run=dry_run,
+        )
 
     # Persist link results
     write_json(out_path, {
@@ -2846,6 +2856,21 @@ def _step_link(
         len(link_result.related_ids),
         candidate_stats,
     )
+
+
+def _minor_skip_reason(state_dir: Path, settings: Settings) -> str:
+    """"" when step 08 corroboration may run; else why it must not."""
+    try:
+        from . import minors as _minors
+        mp = state_dir / "00_metadata.json"
+        metadata = json.loads(mp.read_text()) if mp.exists() else {}
+        if _minors.conversation_has_minor(
+                metadata, _minors.load(getattr(settings, "oxigraph_url", ""))):
+            return "minor_participant"
+    except Exception as exc:  # noqa: BLE001 -- fail closed, loudly
+        logger.warning("minor flag unreadable (%s): no corroboration", exc)
+        return "minor_check_unavailable"
+    return ""
 
 
 # ── Step 09: four-artefact bundle (HR015 2026-05-09) ────────────────
@@ -3016,10 +3041,23 @@ def _step_bundle(
         )
         return
 
+    # Minor flag: a conversation with a person the owner marked as a
+    # minor never auto-pushes a todo to Reminders. An unreadable flag is
+    # None (no push), never False. See src/minors.py.
+    try:
+        from . import minors as _minors
+        minor_participant = _minors.conversation_has_minor(
+            metadata, _minors.load(getattr(settings, "oxigraph_url", "")))
+    except Exception as exc:  # noqa: BLE001 -- fail closed, loudly
+        logger.warning("minor flag unreadable for %s (%s): no Reminders push",
+                       metadata.get("conversation_id"), exc)
+        minor_participant = None
+
     output = _conversation_writer.write_conversation(
         bundle,
         root=settings.output_conversations_dir,
         gist_post_fn=None,
+        minor_participant=minor_participant,
     )
     logger.info(
         "Bundle written for %s at %s (privacy=%s, gist=%s)",
