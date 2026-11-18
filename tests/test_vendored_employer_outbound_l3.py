@@ -51,10 +51,13 @@ def _engine(facts, operator_level=None):
     return select
 
 
-def _orgs(facts, outbound, operator_level=None):
+def _orgs(facts, outbound, operator_level=None, destination="owner_own_brief"):
+    # The outbound reads declare owner_own_brief (the brief agent's own-channel
+    # view); tests of other destinations pass theirs.
     with patch.object(server, "USER_URI", OPERATOR_URI), \
             patch.object(server, "_sparql_select", side_effect=_engine(facts, operator_level)):
-        return sorted(r["org"] for r in server._query_operator_career_facts(outbound=outbound))
+        return sorted(r["org"] for r in server._query_operator_career_facts(
+            outbound=outbound, destination=destination))
 
 
 class EmployerOutboundL3(unittest.TestCase):
@@ -69,9 +72,17 @@ class EmployerOutboundL3(unittest.TestCase):
     def test_unparseable_level_fails_closed(self):
         self.assertEqual(_orgs([("SynthBad", "banana")], True), [])
 
-    def test_untagged_fact_fails_closed_unless_operator_level_clears_it(self):
+    def test_untagged_fact_fails_closed_even_beside_an_operator_level(self):
+        # Canonical: a missing tag is L3, and beside the operator's L2 it is a
+        # missing tag beside a present one (L3). Withheld at owner_own_brief;
+        # served to owner_local only.
         self.assertEqual(_orgs([("SynthUntagged", None)], True), [])
-        self.assertEqual(_orgs([("SynthUntagged", None)], True, operator_level="L2"), ["SynthUntagged"])
+        self.assertEqual(_orgs([("SynthUntagged", None)], True, operator_level="L2"), [])
+        self.assertEqual(_orgs([("SynthUntagged", None)], True, operator_level="L2",
+                               destination="owner_local"), ["SynthUntagged"])
+
+    def test_undeclared_destination_is_unknown_and_withholds_l1(self):
+        self.assertEqual(_orgs(self.FACTS, True, destination=None), [])
 
     def test_operator_l3_hides_everything_outbound(self):
         self.assertEqual(_orgs([("SynthL1 Ltd", "L1")], True, operator_level="L3"), [])
@@ -81,17 +92,56 @@ class EmployerOutboundL3(unittest.TestCase):
                 patch.object(server, "_sparql_select", side_effect=_engine(self.FACTS)), \
                 patch.object(server, "_hygiene_verdicts", return_value={}), \
                 patch.object(server, "_operator_email_domains", return_value=[]):
-            out = server._current_employer_safe(outbound=True)
+            out = server._current_employer_safe(outbound=True, destination="owner_own_brief")
             box = server._current_employer_safe()
         self.assertEqual(out.get("employer"), "SynthL1 Ltd")
         self.assertNotIn("SynthL3", repr(out))
         self.assertIn("SynthL3 Corp", repr(box) + repr(server._query_operator_career_facts()))
 
-    def test_http_route_passes_outbound_true(self):
-        src = server.__file__
-        text = open(src).read()
-        i = text.index('parsed.path == "/api/v1/employer"')
-        self.assertIn("_current_employer_safe(outbound=True)", text[i:i + 400])
+    def _get_employer(self, query=""):
+        import http.client
+        import json
+        import threading
+        from http.server import HTTPServer
+        httpd = HTTPServer(("127.0.0.1", 0), server.Handler)
+        t = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t.start()
+        try:
+            with patch.object(server, "USER_URI", OPERATOR_URI), \
+                    patch.object(server, "_sparql_select", side_effect=_engine(self.FACTS)), \
+                    patch.object(server, "_hygiene_verdicts", return_value={}), \
+                    patch.object(server, "_operator_email_domains", return_value=[]), \
+                    patch.object(server, "_expected_service_token", return_value="synthetic-test-token"):
+                # CM051: the vendored Handler fails closed without a configured
+                # token (CM041's conftest sets one in the environment).
+                c = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=10)
+                # The destination is declared by header only (a query string is
+                # ignored by design). Move any ?destination= into the header.
+                import re as _re
+                m = _re.search(r"destination=([a-z_]+)", query)
+                headers = {"X-Ostler-Service": "synthetic-test-token"}
+                if m:
+                    headers["X-Ostler-Destination"] = m.group(1)
+                c.request("GET", "/api/v1/employer", headers=headers)
+                r = c.getresponse()
+                return r.status, r.getheader("X-Ostler-Served-For"), json.loads(r.read())
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_http_route_gates_for_the_declared_destination(self):
+        # Behavioural (replaces a source grep): the real Handler, the real
+        # gate. owner_own_brief serves the L1 employer, never the L3 one.
+        status, served_for, body = self._get_employer("?destination=owner_own_brief")
+        self.assertEqual((200, "owner_own_brief"), (status, served_for))
+        self.assertEqual("SynthL1 Ltd", body.get("employer"))
+        self.assertNotIn("SynthL3", repr(body))
+
+    def test_http_route_undeclared_is_unknown(self):
+        status, served_for, body = self._get_employer()
+        self.assertEqual((200, "unknown"), (status, served_for))
+        self.assertNotIn("SynthL1", repr(body))
+        self.assertNotIn("SynthL3", repr(body))
 
 
 if __name__ == "__main__":

@@ -106,12 +106,14 @@ def _graph(person_level, meetings):
 
 
 class PersonContextMeetingsPrivacy(unittest.TestCase):
-    def _context(self, person_level, meetings):
+    def _context(self, person_level, meetings, destination="owner_own_brief"):
+        # Default view: the owner's own channel (owner_own_brief), where L1/L2
+        # are served in full. Tests of other destinations say so.
         store = _Store(_graph(person_level, meetings))
         real = server._sparql_select
         server._sparql_select = store
         self.addCleanup(setattr, server, "_sparql_select", real)
-        body = server.person_context("Jane Doe")
+        body = server.person_context("Jane Doe", destination=destination)
         self.assertEqual([], store.refusals)
         self.assertTrue(body.get("found"), body)
         return body["person"]
@@ -126,14 +128,34 @@ class PersonContextMeetingsPrivacy(unittest.TestCase):
         self.assertIn("Synthetic budget review", summaries, "control: L2 served")
         self.assertNotIn("Synthetic private consultation", summaries,
                          "an L3 meeting was served")
-        # Untagged meeting inherits the L2 person (facts doctrine).
-        self.assertIn("Synthetic roadmap check-in", summaries)
+        # Canonical: an untagged meeting beside the person's L2 tag is L3
+        # (a missing tag beside a present one), so owner_own_brief withholds it.
+        self.assertNotIn("Synthetic roadmap check-in", summaries)
         for m in person["meetings"]:
             self.assertIn(m.get("privacy_level"), ("L0", "L1", "L2"), m)
+            self.assertNotIn("privacy_label", m)
         self.assertEqual(
-            {"Synthetic budget review": "L2", "Synthetic roadmap check-in": "L2"},
+            {"Synthetic budget review": "L2"},
             {m["summary"]: m["privacy_level"] for m in person["meetings"]},
         )
+
+    def test_owner_local_serves_l3_and_untagged_labelled_private(self):
+        person = self._context("L2", [
+            ("Synthetic budget review", "2026-05-21", "L2"),
+            ("Synthetic private consultation", "2026-05-20", "L3"),
+            ("Synthetic roadmap check-in", "2026-05-19", None),
+        ], destination="owner_local")
+        got = {m["summary"]: m.get("privacy_label") for m in person["meetings"]}
+        self.assertEqual(got, {
+            "Synthetic budget review": None,
+            "Synthetic private consultation": "private",
+            "Synthetic roadmap check-in": "private",
+        })
+
+    def test_undeclared_is_unknown_and_withholds_l2(self):
+        person = self._context("L2", [("Synthetic budget review", "2026-05-21", "L2")],
+                               destination=None)
+        self.assertNotIn("meetings", person, person)
 
     def test_a_meeting_with_no_parseable_level_anywhere_is_withheld(self):
         person = self._context(None, [
@@ -149,8 +171,24 @@ class PersonContextMeetingsPrivacy(unittest.TestCase):
     def test_the_stricter_level_is_the_one_served(self):
         person = self._context("L1", [("Synthetic budget review", "2026-05-21", "L2")])
         self.assertEqual("L2", person["meetings"][0]["privacy_level"])
+        # The meeting's OWN level is a legacy (unmigrated) L0, so
+        # legacy_l0_guard withholds it outside owner_local, even though the
+        # canonical effective class with the person's L2 is L2.
         person = self._context("L2", [("Synthetic budget review", "2026-05-21", "l0 ")])
-        self.assertEqual("L2", person["meetings"][0]["privacy_level"])
+        self.assertEqual([], person.get("meetings", []))
+
+    def test_134_l0_meeting_withheld_and_l1_twin_served(self):
+        # person_context is a Hub route: a legacy L0 meeting is withheld at
+        # owner_own_brief (legacy_l0_guard), its L1 twin is served.
+        l0 = self._context("L1", [("Synthetic l0 review", "2026-05-21", "L0")])
+        self.assertEqual([], l0.get("meetings", []))
+        l1 = self._context("L1", [("Synthetic l1 review", "2026-05-21", "L1")])
+        self.assertEqual("L1", l1["meetings"][0]["privacy_level"])
+        # owner_local is exempt from the guard and labels the legacy L0 private.
+        own = self._context("L1", [("Synthetic l0 review", "2026-05-21", "L0")],
+                            destination="owner_local")
+        self.assertEqual("private", own["meetings"][0]["privacy_label"])
+
 
 
 if __name__ == "__main__":

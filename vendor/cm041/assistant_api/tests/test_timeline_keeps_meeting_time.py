@@ -63,7 +63,8 @@ def _entries(rows=ROWS):
     with patch.object(server, "query_google_calendar", return_value=[]), \
          patch.object(server, "_sparql_select", side_effect=_select), \
          patch.object(server, "_timeline_conversations", return_value=([], None)):
-        result = server.api_timeline(days=7, past_days=3650, limit=200)
+        result = server.api_timeline(days=7, past_days=3650, limit=200,
+                                       destination="owner_local")
     by_title = {e["title"]: e for e in result["entries"]}
     return by_title, captured.get("q", "")
 
@@ -115,7 +116,8 @@ class TestTimelineKeepsMeetingTime(unittest.TestCase):
         with patch.object(server, "query_google_calendar", return_value=[]), \
              patch.object(server, "_sparql_select", return_value=ROWS), \
              patch.object(server, "_timeline_conversations", return_value=([], None)):
-            result = server.api_timeline(days=7, past_days=3650, limit=200)
+            result = server.api_timeline(days=7, past_days=3650, limit=200,
+                                       destination="owner_local")
         dates = sorted(i["date"] for i in result["items"] if i.get("kind") in ("meeting", "event"))
         self.assertEqual(dates, ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"])
 

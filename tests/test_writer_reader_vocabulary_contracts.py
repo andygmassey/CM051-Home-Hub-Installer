@@ -801,7 +801,9 @@ def test_the_memory_endpoint_itself_returns_the_cm048_facts(monkeypatch):
     monkeypatch.setattr(ical_server, "_memory_load_corrections", lambda: {})
     monkeypatch.setattr(ical_server, "_hygiene_overlay", lambda: (None, {}))
 
-    out = ical_server.api_memory_list()
+    # The Memory tab on this Mac is the owner-only surface: declared owner_local.
+    # Undeclared is unknown and would fail closed on rows with no level.
+    out = ical_server.api_memory_list(destination="owner_local")
 
     assert out.get("degraded") is not True, (
         f"endpoint degraded rather than answering: {out.get('reason')}"

@@ -259,7 +259,10 @@ def _api_texts(store) -> list[str]:
                  for v in res.variables if b[v] is not None} for b in res]
 
     mod._sparql_select = fake_select
-    body, code = mod.commitments_list(owner=None, status="open", limit=100)
+    # The owner's own brief (CM041 6c5f709: undeclared = unknown, the strictest
+    # row, where L1 is redacted-only and so withheld).
+    body, code = mod.commitments_list(owner=None, status="open", limit=100,
+                                      destination="owner_own_brief")
     assert code == 200, body
     return [c["action"] for c in body["commitments"]]
 
@@ -281,13 +284,16 @@ def test_brief_todo_reader_drops_l3_and_keeps_l1_and_legacy(fakes, tmp_path, mon
     assert not set(ODD_LEVELS) & set(texts), texts
 
 
-def test_commitments_api_drops_l3_and_keeps_l1_and_legacy(fakes, tmp_path, monkeypatch):
+def test_commitments_api_drops_l3_and_legacy_and_keeps_l1(fakes, tmp_path, monkeypatch):
     in_store = _store_with_l3_leaked(fakes, tmp_path, monkeypatch)
     assert L3_TODO in in_store
     texts = _api_texts(fakes.store)
     assert L3_TODO not in texts, texts
     assert L1_TODO in texts, texts
-    assert LEGACY_TODO in texts, texts
+    # Canonical (CM041 6c5f709): an untagged todo is L3, owner_local only.
+    # The vendored brief reader (meeting_syncer pin 42d73102) still keeps it:
+    # see test_brief_todo_reader_drops_l3_and_keeps_l1_and_legacy.
+    assert LEGACY_TODO not in texts, texts
     assert not set(ODD_LEVELS) & set(texts), texts
 
 

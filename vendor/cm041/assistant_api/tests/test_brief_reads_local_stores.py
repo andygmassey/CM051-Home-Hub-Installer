@@ -260,6 +260,10 @@ class CalendarHandlerWritesTheBuilderReply(unittest.TestCase):
         import io
         h = ical_server.Handler.__new__(ical_server.Handler)
         h.path = path
+        # do_GET declares the request's destination first (CM041 531ac94):
+        # it reads the headers and the peer address.
+        h.headers = {}
+        h.client_address = ("127.0.0.1", 0)
         h.wfile = io.BytesIO()
         sent = []
         h._guard = lambda *a, **k: True

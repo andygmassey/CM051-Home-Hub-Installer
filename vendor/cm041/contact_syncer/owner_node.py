@@ -13,9 +13,14 @@ This module mints the owner node:
 
     <pwg:user_<id>> a pwg:Person ;
         pwg:displayName "<owner>" ;
-        pwg:privacyLevel "L0" ;   # owner's own identity, most private
+        pwg:privacyLevel "L0" ;   # LEGACY ladder: owner's own identity, most private
         pwg:isOwner true ;
         pwg:createdAt "<iso>" .
+
+LEGACY: "L0" here is the OLD PWG / CM041 meaning (owner-private). On the
+canonical scale (privacy_scale_canonical.tsv at the repo root) L0 is public
+and the owner's identity is L3. Until this writer is moved (privacy scale
+PR 2) an old L0 is treated as L3 on every outbound path ([legacy] row).
 
 It is idempotent (INSERT is additive; ``isOwner`` is a single boolean and a
 second run re-inserts the same triples, which Oxigraph deduplicates). A

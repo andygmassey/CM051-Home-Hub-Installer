@@ -89,8 +89,11 @@ def body(monkeypatch):
     monkeypatch.setattr(srv, "_sparql_select", select)
     monkeypatch.setattr(srv, "_memory_load_corrections", lambda: {})
     monkeypatch.setattr(srv, "_hygiene_overlay", lambda: (None, {}))
-    monkeypatch.setattr(srv, "_current_employer_safe", lambda: {})
-    out = srv.api_memory_list()
+    monkeypatch.setattr(srv, "_current_employer_safe", lambda *a, **k: {})
+    # Declared owner_local: the Memory tab on this Mac is the owner-only surface.
+    # Undeclared is unknown, which fails closed and would hide an owner row whose
+    # owner node carries no level (CM041 #305 gating; see test_memory_list_l3_never_leaves_for_non_owner).
+    out = srv.api_memory_list(destination="owner_local")
     out["_rows"] = seen.get("rows", [])
     return out
 

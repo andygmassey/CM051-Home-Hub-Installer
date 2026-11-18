@@ -136,6 +136,10 @@ COVERAGE_NEEDLES: dict[str, list[str]] = {
     # ostler_hygiene/ is the memory-hygiene engine (CM041 #98). Needles are
     # the explicit cp targets so a project.yml regression un-covers them.
     "pwg_privacy.py": ['${DEST}/pwg_privacy.py'],
+    # CM041 #296: the helper's own imports, bundled beside it by the same step.
+    "pwg_privacy_readers.py": ['${DEST}/pwg_privacy_readers.py'],
+    "privacy_scale.py": ['${DEST}/privacy_scale.py'],
+    "privacy_scale_canonical.tsv": ['${DEST}/privacy_scale_canonical.tsv'],
     "ostler_hygiene": ['${DEST}/ostler_hygiene'],
     "scripts": ["scripts/deferred-register-device.sh"],
     "scripts/deferred-register-device.sh": ["scripts/deferred-register-device.sh"],
