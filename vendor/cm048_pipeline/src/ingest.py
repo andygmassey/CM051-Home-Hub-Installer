@@ -118,6 +118,19 @@ from pathlib import Path
 import httpx
 import phonenumbers
 
+from . import minors as _minors
+
+# Sentinel: a fact writer was called without a minor index (see
+# _drop_minor_facts). Distinct from None (dry run: nothing is written).
+_MINORS_UNREAD = object()
+
+
+def _resolve_minor_index(minor_index, settings, dry_run):
+    if minor_index is _MINORS_UNREAD:
+        return None if dry_run else _minors.load(getattr(settings, "oxigraph_url", ""))
+    return minor_index
+
+
 from .turtle_escape import escape_turtle_iri_path, escape_turtle_literal
 from . import outstanding_todos as _outstanding_todos
 from . import privacy as _privacy
@@ -320,7 +333,15 @@ def write_all(
         "oxigraph_triples": 0,
         "coach_rows": 0,
         "speaker_feedback": None,
+        "minor_facts_skipped": 0,
     }
+
+    # Minor flag (owner decision, 2026-10-19): no fact about a minor reaches a sink.
+    # Read BEFORE any write; an unreadable flag fails the step (it retries)
+    # rather than writing facts it could not check. See src/minors.py.
+    minor_index = None
+    if not dry_run:
+        minor_index = _minors.load(getattr(settings, "oxigraph_url", ""))
 
     # 1. Conversation MD
     md_path = _write_conversation_md(
@@ -331,13 +352,13 @@ def write_all(
     # 2. Qdrant: conversation chunks + facts
     summary["qdrant_points"] = _write_qdrant(
         state_dir, conversation_id, classification, settings, dry_run,
-        metadata=metadata,
+        metadata=metadata, minor_index=minor_index, summary=summary,
     )
 
     # 3. Oxigraph: relationship signals + facts as RDF
     summary["oxigraph_triples"] = _write_oxigraph(
         state_dir, conversation_id, classification, settings, dry_run,
-        metadata=metadata,
+        metadata=metadata, minor_index=minor_index,
     )
 
     # 4. SQLite: coach observation
@@ -352,6 +373,19 @@ def write_all(
 
     logger.info("Ingest summary for %s: %s", conversation_id, summary)
     return summary
+
+
+def _drop_minor_facts(facts: list, metadata: dict | None, minor_index) -> tuple:
+    """(facts that may be written, count dropped). A fact whose subject is a
+    person the owner marked as a minor is never written to a sink."""
+    if not minor_index:
+        return facts, 0
+    keep = [f for f in facts
+            if not _minors.fact_is_about_minor(f, metadata or {}, minor_index)]
+    dropped = len(facts) - len(keep)
+    if dropped:
+        logger.info("minor flag: %d fact(s) about a minor not written", dropped)
+    return keep, dropped
 
 
 # ── 1. Conversation MD ──────────────────────────────────────────────
@@ -386,6 +420,8 @@ def _write_qdrant(
     settings: Settings,
     dry_run: bool,
     metadata: dict | None = None,
+    minor_index=_MINORS_UNREAD,
+    summary: dict | None = None,
 ) -> int:
     """Write conversation summary + per-fact Qdrant points.
 
@@ -476,6 +512,12 @@ def _write_qdrant(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            # A writer called without an index (any caller but write_all)
+            # reads the flag itself: no path writes facts unchecked.
+            minor_index = _resolve_minor_index(minor_index, settings, dry_run)
+            facts, skipped = _drop_minor_facts(facts, metadata, minor_index)
+            if summary is not None:
+                summary["minor_facts_skipped"] = skipped
             for fact in facts:
                 text = fact.get("text", "")
                 if not text:
@@ -547,6 +589,7 @@ def _write_oxigraph(
     settings: Settings,
     dry_run: bool,
     metadata: dict | None = None,
+    minor_index=_MINORS_UNREAD,
 ) -> int:
     """Write relationship signals + facts as RDF triples."""
     if metadata is None:
@@ -579,6 +622,8 @@ def _write_oxigraph(
     if facts_path.exists():
         facts = read_json(facts_path)
         if isinstance(facts, list):
+            minor_index = _resolve_minor_index(minor_index, settings, dry_run)
+            facts, _skipped = _drop_minor_facts(facts, metadata, minor_index)
             for fact in facts:
                 triples.extend(
                     _fact_to_triples(conversation_id, fact, settings, metadata)

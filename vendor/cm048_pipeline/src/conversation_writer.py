@@ -222,6 +222,7 @@ def write_conversation(
     demo_mode: bool = False,
     user_id: str = "user",
     reminders_db_path: Optional[Path] = None,
+    minor_participant: Optional[bool] = False,
 ) -> ConversationOutput:
     """Produce the four-artefact bundle on disk and (for non-L3)
     invoke the gist callback.
@@ -289,6 +290,7 @@ def write_conversation(
         demo_mode=demo_mode,
         user_id=user_id,
         db_path=reminders_db_path,
+        minor_participant=minor_participant,
     )
     _atomic_write(
         todos_path,
