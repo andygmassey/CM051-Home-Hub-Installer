@@ -48,6 +48,7 @@ on:
       - 'tests/test_the_front_page_catch_up_waits_out_hydration.sh'
       - 'tests/test_writer_reader_vocabulary_contracts.py'
       - 'tests/test_memory_about_you.py'
+      - 'tests/test_memory_list_l3_never_leaves_for_non_owner.py'
       - '.github/workflows/writer-reader-vocabulary.yml'
   pull_request:
     paths:
@@ -252,3 +253,12 @@ jobs:
           echo "collected ${n} test(s)"
           [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected 4 F12b tests, got ${n:-0}" >&2; exit 1; }
           python -m pytest tests/test_memory_about_you.py -v -s
+
+      # L3 is released to owner_local only from api_memory_list (3582 ruling 3).
+      - name: An L3 memory fact never leaves for a non-owner destination
+        if: always()
+        run: |
+          n="$(python -m pytest tests/test_memory_list_l3_never_leaves_for_non_owner.py --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected 4 L3 release tests, got ${n:-0}" >&2; exit 1; }
+          python -m pytest tests/test_memory_list_l3_never_leaves_for_non_owner.py -v -s
