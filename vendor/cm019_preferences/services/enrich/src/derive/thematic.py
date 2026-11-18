@@ -45,12 +45,20 @@ Local only: two SPARQL reads and one Qdrant scroll. No network call.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
 from .model import ENRICH_NS, PREF_URN_PREFIX, EvidenceItem
 from .readers import SCROLL_FIELDS, StoreGateway, _as_float, _not_minor, _parse_dt
 from .sensitive import derived_value_is_sensitive, is_abstention_value, is_sensitive
+
+# The vendored canonical helper (services/common, sha-pinned). No fallback.
+_COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if _COMMON_DIR.is_dir() and str(_COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(_COMMON_DIR))
+import pwg_privacy  # noqa: E402
 
 RDFS_NS = "http://www.w3.org/2000/01/rdf-schema#"
 WD_ENTITY = "http://www.wikidata.org/entity/"
@@ -65,12 +73,20 @@ STATUS_NO_QIDS = "degraded:no_topic_qids"          # QID pass absent or never ra
 STATUS_NO_HIERARCHY = "degraded:no_hierarchy_edges"  # QIDs, but no broader concepts stored
 STATUS_NOT_RUN = "not_run"
 
-# Canonical privacy levels a theme may be built from. L3 (body-private,
-# index-only) never feeds a surfaced node.
-_ADMITTED_LEVELS = frozenset({"L0", "L1", "L2"})
-# Legacy compartment 5 is written by the notes and health producers meaning
-# "highest privacy" (see src/privacy_gate.py), so it is read as L3 here.
-_LEGACY_BLOCKED = frozenset({"5", "l5commercial"})
+# Whether a stated canonical level may feed a surfaced theme is decided ONLY by
+# the vendored helper (pwg_privacy.outbound_ok). A surfaced theme reaches, at
+# most, the owner's own brief, so the destination asked is ``owner_own_brief``:
+# L1 and L2 feed a theme, L3 never does, and an L0 feeds one only when it
+# carries the scale stamp (canonical public). An unstamped L0 is legacy (old
+# PWG L0 meant owner-private, LEGACY) and is withheld through legacy_l0_guard.
+THEME_DESTINATION = "owner_own_brief"
+# Legacy compartment 5 was written by the notes and health producers meaning
+# "highest privacy" (see src/privacy_gate.py), so it is read as L3 here; records
+# already stored at 5 keep that reading. Those producers now write 0
+# (L0Personal, the most private numeric level, canonical L3; see
+# services/ingest/src/parsers/base.py HEALTH_LEVEL), so 0 is blocked too:
+# without it, moving health off 5 would let it feed a surfaced theme.
+_LEGACY_BLOCKED = frozenset({"0", "l0personal", "5", "l5commercial"})
 
 
 def _topic_triple(var_pref: str, var_topic: str, graph_var: str) -> str:
@@ -157,16 +173,20 @@ def leaf_is_sensitive(label: str) -> bool:
 
 
 def privacy_of(payload: dict) -> Optional[str]:
-    """The level to carry onto evidence, "" when unstated, None when the point
-    must not feed a surfaced theme (L3, or the legacy highest-privacy 5)."""
+    """The canonical level to carry onto evidence, None when the point must not
+    feed a surfaced theme: unlevelled or legacy-only (read as L3), L3, a value
+    we cannot read, or the legacy highest-privacy 5."""
     raw = payload.get("privacy_level")
     if raw is not None and str(raw).strip():
-        level = str(raw).strip().upper()
-        if level not in _ADMITTED_LEVELS:
-            return None         # L3, or a value we cannot read: fail closed
-        lvl = level
+        record = {
+            "privacy_level": raw,
+            pwg_privacy.CANONICAL_SCALE_KEY: payload.get(pwg_privacy.CANONICAL_SCALE_KEY),
+        }
+        if not pwg_privacy.outbound_ok(record, destination=THEME_DESTINATION):
+            return None         # L3, unstamped L0, or unreadable: fail closed
+        lvl = pwg_privacy.effective_level(record)
     else:
-        lvl = ""
+        return None             # unlevelled, or legacy-only: the scale reads it as L3
     legacy = payload.get("compartment_level")
     if legacy is not None and str(legacy).strip().lower().rsplit("#", 1)[-1] in _LEGACY_BLOCKED:
         return None

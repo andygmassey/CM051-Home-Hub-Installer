@@ -480,3 +480,17 @@ Why: on the PWG scale L0 is owner-private, and PRIVACY_ORDER ranked it lowest, s
 Proof: `tests/test_vendored_max_privacy_fails_closed.py` (wired in `.github/workflows/derived-preferences.yml`). Base: 7 FAIL. Mutant (L0 check removed): 3 FAIL. Fix: 0 FAIL.
 
 When #528 merges, the upstream SHA here must be the merge commit and the bytes must still match it.
+
+## 2026-11-18: enrich leaks (personal-world-graph #540 merged as 35302c9d; CB134)
+
+Tree `cm019_preferences`. Pin NOT moved (d9797d88): the tree is still a shipping subset, and this section records only the files below.
+
+- `services/enrich/src/privacy_gate.py`, `services/enrich/src/derive/readers.py`, `services/enrich/src/derive/thematic.py`: whole-file copies of personal-world-graph `35302c9d`. Byte-identical to that commit; this tree had no local divergence in them.
+- `services/common/pwg_privacy.py`, `services/common/privacy_scale.py`, `services/common/privacy_scale_canonical.tsv`: new in this tree, copied byte-identical from `35302c9d`. Required by the three files above (readers and gate import the helper; the helper loads the TSV next to it). The cm041 tree carries an OLDER `pwg_privacy.py` that differs from upstream; that tree is not touched here.
+- `services/enrich/src/enricher.py`: NOT copied. The vendored file carries CM051-only divergence (eligibility gate, budget, no-match counting). Only the two upstream hunks from `35302c9d` are applied: the `PRIVACY_SCALE_KEY` import from `privacy_gate`, and `PRIVACY_SCALE_KEY` added to the scroll `with_payload` list.
+
+Why: the enrichment gate allowed canonical L2 and legacy compartment 2/4/6 to `others` (third-party look-ups), and the thematic reader admitted unlevelled records and health written at legacy 0.
+
+Proof: `tests/test_vendored_enrich_outbound_refuses_l2_and_legacy.py` (7 arms) and `tests/test_vendored_thematic_withholds_unlevelled_and_health.py` (5 arms), both wired in `.github/workflows/derived-preferences.yml`. On CM051 origin/main: outbound 5 of 5 FAIL on the leak arms and the L0 control; thematic 3 FAIL (unlevelled, legacy-0 health, stamped L1 with legacy 0). On the branch: both green. Mutants (gate allowing everything; legacy branch allowing; thematic legacy-0 block removed; unlevelled admitted) each go red.
+
+Known gap, not fixed here: the L1 subject. Andy's rule allows L0 and L1 subjects in look-ups; the shared scale table refuses L1 at `others` (redacted only). Arm 1b asserts today's refusal. CB135-ENRICHMENT-L1-DESTINATION adds the dedicated enrichment destination row to the shared table; flip arm 1b then.

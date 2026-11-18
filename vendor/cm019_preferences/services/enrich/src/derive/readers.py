@@ -24,7 +24,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Protocol
 
+import sys
+
 import yaml
+
+# The vendored canonical helper (services/common, sha-pinned). No fallback.
+_COMMON_DIR = Path(__file__).resolve().parents[3] / "common"
+if _COMMON_DIR.is_dir() and str(_COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(_COMMON_DIR))
+import pwg_privacy  # noqa: E402
 
 from .model import ENRICH_NS, PREF_URN_PREFIX, EvidenceItem
 from .sensitive import never_read_categories
@@ -36,8 +44,10 @@ RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
 SCROLL_FIELDS = [
     "category", "preference_id", "subject", "source", "strength", "observed_at", "extra",
     # The privacy level, so an online lookup driven from these points can refuse
-    # private items (src/privacy_gate.py). Both the canonical and legacy keys.
-    "privacy_level", "compartment_level",
+    # private items (src/privacy_gate.py). Both the canonical and legacy keys,
+    # and the canonical scale stamp (a stamped L0 is public, an unstamped one
+    # is legacy owner-private).
+    "privacy_level", "compartment_level", pwg_privacy.CANONICAL_SCALE_KEY,
     "user_id",
 ]
 

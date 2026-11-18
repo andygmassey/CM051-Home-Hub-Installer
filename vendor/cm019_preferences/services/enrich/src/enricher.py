@@ -16,7 +16,7 @@ import httpx
 from .config import settings
 from .consent import public_lookup_allowed
 from .eligibility import is_eligible
-from .privacy_gate import outbound_refusal, REASON_UNKNOWN_LEVEL
+from .privacy_gate import outbound_refusal, PRIVACY_SCALE_KEY, REASON_UNKNOWN_LEVEL
 from .clients.base import InMemoryCache
 from .clients.openlibrary import OpenLibraryClient
 from .clients.tmdb import TMDBClient
@@ -1428,6 +1428,7 @@ INSERT DATA {{
                 resp = await client.post(url, json={
                     "ids": ids,
                     "with_payload": ["privacy_level", "compartment_level",
+                                     PRIVACY_SCALE_KEY,
                                      "about_minor", "extra", "category"],
                     "with_vector": False,
                 })
