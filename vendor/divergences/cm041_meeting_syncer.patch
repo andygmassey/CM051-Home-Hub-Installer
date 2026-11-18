@@ -20,10 +20,13 @@
  from meeting_syncer import config
  from meeting_syncer.calendar_client import fetch_events
  
-@@ -72,6 +59,22 @@
+@@ -71,14 +58,24 @@
+ # VENDORING: if this file is vendored downstream, pwg_privacy.py must go
  # with it.
  import pwg_privacy
+-import pwg_privacy_readers as _pr
  
+-logger = logging.getLogger(__name__)
 +# Graph scope (v1018-D012b). The SAME shared helper the Hub server uses;
 +# `identity_resolver` is a sibling package under _PARENT_DIR both in this
 +# repo and in the installed layout (~/.ostler/import-pipeline/).
@@ -39,11 +42,16 @@
 +    cm048_user_graph_uris as _cm048_user_graph_uris,
 +    graph_scoped_select as _graph_scoped_select,
 +)
-+
- logger = logging.getLogger(__name__)
+ 
+-# The pre-meeting brief goes to the owner's OWN WhatsApp/iMessage, so its
+-# callers declare owner_own_brief (owner ruling: "own brief only"). An
+-# undeclared caller of pre_meeting_brief is read as unknown (strictest) (fail closed).
+-OWNER_BRIEF_DESTINATION = "owner_own_brief"
++logger = logging.getLogger(__name__)
  logging.basicConfig(level=logging.INFO, format="%(message)s")
  
-@@ -186,6 +189,12 @@
+ PWG = "https://schema.ostler.ai/ontology#"
+@@ -192,6 +189,12 @@
  
  
  def _sparql_query(oxigraph_url, sparql):
@@ -56,39 +64,85 @@
      resp = httpx.post(
          oxigraph_url.rstrip("/") + "/query",
          content=sparql,
-@@ -304,19 +313,28 @@
- def _get_meeting_history(oxigraph_url, person_uri):
+@@ -254,7 +257,7 @@
+     return bool(display) and label == display
+ 
+ 
+-def _get_person_facts(oxigraph_url, person_uri, destination=None):
++def _get_person_facts(oxigraph_url, person_uri):
+     """Get current facts about a person, L3-filtered and owner-filtered.
+ 
+     Fail-closed L3 filter (operator doctrine, Archie batch-1 F8), routed
+@@ -283,20 +286,18 @@
+             pwg:aboutPerson <{uri}> ;
+             pwg:factText ?text .
+       OPTIONAL {{ ?fact pwg:factDomain ?domain }}
+-      {pf_fpriv}
+-      {pf_owner}
++      OPTIONAL {{ ?fact pwg:privacyLevel ?fpriv }}
++      OPTIONAL {{ <{uri}> pwg:privacyLevel ?ownerPriv }}
+       OPTIONAL {{ ?fact pwg:sourceCalendar ?owner }}
+       FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}
+     }}
+-    """.format(ns=PWG, uri=person_uri,
+-               pf_fpriv=_pr.optional_level("fact", "fpriv"),
+-               pf_owner=_pr.optional_level_iri(person_uri, "ownerPriv"))
++    """.format(ns=PWG, uri=person_uri)
+     result = _sparql_query(oxigraph_url, sparql)
+     facts = []
+     for b in result.get("results", {}).get("bindings", []):
+         fact_level = b.get("fpriv", {}).get("value")
+         owner_level = b.get("ownerPriv", {}).get("value")
+-        if _pr.outbound_hidden(destination=destination, record={"privacy_level": fact_level},
++        if pwg_privacy.is_l3({"privacy_level": fact_level},
+                              owner_level=owner_level):
+             continue
+         domain = b.get("domain", {}).get("value", "")
+@@ -309,7 +310,7 @@
+     return facts
+ 
+ 
+-def _get_meeting_history(oxigraph_url, person_uri, destination=None):
++def _get_meeting_history(oxigraph_url, person_uri):
      """Get past meetings with this person, most recent first."""
      sparql = """
--    PREFIX pwg: <{}>
--    SELECT ?summary ?date ?id WHERE {{
-+    PREFIX pwg: <{0}>
-+    SELECT ?summary ?date ?id ?mpriv ?ownerPriv WHERE {{
-       ?meeting a pwg:Meeting ;
--               pwg:meetingAttendee <{}> ;
-+               pwg:meetingAttendee <{1}> ;
+     PREFIX pwg: <{0}>
+@@ -319,13 +320,11 @@
                 pwg:meetingSummary ?summary .
        OPTIONAL {{ ?meeting pwg:meetingDate ?date }}
        OPTIONAL {{ ?meeting pwg:meetingId ?id }}
+-      {pf_mpriv}
+-      {pf_mowner}
 +      OPTIONAL {{ ?meeting pwg:privacyLevel ?mpriv }}
 +      OPTIONAL {{ <{1}> pwg:privacyLevel ?ownerPriv }}
      }}
      ORDER BY DESC(?date)
-     """.format(PWG, person_uri)
+-    """.format(PWG, person_uri,
+-               pf_mpriv=_pr.optional_level("meeting", "mpriv"),
+-               pf_mowner=_pr.optional_level_iri(person_uri, "ownerPriv"))
++    """.format(PWG, person_uri)
      result = _sparql_query(oxigraph_url, sparql)
      meetings = []
      for b in result.get("results", {}).get("bindings", []):
-+        # Outbound (brief) path: same fail-closed L3 filter as
-+        # _get_person_facts. The meeting's own level and the attendee's
-+        # level are both read, most-restrictive wins, and a meeting with
-+        # no parseable level on either axis is dropped.
+@@ -333,7 +332,7 @@
+         # _get_person_facts. The meeting's own level and the attendee's
+         # level are both read, most-restrictive wins, and a meeting with
+         # no parseable level on either axis is dropped.
+-        if _pr.outbound_hidden(destination=destination, record={"privacy_level": b.get("mpriv", {}).get("value")},
 +        if pwg_privacy.is_l3({"privacy_level": b.get("mpriv", {}).get("value")},
-+                             owner_level=b.get("ownerPriv", {}).get("value")):
-+            continue
+                              owner_level=b.get("ownerPriv", {}).get("value")):
+             continue
          meetings.append({
-             "summary": b["summary"]["value"],
-             "date": b.get("date", {}).get("value", ""),
-@@ -338,26 +356,48 @@
+@@ -344,7 +343,7 @@
+     return meetings
+ 
+ 
+-def _get_last_conversation_id(oxigraph_url, person_uri, destination=None):
++def _get_last_conversation_id(oxigraph_url, person_uri):
+     """Find the most recent conversation that mentioned this person.
+ 
+     CM048's ingest writes ``<urn:ostler:fact/...> pwg:about <person_uri>``
+@@ -357,22 +356,16 @@
      in the graph from a contact-sync without any conversation having
      been ingested yet).
      """
@@ -102,33 +156,33 @@
        ?fact <urn:ostler:about> <{person}> ;
              <urn:ostler:fromConversation> ?conv .
        OPTIONAL {{ ?conv <urn:ostler:date> ?date }}
+-      {pf_bfpriv}
+-    """.format(person=person_uri,
+-               pf_bfpriv=_pr.optional_level("fact", "fpriv"))
+-    sparql = (
+-        "PREFIX pwg: <urn:ostler:>\n"
+-        "SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n"
+-        + read_across_graphs(body)
+-        + "\n}\nORDER BY DESC(?date)"
+-    )
 +      OPTIONAL {{ ?fact <urn:ostler:privacyLevel> ?fpriv }}
 +    }}
 +    ORDER BY DESC(?date)
-     """.format(person=person_uri)
--    sparql = (
--        "PREFIX pwg: <urn:ostler:>\n"
--        "SELECT DISTINCT ?conv ?date WHERE {\n"
--        + read_across_graphs(body)
--        + "\n}\nORDER BY DESC(?date)\nLIMIT 1"
--    )
++    """.format(person=person_uri)
      try:
          result = _sparql_query(oxigraph_url, sparql)
      except Exception as exc:
-         logger.warning("last-conversation query failed for %s: %s", person_uri, exc)
-         return ""
--    bindings = result.get("results", {}).get("bindings", [])
-+    # No LIMIT in the query: the L3 filter must run BEFORE the "most recent"
-+    # pick, or an L3 fact's conversation would hide a visible one. Same
-+    # fail-closed rule as _get_person_facts: the fact's level and the
-+    # person's level, most-restrictive wins, nothing parseable -> dropped.
-+    # The person's level is a separate read because the person node and the
-+    # CM048 fact can sit in different graphs; a failed read leaves it
-+    # unknown, which only ever hides more.
-+    owner_level = None
-+    try:
-+        owner_rows = _sparql_query(
-+            oxigraph_url,
+@@ -389,19 +382,19 @@
+     try:
+         owner_rows = _sparql_query(
+             oxigraph_url,
+-            "SELECT ?l WHERE {{ {pf} }}".format(
+-                pf=_pr.optional_level_iri(person_uri, "l")))
+-        levels = [r["l"]["value"] for r in
+-                  owner_rows.get("results", {}).get("bindings", []) if r.get("l")]
+-        # The fragment already returns the person's ONE effective level
+-        # (strictest across spellings and graphs), or no row when untagged.
+-        if levels:
 +            "SELECT ?l WHERE {{ <{p}> <{pwg}privacyLevel> ?l }}".format(
 +                p=person_uri, pwg=PWG))
 +        levels = [r.get("l", {}).get("value") for r in
@@ -136,19 +190,26 @@
 +        if any(pwg_privacy.parse_privacy_level(v) == "L3" for v in levels):
 +            owner_level = "L3"
 +        elif levels:
-+            owner_level = levels[0]
-+    except Exception as exc:
-+        logger.warning("person-level query failed for %s: %s", person_uri, exc)
-+    bindings = [
-+        b for b in result.get("results", {}).get("bindings", [])
+             owner_level = levels[0]
+     except Exception as exc:
+         logger.warning("person-level query failed for %s: %s", person_uri, exc)
+     bindings = [
+         b for b in result.get("results", {}).get("bindings", [])
+-        if not _pr.outbound_hidden(destination=destination, record=
 +        if not pwg_privacy.is_l3(
-+            {"privacy_level": b.get("fpriv", {}).get("value")},
-+            owner_level=owner_level)
-+    ]
-     if not bindings:
-         return ""
-     conv_uri = bindings[0].get("conv", {}).get("value", "")
-@@ -380,12 +420,21 @@
+             {"privacy_level": b.get("fpriv", {}).get("value")},
+             owner_level=owner_level)
+     ]
+@@ -415,7 +408,7 @@
+     return ""
+ 
+ 
+-def _get_outstanding_todos(oxigraph_url, person_uri, destination=None):
++def _get_outstanding_todos(oxigraph_url, person_uri):
+     """Outstanding todos that mention this attendee, most recent first.
+ 
+     Queries the ``pwg:OutstandingTodo`` triples CM048's ingest writes.
+@@ -427,12 +420,21 @@
      Returns a list of dicts shaped for direct inclusion in the brief
      payload. Status filter is ``open`` so closed-out todos do not
      clutter the brief once v1.0.1 wires the closure pass.
@@ -175,7 +236,7 @@
        ?todo a <urn:ostler:OutstandingTodo> ;
              <urn:ostler:aboutPerson> <{person}> ;
              <urn:ostler:todoText> ?text ;
-@@ -396,16 +445,13 @@
+@@ -443,17 +445,13 @@
        OPTIONAL {{ ?todo <urn:ostler:priority> ?priority }}
        OPTIONAL {{ ?todo <urn:ostler:sourceConversationDate> ?sourceDate }}
        OPTIONAL {{ ?todo <urn:ostler:todoCreatedAt> ?createdAt }}
@@ -185,8 +246,9 @@
 -    sparql = (
 -        "PREFIX pwg: <urn:ostler:>\n"
 -        "SELECT DISTINCT ?todo ?text ?owner ?ownerDisplay ?deadline ?priority\n"
--        "       ?status ?sourceDate ?createdAt WHERE {\n"
+-        "       ?status ?sourceDate ?createdAt ?tlvl WHERE {\n"
 -        + read_across_graphs(body)
+-        + "\n" + _pr.optional_level("todo", "tlvl")
 -        + "\n}\nORDER BY DESC(?createdAt)\n"
 -        + "LIMIT {:d}".format(_MAX_TODOS_PER_ATTENDEE)
 -    )
@@ -198,11 +260,23 @@
      try:
          result = _sparql_query(oxigraph_url, sparql)
      except Exception as exc:
-@@ -432,7 +478,19 @@
+@@ -461,11 +459,6 @@
+         return []
+     todos = []
+     for b in result.get("results", {}).get("bindings", []):
+-        # Same outbound gate as the facts: a todo's own level decides, and an
+-        # untagged todo is canonical L3 (never in the owner_own_brief brief).
+-        if _pr.outbound_hidden({"privacy_level": b.get("tlvl", {}).get("value")},
+-                               destination=destination):
+-            continue
+         deadline = b.get("deadline", {}).get("value", "")
+         todo = {
+             "text": b.get("text", {}).get("value", ""),
+@@ -485,7 +478,19 @@
      return todos
  
  
--def pre_meeting_brief(days=1, events_provider=None):
+-def pre_meeting_brief(days=1, events_provider=None, destination=None):
 +def _owner_declined(attendees, owner_emails):
 +    """True when an owner address is listed on the event with PARTSTAT /
 +    responseStatus DECLINED. Both calendar paths expose that as ``status``
@@ -219,7 +293,7 @@
      """Generate pre-meeting briefs for upcoming meetings with attendees.
  
      See ``SCHEMA.md`` for the wire shape this function returns. The
-@@ -441,16 +499,26 @@
+@@ -494,16 +499,26 @@
      ``attendees`` top-level shape, where each attendee has
      ``name`` / ``wiki_url`` / ``facts`` / ``times_met`` /
      ``last_met`` / ``last_discussion_url`` / ``outstanding_todos``.
@@ -248,7 +322,7 @@
      if not events:
          return []
  
-@@ -461,7 +529,18 @@
+@@ -514,7 +529,18 @@
              a for a in attendees
              if a.get("email", "").lower() not in owner_emails
          ]
@@ -268,6 +342,47 @@
              continue
  
          location = event.get("location", "")
+@@ -562,10 +588,9 @@
+                     attendee_info["organization"] = person["organization"]
+                     attendee_info["relationship"] = person["relationship"]
+                     attendee_info["facts"] = _get_person_facts(
+-                        oxigraph_url, person["uri"], destination=destination
++                        oxigraph_url, person["uri"]
+                     )
+-                    history = _get_meeting_history(
+-                        oxigraph_url, person["uri"], destination=destination)
++                    history = _get_meeting_history(oxigraph_url, person["uri"])
+                     attendee_info["times_met"] = len(history)
+                     if history:
+                         attendee_info["last_met"] = history[0].get("date", "")[:10]
+@@ -574,7 +599,7 @@
+                     # yet (e.g. contact pulled from iCloud but never
+                     # spoken to via a captured channel).
+                     last_conv_id = _get_last_conversation_id(
+-                        oxigraph_url, person["uri"], destination=destination
++                        oxigraph_url, person["uri"]
+                     )
+                     if last_conv_id:
+                         attendee_info["last_discussion_url"] = (
+@@ -583,7 +608,7 @@
+                         attendee_info["last_discussion_id"] = last_conv_id
+                     # Outstanding todos cross-linked to this attendee.
+                     attendee_info["outstanding_todos"] = _get_outstanding_todos(
+-                        oxigraph_url, person["uri"], destination=destination
++                        oxigraph_url, person["uri"]
+                     )
+                 else:
+                     attendee_info["known"] = False
+@@ -707,8 +732,7 @@
+     parser.add_argument("--json", action="store_true", help="Output as JSON")
+     args = parser.parse_args()
+ 
+-    # The CLI brief is the owner's own brief: it declares owner_own_brief.
+-    briefs = pre_meeting_brief(days=args.days, destination=OWNER_BRIEF_DESTINATION)
++    briefs = pre_meeting_brief(days=args.days)
+     if args.json:
+         print(json.dumps(briefs, indent=2))
+     else:
 --- a/calendar_client.py
 +++ b/calendar_client.py
 @@ -2,14 +2,31 @@
@@ -346,70 +461,3 @@
  QDRANT_URL = os.environ.get("QDRANT_URL", "")
  QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "people")
  OXIGRAPH_URL = os.environ.get("OXIGRAPH_URL", "")
---- a/syncer.py
-+++ b/syncer.py
-@@ -252,7 +252,12 @@
-                         points=[point.id],
-                     )
-             except Exception as e:
--                logger.warning("Failed to update Qdrant lastContact for %s: %s", person_uri, e)
-+                # Neither the person URI nor the exception text (S8, 118). Some
-+                # writers mint the URI from a hash of the display name
-+                # (contact_syncer/linkedin_career.py _deterministic_id), which a
-+                # known name confirms, and a hash of the URI would confirm just
-+                # the same. The exception text can echo the request payload.
-+                logger.warning("Failed to update Qdrant lastContact: %s", type(e).__name__)
- 
-     # Local parts of attendee emails that indicate system/event accounts,
-     # not humans. Used to skip creating phantom "person" nodes for event
-@@ -372,9 +377,11 @@
-             return None
- 
-         if self._looks_non_human(name, email):
-+            # Never the name or address (S8, 118): logs leave the box in
-+            # diagnostics bundles. Which fields were present is enough.
-             logger.info(
--                "  Skipping non-human attendee: %s <%s>",
--                name or "(no name)", email or "(no email)",
-+                "  Skipping a non-human attendee (name=%s, email=%s)",
-+                "yes" if name else "no", "yes" if email else "no",
-             )
-             return None
- 
-@@ -402,7 +409,9 @@
- 
-         # Create new person
-         person_uri = self.resolver.create_person(identity, config.USER_ID)
--        logger.info("  Created person: %s (%s)", name or email, person_uri)
-+        # No name, email or URI (S8, 118): the URI is not always opaque (see
-+        # the lastContact warning above). The run summary carries the counts.
-+        logger.info("  Created a person")
-         return person_uri
- 
-     def sync(self, days=30, dry_run=False):
-@@ -448,7 +457,6 @@
-                 skipped += 1
-                 continue
- 
--            summary = event.get("summary", "(no title)")
-             meeting_date = _parse_event_datetime(event.get("start"))
-             attendees = event.get("attendees", [])
- 
-@@ -462,11 +470,14 @@
-                 processed.add(uid)
-                 continue
- 
--            logger.info("  Meeting: %s (%s) — %d attendees", summary, meeting_date or "?", len(other_attendees))
-+            # The meeting's hashed id, never its title: a title often carries a
-+            # person's name ("Lunch with ...") (S8, 118).
-+            logger.info("  Meeting %s (%s): %d attendees",
-+                        _meeting_uri(uid), meeting_date or "?", len(other_attendees))
- 
-             if dry_run:
--                for a in other_attendees:
--                    logger.info("    [DRY RUN] %s <%s>", a.get("name", ""), a.get("email", ""))
-+                # A count, never each attendee's name or address (S8, 118).
-+                logger.info("    [DRY RUN] would link %d attendees", len(other_attendees))
-                 processed.add(uid)
-                 meetings_created += 1
-                 continue

@@ -67,6 +67,11 @@ except ImportError:  # root on sys.path (ical-server, brief, tests)
     import privacy_scale as _scale
 
 VALID_PRIVACY_LEVELS = frozenset(_scale.LEVELS)
+# The two ends and the middle of the scale, by meaning rank, read from the
+# table (privacy scale #297; used by the topic-mention verdict).
+LEAST_PRIVATE = min(_scale.LEVELS, key=_scale.RANK.__getitem__)
+MOST_PRIVATE = _scale.DEFAULT_LEVEL  # the fail-closed level
+MIDDLE_LEVELS = tuple(l for l in _scale.LEVELS if l not in (LEAST_PRIVATE, MOST_PRIVATE))
 
 # Privacy-level keys a per-fact dict might carry. A Qdrant payload fact stores
 # it snake-cased; an Oxigraph-mirrored fact could arrive under any spelling.

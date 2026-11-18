@@ -5044,12 +5044,11 @@ def _assert_resolve_and_write(subject, fact_text, relationship, asserted_via,
     _t0 = _time.monotonic()
     search_timed_out = False
     try:
-        # On-box identity resolution: the matches never leave the box, and
-        # every person must be visible here (untagged is canonical L3), or an
-        # assert about a known person mints a duplicate. CM051 divergence from
-        # CM041 6c5f709, which passes no destination (unknown, strictest row).
+        # The owner's own assertion is an owner_local read (CM041 #296
+        # follow-up, 2026-11-18). Undeclared = unknown = L2 withheld, so a
+        # known L2 person was missed and a duplicate node was minted.
         search = people_search(subject, limit=5, timeout=budget,
-                               destination="owner_local")
+                               destination=pwg_privacy.OWNER_LOCAL)
     except Exception as exc:
         if not _is_timeout(exc):
             return {
@@ -5656,19 +5655,21 @@ def _memory_query_facts() -> list:
     sparql = (
         'PREFIX pwg: <{ns}>\n'
         'SELECT DISTINCT ?fact ?text ?source ?domain ?conf ?validFrom ?about ?aboutName '
+        '?fpriv ?ownerPriv '
         'WHERE {{\n'
-        '  {{\n'
-        '    ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
-        '    {{ ?fact pwg:aboutPerson <{user}> }}\n'
-        '    UNION\n'
-        '    {{ ?fact pwg:belongsToUser <{user}> }}\n'
-        '    OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
-        '               OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
-        '    OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
-        '    OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
-        '    OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
-        '    OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
-        '    FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
+        '  ?fact a pwg:PersonFact ; pwg:factText ?text .\n'
+        '  {{ ?fact pwg:aboutPerson <{user}> }}\n'
+        '  UNION\n'
+        '  {{ ?fact pwg:belongsToUser <{user}> }}\n'
+        '  OPTIONAL {{ ?fact pwg:aboutPerson ?about .\n'
+        '             OPTIONAL {{ ?about pwg:displayName ?aboutName }} }}\n'
+        '  OPTIONAL {{ ?fact pwg:factSource ?source }}\n'
+        '  OPTIONAL {{ ?fact pwg:factDomain ?domain }}\n'
+        '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
+        '  OPTIONAL {{ ?fact pwg:validFrom ?validFrom }}\n'
+        '  {pf_fact}\n'
+        '  {pf_owner}\n'
+        '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?end }}\n'
         '  }} UNION {{\n'
         '    GRAPH ?g {{\n'
         '      ?fact a <urn:ostler:Fact> ;\n'
@@ -5681,7 +5682,7 @@ def _memory_query_facts() -> list:
         '      OPTIONAL {{ ?fact <urn:ostler:signalStrength> ?signal }}\n'
         '    }}\n'
         '    FILTER (LCASE(STR(?uid)) = "{user_id}")\n'
-        '    FILTER (!BOUND(?privacy) || UCASE(STR(?privacy)) != "L3")\n'
+        '    BIND(?privacy AS ?fpriv)\n'
         # CM048 grades a fact qualitatively; the consumer wants a float and
         # falls back to 0.5 on anything unparseable. Mapping here keeps the
         # ordering CM048 intended instead of flattening all 990 to the
@@ -5690,7 +5691,14 @@ def _memory_query_facts() -> list:
         '         IF(STR(?signal) = "medium", 0.6,\n'
         '         IF(STR(?signal) = "weak", 0.3, ?unmapped))) AS ?conf)\n'
         '  }}\n'
-        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID)
+        '}}'.format(ns=PWG_NS, user=USER_URI, user_id=USER_ID,
+                    # The fact's own level and the owner node's (Archie
+                    # 2026-11-17): api_memory_list gates every row through
+                    # the shared table for the request's destination. The
+                    # CM048 arm has no owner node, so its owner level is
+                    # unbound and reads as L3 (fail closed).
+                    pf_fact=_pr.optional_level("fact", "fpriv"),
+                    pf_owner=_pr.optional_level_iri(USER_URI, "ownerPriv"))
     )
     return _sparql_select(sparql)
 
@@ -6250,7 +6258,7 @@ def _current_employer_safe(outbound: bool = False, destination=None) -> dict:
         return {"found": False}
 
 
-def api_memory_list():
+def api_memory_list(destination=None):
     """Handle GET /api/v1/memory.
 
     Returns the user's own facts overlaid with any user-applied
@@ -6259,6 +6267,11 @@ def api_memory_list():
     with ``{"facts": [], "count": 0, "degraded": true, "reason": ...}``
     so the iOS Memory tab can decide between empty-state and
     degraded-banner UX.
+
+    Privacy: each fact is served only when the shared table lets its level
+    leave for ``destination`` (undeclared = ``unknown``); ``withheld_private``
+    counts the facts withheld for it. The degraded shapes carry no count:
+    nothing was checked.
 
     USER_ID guard: a Hub with no USER_ID configured cannot answer this
     endpoint meaningfully (we'd return a global fact dump). We return
@@ -6290,7 +6303,6 @@ def api_memory_list():
     # Routed through the canonical ostler_hygiene reader (Phase 2); the
     # employer resolver's own inline overlay is orthogonal.
     hygiene, verdicts = _hygiene_overlay()
-
     # F12b (cut #17 iOS walk): the userId / belongsToUser scoping above says
     # whose MEMORY a fact is in, not who it is ABOUT. "About you" listed a
     # contact speaking at an event and a relative's job as the owner's. A
@@ -6302,6 +6314,14 @@ def api_memory_list():
 
     out = []
     others = []
+    # Facts this destination may not see (Archie 2026-11-17). Every Hub
+    # route is outbound: each row's own level and the owner node's go
+    # through the shared table (may_leave) for the request's destination,
+    # and a missing level is L3. L3 is served to owner_local only (this
+    # Mac's loopback, labelled "private"); the iPhone is off-box even with
+    # the owner bearer. The count lets the app say "N private items, see
+    # the Hub" instead of looking empty.
+    withheld_private = 0
     for row in raw_facts:
         uri = row.get("fact", "")
         about = (row.get("about") or "").strip()
@@ -6311,6 +6331,8 @@ def api_memory_list():
             # exactly like a user "forget" (the source triple stays put).
             continue
         fact_id = _memory_fact_id(uri)
+        _rec = {"privacy_level": _pr.level_input(row.get("fpriv"))}
+        _owner_lvl = _pr.level_input(row.get("ownerPriv"))
         text = row.get("text", "") or ""
         source = row.get("source", "") or ""
         domain = row.get("domain", "") or "fact"
@@ -6342,6 +6364,11 @@ def api_memory_list():
                 source = "user_correction"
                 corrected = True
 
+        # After forget/hygiene, so the count is only what privacy withheld.
+        if _pr.outbound_hidden(_rec, _owner_lvl, destination):
+            withheld_private += 1
+            continue
+
         (out if about_owner else others).append({
             "id": fact_id,
             "predicate": domain,
@@ -6357,9 +6384,355 @@ def api_memory_list():
             # Private sort key (hygiene effectiveWeight or confidence);
             # popped before the response so the wire shape is unchanged.
             "_rank": rank,
+            **_pr.label_for(_rec, _owner_lvl, destination),
             **({} if about_owner else {
                 "about_name": (row.get("aboutName") or "").strip(),
             }),
+        })
+
+    # An owner instruction lives in the corrections DB, not Oxigraph. It is
+    # gated like every row (no missing-level exception) and its withheld
+    # rows are counted into the same tally.
+    _instr_withheld = [0]
+    out.extend(_owner_instruction_facts(destination, _instr_withheld))
+    withheld_private += _instr_withheld[0]
+    # Sort by (rank desc, valid_from desc) where rank is the hygiene
+    # overlay's effectiveWeight when present, else raw confidence
+    # (unchanged pre-hygiene ordering). Stable for ties so the order
+    # stays deterministic between calls -- the iOS list uses the order
+    # to drive its diffable data source.
+    out.sort(
+        key=lambda f: (f["_rank"], f["valid_from"]),
+        reverse=True,
+    )
+    out = out[:MEMORY_LIMIT]
+    others.sort(key=lambda f: (f["_rank"], f["valid_from"]), reverse=True)
+    others = others[:MEMORY_LIMIT]
+    for f in out + others:
+        f.pop("_rank", None)
+    response = {"facts": out, "count": len(out), "about_others": others,
+                "withheld_private": withheld_private}
+    # Overlay the deterministically-resolved current employer so the
+    # brief LLM never has to guess it from the flat fact list. Guarded:
+    # a failure here must not degrade the Memory tab.
+    # The employer leaves the box like every Hub route: it is resolved for
+    # the request's declared destination through may_leave (via the
+    # outbound career-fact filter), so an L2 or L3 employer never reaches a
+    # caller that did not declare an own-channel destination. Undeclared
+    # (``None``) is ``unknown``, the strictest row.
+    employer = _current_employer_safe(outbound=True, destination=destination)
+    if employer.get("found"):
+        response["current_employer"] = employer
+    return response
+
+
+# ── Owner instructions (durable, Memory-tab visible) ────────────────
+# A standing instruction the owner gives in chat ("ignore calendar Work for
+# notifications", "don't nudge me about Jane") is stored here, in the same
+# encrypted corrections database as the Memory tab, so the tab can show it
+# and the forget action can undo it. Consumers (the daily brief) read the
+# ACTIVE rows at run time; nothing is cached in the consumer.
+#
+# A person is stored by URI, never by name. A name that matches more than one
+# person (or none) writes nothing: the caller is told the candidates and asks
+# the owner which one. Contract: assistant_api/contracts/owner_instructions_v1.json.
+OWNER_INSTRUCTION_KINDS = ("exclude_calendar", "mute_person")
+OWNER_INSTRUCTION_VALUE_MAX = 200
+_OWNER_INSTRUCTION_COLUMNS = {"person_uri": "TEXT", "person_name": "TEXT"}
+
+
+def _owner_instructions_ensure(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS owner_instructions (\n"
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "  kind TEXT NOT NULL,\n"
+        "  value TEXT NOT NULL,\n"
+        "  source_turn TEXT,\n"
+        "  created_at TEXT NOT NULL,\n"
+        "  cancelled_at TEXT,\n"
+        "  person_uri TEXT,\n"
+        "  person_name TEXT\n"
+        ")"
+    )
+    # Older stores predate the person columns; add them in place.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(owner_instructions)").fetchall()}
+    for col, typ in _OWNER_INSTRUCTION_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE owner_instructions ADD COLUMN {col} {typ}")
+    conn.commit()
+
+
+_OI_SELECT = (
+    "SELECT id, kind, value, source_turn, created_at, person_uri, person_name "
+    "FROM owner_instructions "
+)
+
+
+def _owner_instruction_row(row) -> dict:
+    out = {
+        "id": int(row[0]),
+        "kind": row[1],
+        "value": row[2],
+        "source_turn": row[3] or "",
+        "created_at": row[4],
+        "person_uri": row[5],
+        "person_name": row[6],
+    }
+    if out["kind"] == "mute_person":
+        out["value"] = row[6] or row[2]
+    return out
+
+
+def _persons_named(name: str) -> list:
+    """Every Person whose displayName equals ``name`` (case-insensitive).
+
+    Returns ``[{"uri": ..., "name": ...}]``. Raises when the graph cannot be
+    read: the caller must then write nothing, never guess.
+    """
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'
+        'SELECT ?person ?name WHERE {{\n'
+        '  ?person a pwg:Person ; pwg:displayName ?name .\n'
+        '  FILTER(lcase(str(?name)) = lcase("{name}"))\n'
+        '}}'.format(ns=PWG_NS, name=_sparql_escape_literal(name))
+    )
+    seen, out = set(), []
+    for r in rows or []:
+        uri = r.get("person")
+        if uri and uri not in seen:
+            seen.add(uri)
+            out.append({"uri": uri, "name": r.get("name") or name})
+    return out
+
+
+def _clean_instruction_value(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    v = value.strip()
+    return v if len(v) <= OWNER_INSTRUCTION_VALUE_MAX else None
+
+
+CALENDAR_NAME_WINDOW_DAYS = 14
+
+
+def _calendar_names_seen(days=CALENDAR_NAME_WINDOW_DAYS) -> list:
+    """The distinct calendar names on the feeds' events in the window.
+
+    These are the names the daily brief matches an exclusion against. A
+    calendar with no event in the window is not seen, so the caller's reply
+    lists the names it CAN see. Raises when the feeds cannot be read.
+    """
+    names = set()
+    for event in calendar_payload(days).get("events", []):
+        name = event.get("calendar")
+        if isinstance(name, str) and name.strip():
+            names.add(name.strip())
+    return sorted(names, key=str.casefold)
+
+
+def owner_instruction_add(payload: dict, now=None):
+    """Handle POST /api/v1/owner-instructions. Idempotent per target.
+
+    exclude_calendar: keyed on the calendar name.
+    mute_person: keyed on the person URI. A ``person_uri`` in the body must be
+    one of the candidates for ``value``; without it, exactly one match is
+    needed. Zero matches -> 404 ``no_match``; several -> 409 ``ambiguous``.
+    In both cases nothing is written and ``candidates`` lists the people.
+    """
+    if not isinstance(payload, dict):
+        return {"error": "body must be an object"}, 400
+    kind = payload.get("kind")
+    source_turn = payload.get("source_turn")
+    if kind not in OWNER_INSTRUCTION_KINDS:
+        return {"error": "kind must be one of " + ", ".join(OWNER_INSTRUCTION_KINDS)}, 400
+    value = _clean_instruction_value(payload.get("value"))
+    if value is None:
+        return {"error": "value must be a non-empty string of at most 200 characters"}, 400
+    now = now or (datetime.utcnow().isoformat() + "Z")
+
+    if kind == "exclude_calendar":
+        # A rule must name a calendar the feeds carry, or it matches nothing
+        # and the owner is told it was saved. Refused calls write nothing.
+        try:
+            names = _calendar_names_seen()
+        except Exception as exc:
+            return {"ok": False, "degraded": True,
+                    "reason": f"calendars_unreadable: {exc}"}, 503
+        if not names:
+            return {"ok": False, "degraded": True,
+                    "reason": "calendars_unreadable: no calendar names on the feeds"}, 503
+        if value.casefold() not in {n.casefold() for n in names}:
+            # Not seen in the window: the calendar may exist but has no event
+            # here, so the reply says "not seen recently", not "no match".
+            return {"ok": False, "error": "not_seen_recently",
+                    "candidates": [{"name": n} for n in names]}, 404
+
+    person_uri, person_name = None, None
+    if kind == "mute_person":
+        try:
+            found = _persons_named(value)
+        except Exception as exc:
+            return {"ok": False, "degraded": True,
+                    "reason": f"graph_unreachable: {exc}"}, 503
+        wanted = payload.get("person_uri")
+        if isinstance(wanted, str) and wanted.strip():
+            hit = [c for c in found if c["uri"] == wanted.strip()]
+            if not hit:
+                return {"ok": False, "error": "person_uri is not a match for this name",
+                        "candidates": found}, 409
+        else:
+            if not found:
+                return {"ok": False, "error": "no_match", "candidates": []}, 404
+            if len(found) > 1:
+                return {"ok": False, "error": "ambiguous", "candidates": found}, 409
+            hit = found
+        person_uri, person_name = hit[0]["uri"], hit[0]["name"]
+        value = person_name
+
+    try:
+        conn = _memory_corrections_connect()
+    except Exception as exc:
+        return {"ok": False, "degraded": True,
+                "reason": f"corrections_db_unreachable: {exc}"}, 503
+    try:
+        _owner_instructions_ensure(conn)
+        if kind == "mute_person":
+            hit_row = conn.execute(
+                _OI_SELECT + "WHERE kind = ? AND person_uri = ? AND cancelled_at IS NULL",
+                (kind, person_uri)).fetchone()
+        else:
+            hit_row = conn.execute(
+                _OI_SELECT + "WHERE kind = ? AND value = ? AND cancelled_at IS NULL",
+                (kind, value)).fetchone()
+        if hit_row:
+            return {"ok": True, "created": False,
+                    "instruction": _owner_instruction_row(hit_row)}, 200
+        cur = conn.execute(
+            "INSERT INTO owner_instructions "
+            "(kind, value, source_turn, created_at, person_uri, person_name) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (kind, value, str(source_turn or ""), now, person_uri, person_name),
+        )
+        conn.commit()
+        row = conn.execute(_OI_SELECT + "WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return {"ok": True, "created": True,
+                "instruction": _owner_instruction_row(row)}, 200
+    except Exception as exc:
+        return {"ok": False, "degraded": True,
+                "reason": f"corrections_db_write_failed: {exc}"}, 503
+    finally:
+        conn.close()
+
+
+def owner_instructions_active() -> dict:
+    """Handle GET /api/v1/owner-instructions: the ACTIVE instructions.
+
+    Never silent: a read failure returns degraded=true with a reason, so a
+    consumer can tell "no instructions" from "could not check".
+    """
+    if not MEMORY_CORRECTIONS_DB.exists():
+        return {"instructions": [], "degraded": False}, 200
+    try:
+        conn = _memory_corrections_connect()
+        _owner_instructions_ensure(conn)
+        rows = conn.execute(
+            _OI_SELECT + "WHERE cancelled_at IS NULL ORDER BY id").fetchall()
+        conn.close()
+    except Exception as exc:
+        return {"instructions": [], "degraded": True,
+                "reason": f"corrections_db_unreadable: {exc}"}, 503
+    return {"instructions": [_owner_instruction_row(r) for r in rows],
+            "degraded": False}, 200
+
+
+def owner_instruction_cancel(payload: dict, now=None):
+    """Handle POST /api/v1/owner-instructions/cancel (the chat undo).
+
+    Body: {"id": "instr_<n>"}, or {"kind": ..., "value": ...}. A mute is
+    cancelled by its name (the stored display name) or its ``person_uri``.
+    Cancelling never deletes the row: cancelled_at is the audit trail.
+    """
+    if not isinstance(payload, dict):
+        return {"error": "body must be an object"}, 400
+    now = now or (datetime.utcnow().isoformat() + "Z")
+    try:
+        conn = _memory_corrections_connect()
+    except Exception as exc:
+        return {"ok": False, "degraded": True,
+                "reason": f"corrections_db_unreachable: {exc}"}, 503
+    try:
+        _owner_instructions_ensure(conn)
+        if payload.get("id") is not None:
+            ident = str(payload["id"])
+            if ident.startswith("instr_"):
+                ident = ident[len("instr_"):]
+            if not ident.isdigit():
+                return {"error": "id must be instr_<n>"}, 400
+            cur = conn.execute(
+                "UPDATE owner_instructions SET cancelled_at = ? "
+                "WHERE id = ? AND cancelled_at IS NULL", (now, int(ident)))
+        else:
+            kind = payload.get("kind")
+            value = _clean_instruction_value(payload.get("value"))
+            if kind not in OWNER_INSTRUCTION_KINDS or value is None:
+                return {"error": "need kind and value, or id"}, 400
+            if kind == "mute_person":
+                cur = conn.execute(
+                    "UPDATE owner_instructions SET cancelled_at = ? "
+                    "WHERE kind = ? AND cancelled_at IS NULL "
+                    # SQLite has lower(), not lcase(): lcase() is a 503 here.
+                    "AND (lower(person_name) = lower(?) OR person_uri = ?)",
+                    (now, kind, value, value))
+            else:
+                cur = conn.execute(
+                    "UPDATE owner_instructions SET cancelled_at = ? "
+                    "WHERE kind = ? AND value = ? AND cancelled_at IS NULL",
+                    (now, kind, value))
+        conn.commit()
+        return {"ok": True, "cancelled": cur.rowcount}, 200
+    except Exception as exc:
+        return {"ok": False, "degraded": True,
+                "reason": f"corrections_db_write_failed: {exc}"}, 503
+    finally:
+        conn.close()
+
+
+_OWNER_INSTRUCTION_TEXT = {
+    "exclude_calendar": 'Ostler leaves the calendar "{v}" out of your daily brief',
+    "mute_person": "Ostler does not nudge you about {v}",
+}
+
+
+def _owner_instruction_facts(destination=None, withheld=None) -> list:
+    """The active instructions shaped as Memory-tab facts (id instr_<n>),
+    gated for ``destination`` like any other Memory row (Archie 2026-11-17).
+
+    An instruction row's level is its ``privacy_level`` field; a row with
+    none is L3 by the fail-closed default (no exception for instructions),
+    so it reaches owner_local only, labelled "private". ``withheld`` (a
+    one-item list) is incremented per row held back, when given.
+    """
+    listed, _status = owner_instructions_active()
+    out = []
+    for r in listed.get("instructions", []):
+        # The row itself is the record: effective_level reads its level
+        # field(s); none at all is ABSENT, i.e. L3.
+        _rec = r
+        if _pr.outbound_hidden(_rec, None, destination):
+            if withheld is not None:
+                withheld[0] += 1
+            continue
+        out.append({
+            "id": f"instr_{r['id']}",
+            "predicate": r["kind"],
+            "object": _OWNER_INSTRUCTION_TEXT[r["kind"]].format(v=r["value"]),
+            "source": "owner_instruction",
+            "source_label": "you told Ostler",
+            "confidence": 1.0,
+            "corrected": False,
+            "valid_from": r["created_at"],
+            "_rank": 1.0,
+            **_pr.label_for(_rec, None, destination),
         })
 
     # Sort by (rank desc, valid_from desc) where rank is the hygiene
@@ -7882,13 +8255,13 @@ def _topic_mention_verdict(own, conv_levels):
     conversation level. Nothing readable anywhere is legacy_untagged: served
     and counted (the 133 rule)."""
     classes = [pwg_privacy._classify(x) for x in [own, *conv_levels]]
-    if "L3" in classes:
+    if pwg_privacy.MOST_PRIVATE in classes:
         return "l3"
     if "UNREADABLE" in classes:
         return "unknown"
-    if "L0" in classes:
+    if pwg_privacy.LEAST_PRIVATE in classes:
         return "l0"
-    if "L1" in classes or "L2" in classes:
+    if any(c in pwg_privacy.MIDDLE_LEVELS for c in classes):
         return "ok"
     return "legacy_untagged"
 
@@ -13404,9 +13777,12 @@ class Handler(BaseHTTPRequestHandler):
         super().end_headers()
 
     def _declare_destination(self, parsed):
+        # Header only (Archie 2026-11-17). A ``?destination=`` query string is
+        # IGNORED, never an error: a browser page can GET loopback with a query
+        # string and no CORS preflight, so a query value would be a drive-by
+        # owner_local claim. A custom header forces a preflight. ``parsed`` is
+        # kept in the signature for the callers and deliberately unread.
         declared = self.headers.get("X-Ostler-Destination")
-        if declared is None:
-            declared = parse_qs(parsed.query).get("destination", [None])[0]
         dest = pwg_privacy.resolve_destination(declared)
         # owner_local serves L3 (labelled). A request can only claim it from
         # this Mac's loopback: a remote caller declaring owner_local is read
@@ -14034,7 +14410,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/v1/memory":
             try:
-                result = api_memory_list()
+                result = api_memory_list(destination=self._destination)
             except Exception as exc:
                 result = {
                     "facts": [],

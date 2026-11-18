@@ -23,12 +23,18 @@ returns degraded=false.
 
 from __future__ import annotations
 
+import os as _os
+import sys as _sys
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Tuple
 
-import pwg_privacy  # the one outbound table; repo-root module, see ical-server.py
-import pwg_privacy_readers as _pr
+# pwg_privacy sits at the repo root (beside privacy_scale.py), as for ical-server.py.
+_REPO_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+import pwg_privacy  # noqa: E402  the one outbound table
+import pwg_privacy_readers as _pr  # noqa: E402
 
 CONTRACT_VERSION = "derived-preferences.v1"
 
