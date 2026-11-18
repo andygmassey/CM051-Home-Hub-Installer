@@ -138,10 +138,13 @@ async def test_A14_person_name_as_artist_is_refused(svc_and_sink):
 
 
 @pytest.mark.asyncio
-async def test_A15_author_field_person_name_is_not_sent(svc_and_sink):
+async def test_A15a_author_name_dropped_when_contact_store_unreadable(svc_and_sink):
+    # Archie 2026-11-18: the contact store is unreadable in this harness, so the creator
+    # cannot be checked and is dropped (title only). Fail closed. The READABLE case is
+    # test_vendored_enrich_person_names.py arm 5, where the author IS looked up.
     svc, sink = svc_and_sink
     await run_batch(svc, [pref("a15", "doe-book-title", "book", **L1, author="Jane Smith")])
-    assert not sent(sink, "Jane Smith"), f"author person name sent to openlibrary; calls={sink.calls}"
+    assert not sent(sink, "Jane Smith"), f"author name sent with contacts unreadable; calls={sink.calls}"
 
 
 @pytest.mark.asyncio

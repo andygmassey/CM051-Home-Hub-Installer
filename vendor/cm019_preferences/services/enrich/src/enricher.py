@@ -25,10 +25,15 @@ CREATOR_CATEGORIES = frozenset({"artist", "music", "track", "album", "book", "bo
 INTEREST_CATEGORIES = frozenset({"interest", "topic", "search_interest", "instagram_creator"})
 
 
-def _structured_creator(preference, category):
+PLAY_HISTORY_SOURCES = frozenset({"apple_music", "spotify"})
+
+
+def _structured_creator(preference, category, subject=""):
     """The creator name from a STRUCTURED field of a media record, or None.
-    Track/album: extra.artist. Book: the author field (or extra.author). Anything
-    else, including a free-text subject, is not a structured creator."""
+    Track/album: extra.artist. Book: the author field (or extra.author). A play-history
+    record (source apple_music or spotify) whose subject is "Artist - Track": the part
+    before the FIRST " - " is its artist (Archie 2026-11-18). Anything else, including a
+    free-text subject, is not a structured creator."""
     import json
     extra = preference.get("extra")
     if isinstance(extra, str):
@@ -39,6 +44,9 @@ def _structured_creator(preference, category):
     extra = extra if isinstance(extra, dict) else {}
     if category in ("music", "track", "album"):
         value = extra.get("artist")
+        if not (isinstance(value, str) and value.strip()) and category in ("music", "track"):
+            if preference.get("source") in PLAY_HISTORY_SOURCES and " - " in str(subject):
+                value = str(subject).split(" - ", 1)[0]
     elif category in ("book", "books"):
         value = preference.get("author") or extra.get("author")
     else:
@@ -274,6 +282,9 @@ class EnrichmentService:
         # Books - Open Library
         "book": "openlibrary",
         "books": "openlibrary",
+        # Albums: with a structured artist (extra.artist) the look-up is the creator query.
+        # Before this, "album" had no client at all, so album records were never enriched.
+        "album": "musicbrainz",
 
         # Films and television - Wikidata, because we ship no TMDB key.
         #
@@ -790,13 +801,14 @@ INSERT DATA {{
 
         # Person names (Archie 2026-11-18). A creator name goes out only from the
         # STRUCTURED creator field of a media record, never from a free-text label.
-        creator = _structured_creator(preference, category)
+        creator = _structured_creator(preference, category, subject)
         names = (await self._venue_contact_names()
                  if (category in CREATOR_CATEGORIES or category in INTEREST_CATEGORIES or creator)
                  else frozenset())
         if category in CREATOR_CATEGORIES:
             if creator is not None and names is None:
                 creator = None  # contacts unreadable: no creator name goes out, title only
+                self._count_creator("dropped_unreadable")
             if creator is not None and names is not None and contact_match(creator, names):
                 self._refuse("creator_is_contact")
                 return None
@@ -807,7 +819,14 @@ INSERT DATA {{
                 self._refuse("creator_free_text")  # "Artist - Track" carries a creator in free text
                 return None
         if category in INTEREST_CATEGORIES:
-            if person_shaped(subject) or (names is not None and contact_match(subject, names)):
+            # Unknown proper nouns (bands, films) are allowed. A string that matches a
+            # person in the owner's people graph (any pwg:Person displayName) is refused.
+            # If the graph cannot be read, fall back to the shape heuristic: never allow-all.
+            if names is None:
+                if person_shaped(subject):
+                    self._refuse("person_label_graph_unreadable")
+                    return None
+            elif contact_match(subject, names):
                 self._refuse("person_label")
                 return None
 
@@ -838,6 +857,8 @@ INSERT DATA {{
         # Route to client
         if client_name == "openlibrary":
             author = preference.get("author")  # If available
+            if author:
+                self._count_creator("looked_up")
             return await self._openlibrary.enrich(pref_id, subject, author)
 
         elif client_name == "tmdb":
@@ -870,6 +891,7 @@ INSERT DATA {{
 
         elif client_name == "musicbrainz" and preference.get("creator"):
             # The structured creator is the query: name and media type only.
+            self._count_creator("looked_up")
             return await self._musicbrainz.enrich(pref_id, preference["creator"], "artist")
 
         elif client_name == "musicbrainz":
@@ -1060,7 +1082,31 @@ INSERT DATA {{
 
         return None
 
+    def _count_creator(self, key: str) -> None:
+        counts = self.__dict__.setdefault("_creator_counts",
+                                          {"looked_up": 0, "dropped_unreadable": 0})
+        counts[key] = counts.get(key, 0) + 1
+
     async def enrich_batch(
+        self,
+        preferences: List[dict],
+        stats: EnrichmentStats,
+        deadline: Optional[datetime] = None,
+        work_allowance: Optional[int] = None,
+    ) -> List[EnrichmentResult]:
+        """Enrich a batch, then print the creator counts for THIS run (every run, so the
+        thin walk can see whether creator enrichment happened or was dropped)."""
+        before = dict(self.__dict__.get("_creator_counts", {}))
+        try:
+            return await self._enrich_batch_inner(preferences, stats, deadline, work_allowance)
+        finally:
+            now = self.__dict__.get("_creator_counts", {})
+            looked = now.get("looked_up", 0) - before.get("looked_up", 0)
+            dropped = now.get("dropped_unreadable", 0) - before.get("dropped_unreadable", 0)
+            logger.info("creators dropped: contact store unreadable: %d", dropped)
+            logger.info("creators looked up: %d", looked)
+
+    async def _enrich_batch_inner(
         self,
         preferences: List[dict],
         stats: EnrichmentStats,

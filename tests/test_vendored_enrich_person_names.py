@@ -34,10 +34,13 @@ _RealAsyncClient = httpx.AsyncClient
 STAMP = {"privacyScale": "canonical-2026-11"}
 # One contact stored "Last, First" so both orders are exercised.
 STORE_NAMES = ["Person, Seed"]
+STORE = {"mode": "people"}  # "people" = readable; "down" = unreadable
 
 
 def store_handler(request: httpx.Request) -> httpx.Response:
     body = request.content.decode("utf-8", "replace")
+    if "pwg:displayName" in body and STORE["mode"] == "down":
+        raise httpx.ConnectError("store unreadable", request=request)
     if "pwg:displayName" in body:
         rows = [{"name": {"type": "literal", "value": n}} for n in STORE_NAMES]
         return httpx.Response(200, json={"head": {"vars": ["name"]},
@@ -74,7 +77,8 @@ def _init(self, rec):
         setattr(self, name, rec)
 
 
-async def run_one_item(item):
+async def run_one_item(item, store="people"):
+    STORE["mode"] = store
     sink = []
     rec = Recorder(sink)
     with mock.patch.object(Enricher, "_consent_or_log", staticmethod(lambda ep: True)), \
@@ -95,6 +99,12 @@ def sent_anywhere(sink, text):
 
 
 ARMS = [
+    ("arm 5  store READABLE, creator matches no contact: author looked up (A15 flipped)",
+     rec_(7, "book", "doe-book-title", author="Jane Smith"),
+     lambda sink, r: ("enrich", ("syn-07", "doe-book-title", "Jane Smith")) in sink),
+    ("arm 6  store UNREADABLE: creator dropped, title still looked up",
+     rec_(8, "book", "doe-book-title", author="Jane Smith"),
+     lambda sink, r: not sent_anywhere(sink, "Jane Smith") and sent_anywhere(sink, "doe-book-title")),
     # (name, item, check(sink, refusals) -> bool)
     ("arm 1a author matches a contact, case variant: refused",
      rec_(1, "book", "seed book title", author="PERSON SEED"),
@@ -105,9 +115,26 @@ ARMS = [
     ("arm 1c author matches a contact, with diacritics and spaces: refused",
      rec_(3, "book", "seed book title", author="  Pérson   Séed "),
      lambda sink, r: not sent_anywhere(sink, "seed book title") and r.get("creator_is_contact") == 1),
-    ("arm 2  interest label that reads as a person's name: refused",
-     rec_(4, "interest", "Jane Smith"),
-     lambda sink, r: not sent_anywhere(sink, "Jane Smith") and r.get("person_label") == 1),
+    ("arm 2a interest matching a people-graph person (normalised): refused",
+     rec_(4, "interest", "SEED, person"),
+     lambda sink, r: not sent_anywhere(sink, "SEED, person") and r.get("person_label") == 1),
+    ("arm 2b interest band name, graph readable, no match: looked up",
+     rec_(9, "interest", "Radiohead"),
+     lambda sink, r: ("normalize_topic", ("Radiohead",)) in sink and not r),
+    ("arm 2c interest person-shaped, graph UNREADABLE: refused (shape fallback)",
+     rec_(10, "interest", "Jane Smith"),
+     lambda sink, r: not sent_anywhere(sink, "Jane Smith")
+     and r.get("person_label_graph_unreadable") == 1),
+    ("arm 7  play history (spotify) Artist - Track, artist matches a contact: refused",
+     rec_(12, "music", "person-seed - seed-track", source="spotify"),
+     lambda sink, r: not sent_anywhere(sink, "person-seed") and r.get("creator_is_contact") == 1),
+    ("arm 8  play history (apple_music) Artist - Track, no contact match: artist looked up",
+     rec_(13, "music", "Sam Doe - seed-track", source="apple_music"),
+     lambda sink, r: ("enrich", ("syn-13", "Sam Doe", "artist")) in sink
+     or ("enrich", ("Sam Doe", "artist")) in sink),
+    ("arm 9  no play-history source: Artist - Track stays refused (free text)",
+     rec_(14, "music", "Sam Doe - seed-track"),
+     lambda sink, r: not sent_anywhere(sink, "Sam Doe") and r.get("creator_free_text") == 1),
     ("arm 3  artist category subject (a creator as free text): refused",
      rec_(5, "artist", "Jane Smith"),
      lambda sink, r: not sent_anywhere(sink, "Jane Smith") and r.get("creator_free_text") == 1),
@@ -121,7 +148,8 @@ ARMS = [
 def main() -> int:
     failures = 0
     for name, item, check in ARMS:
-        sink, refusals = asyncio.run(run_one_item(item))
+        store = "down" if "UNREADABLE" in name or "graph UNREADABLE" in name else "people"
+        sink, refusals = asyncio.run(run_one_item(item, store))
         ok = check(sink, refusals)
         failures += 0 if ok else 1
         print(f"{'PASS' if ok else 'FAIL'} {name}: calls={len(sink)} refusals={refusals}")

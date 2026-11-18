@@ -550,3 +550,22 @@ Known limits, stated:
 - The medicine and finance/legal lists are deny-lists. They are incomplete.
 - Music subjects with " - " and no structured artist are no longer looked up. This is a regression on the subject-parsed path, by design of the ruling.
 - The `artist` category is no longer looked up from its subject.
+
+## 2026-11-18: yield, interest rule, play history, album dispatch, creator log (CB134, #3607)
+
+Archie's calls, accepted (source: the coordinator's messages of 2026-11-18, HKT afternoon):
+- Interest strings: refused only when they match a person in the owner's people graph (any `pwg:Person` displayName, normalised) or a contact. Bands and films are allowed. When the graph cannot be read, the shape heuristic (`person_shaped`) is the fallback: never allow-all.
+- Play history: a `music` or `track` record whose source is `apple_music` or `spotify` and whose subject is "Artist - Track" has its artist (the part before the FIRST " - ") treated as the structured creator. The contact, minor and content rules apply to that artist.
+- Creator rule A15 split: store unreadable, the creator is dropped (title only); store readable and no contact match, the author is looked up.
+- Album dispatch: `album` maps to `musicbrainz`. Before this the category had no client, so album records were never enriched.
+- Per-run log, every `enrich_batch`: `creators dropped: contact store unreadable: N` and `creators looked up: M`.
+
+Contact store reachability on an installed Hub (traced 2026-11-18, not run on a live box):
+- The loader reads Oxigraph at `settings.oxigraph_url` (`config.py`, default 127.0.0.1:7878).
+- The Oxigraph bearer is required since store auth became default (`install.sh` ~line 17839, "Oxigraph proxy bearer"; `install.sh` ~line 17705 seeds `oxigraph_token`).
+- The bearer is attached by the store-auth shim (`lib/ostler_store_auth.py`, `_ROUTES` port 7878, `httpx.AsyncClient.send` wrapper, secret from `~/.ostler/secrets/oxigraph_token`), loaded by a `.pth` in each venv (`install.sh` ~line 663-768).
+- Measured with a stand-in store that requires the bearer: without the shim the loader returns None (HTTP 401, fail closed); with the shim it returns the contact names.
+- The enrichment agent is OFF by default: `OSTLER_ENRICH_AGENT_ENABLED=0` (`install.sh` 13723), set only by an explicit customer "yes" (13727). So creator enrichment is zero on a customer box that did not opt in. On a box that opted in, it runs if the tick's venv has the `.pth`. NOT measured on a live installed Hub: CANNOT-RUN here.
+- The enrich log prints the creator counts on every run, so the thin walk can see which case happened.
+
+Yield, synthetic 210-item seed (`scratch/yield`, not in the repo): see the PR body for the per-client table.
