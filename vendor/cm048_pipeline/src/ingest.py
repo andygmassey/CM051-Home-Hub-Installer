@@ -336,7 +336,7 @@ def write_all(
         "minor_facts_skipped": 0,
     }
 
-    # Minor flag (Andy, 2026-10-19): no fact about a minor reaches a sink.
+    # Minor flag (owner decision, 2026-10-19): no fact about a minor reaches a sink.
     # Read BEFORE any write; an unreadable flag fails the step (it retries)
     # rather than writing facts it could not check. See src/minors.py.
     minor_index = None

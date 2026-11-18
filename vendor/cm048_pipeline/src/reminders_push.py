@@ -98,7 +98,7 @@ SKIP_REASON_L3 = "l3"
 SKIP_REASON_UNKNOWN_LEVEL = "unknown_privacy_level"
 SKIP_REASON_OWNER_OTHER = "owed_by_other"
 SKIP_REASON_EMPTY_TEXT = "empty_text"
-# Minor flag (Andy, 2026-10-19): a conversation with a person the owner
+# Minor flag (owner decision, 2026-10-19): a conversation with a person the owner
 # marked as a minor never auto-pushes a todo; one whose minor check could
 # not run does not push either (fail closed). Todos stay in todos.md.
 SKIP_REASON_MINOR = "minor_participant"

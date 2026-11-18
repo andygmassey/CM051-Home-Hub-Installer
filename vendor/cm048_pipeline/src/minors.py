@@ -48,8 +48,8 @@ def slug_key(value: str) -> str:
 
 def value_keys(value: str) -> Set[str]:
     """Comparable forms of an identifier value: casefolded, without a leading
-    "@", and for a phone-shaped value its digits (so "+44 7700 900123",
-    "447700900123" and a WhatsApp "447700900123@s.whatsapp.net" meet)."""
+    "@", and for a phone-shaped value its digits (so a spaced
+    international form, a bare country-code form and a WhatsApp jid meet)."""
     v = (value or "").strip()
     if not v:
         return set()

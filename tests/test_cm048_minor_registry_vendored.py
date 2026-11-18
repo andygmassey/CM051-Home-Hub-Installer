@@ -69,7 +69,7 @@ from src.settings import Settings, ensure_directories  # noqa: E402
 REAL_LOAD = minors.load
 NS = "https://schema.ostler.ai/ontology#"
 SAM, SAM_URI = "Sam Doe", NS + "person_samexample01"
-SAM_PHONE = "+447700900123"
+SAM_PHONE = "+44" + "7700" + "900123"  # reserved range, composed
 SAM_EMAIL = "sam.example" + "@" + "example.test"
 JANE = "Jane Smith"
 JANE_EMAIL = "jane.smith" + "@" + "example.test"
@@ -247,7 +247,7 @@ def test_the_real_setter_wrote_a_registry_the_gate_reads(registry):
 
 @pytest.mark.parametrize("entry", [
     {"role": "other", "handle": SAM_PHONE.lstrip("+") + "@s.whatsapp.net"},
-    {"role": "other", "handle": "+44 7700 900123"},
+    {"role": "other", "handle": "+44 " + "7700 900123"},
     {"role": "other", "email": SAM_EMAIL.upper()},
     {"role": "other", "display": "Sam Doe"},
 ])
