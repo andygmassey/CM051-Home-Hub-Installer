@@ -18,7 +18,7 @@ turn.
 | Upstream path | `scripts/generate_pwg_context.py` |
 | Original vendor commit | `f441f09f` (feat(assistant): inject personal-graph CONTEXT.md digest + lookup guidance) |
 | Original SHA-256 | `58d0c5e31d899ad994fb9413bd8d6d511d27433c84acaf01cff7119b2254a613` (pre-graft, historical) |
-| Current SHA-256 | `eb1b4edbda7fba3536c18e06fcee9690840e4013a9fe89db249372037e7b51ea` (post-graft, this repo, after item 14 size cap keeps Preferences AND item 13 / outbound-L3 fail-closed read in _meeting_rows; recomputed on the merged file) |
+| Current SHA-256 | `b72e7475aaa37012ac3d86ab6ff3a06428d5c375c49b80d14bd61437ee50cffb` (post-graft, this repo, after item 15 declared destination per model route, with the item 16 oa parity rules; recomputed on the merged file) |
 | Vendored | 2026-06-02 (v1.0.1 launch-blocker #608) |
 | Diverged | 2026-06-28 (calendar-owner attribution, BATCH1 #3) |
 | Last divergence | 2026-11-02 (size cap trims lines not blocks and keeps Preferences, walk 121, item 14). Earlier: item 13 (2026-10-31, derived preferences) and item 11 (2026-10-18) and the owner brief (item 12). NOT upstream. |
@@ -249,6 +249,20 @@ the kind of blanket claim that goes stale one item at a time:
    in this digest" ("Shortened to fit the size cap"), never silently.
    Guarded by `context-refresh/tests/test_digest_size_cap_keeps_preferences.py`
    and `test_digest_cap_trims_lines_not_blocks.py`. A re-vendor from upstream
+   drops it.
+
+15. **The digest declares its destination by model route** (2026-11-18,
+   Archie ruling). NOT upstream. CONTEXT.md is injected into the system
+   prompt of whichever model answers, so every gated `_get_json` read now
+   sends `X-Ostler-Destination`: `owner_own_brief` when every configured
+   model is a loopback model on this Mac, otherwise `cloud_model`. The
+   route is computed once per run by `route_destination()` from the
+   assistant config. Anything unreadable, unknown or ambiguous (no config,
+   a model route, a `:cloud` model, a non-loopback `base_url`, an unknown
+   named fallback) fails closed to `cloud_model`. An undeclared read is
+   treated as the strictest row, so it would leave the digest empty. Guarded
+   by `context-refresh/tests/test_digest_declares_model_route.py`, wired in
+   `.github/workflows/context-digest-auth.yml`. A re-vendor from upstream
    drops it.
 
 ## Why vendored rather than shipped in the assistant release

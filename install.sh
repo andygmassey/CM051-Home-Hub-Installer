@@ -42621,7 +42621,7 @@ fi
 # point install.sh has run to completion against a verified licence,
 # so this is the canonical "after licence verification succeeds"
 # mount point in the post-install lifecycle. Wire the customer's Hub
-# to 30 days of Ostler Pro for free per the G0 subscription_gate
+# to 3 months (6 founding) of Ostler Pro per the G0 subscription_gate
 # contract (PR #190) -- single source of truth for whether ongoing
 # intelligence runs.
 #

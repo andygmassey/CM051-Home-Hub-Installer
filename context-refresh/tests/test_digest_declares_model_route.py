@@ -214,3 +214,57 @@ def test_mutant_that_drops_the_header_is_caught(home, monkeypatch):
     # The shared contract must FAIL on the mutant: this is the control.
     with pytest.raises(AssertionError):
         _assert_declares(mod, monkeypatch, "owner_own_brief")
+
+
+# ── oa parity (ostler-assistant PR #753): one arm per gap ────────────────────
+
+def _route(config: str, monkeypatch, env_url: str | None = None) -> str:
+    if env_url is None:
+        monkeypatch.delenv("ZEROCLAW_PROVIDER_URL", raising=False)
+    else:
+        monkeypatch.setenv("ZEROCLAW_PROVIDER_URL", env_url)
+    return _load("parity_route").route_destination(config)
+
+
+def test_agents_table_gives_cloud_when_its_provider_or_model_is_cloud(monkeypatch):
+    # Gap 1: [agents.*] was ignored, so a cloud agent read the on-box brief.
+    cloud_provider = ON_BOX + '\n[agents.helper]\nprovider = "anthropic"\nmodel = "synthetic-model"\n'
+    cloud_model = ON_BOX + '\n[agents.helper]\nprovider = "ollama"\nmodel = "qwen-synthetic:cloud"\n'
+    on_box_agent = ON_BOX + '\n[agents.helper]\nprovider = "ollama"\nmodel = "qwen-synthetic:9b"\n'
+    assert _route(cloud_provider, monkeypatch) == "cloud_model"
+    assert _route(cloud_model, monkeypatch) == "cloud_model"
+    assert _route(on_box_agent, monkeypatch) == "owner_own_brief"   # control
+
+
+def test_provider_url_env_pointing_off_box_gives_cloud(monkeypatch):
+    # Gap 2: ZEROCLAW_PROVIDER_URL overrides the configured ollama URL in oa.
+    assert _route(ON_BOX, monkeypatch, env_url="https://remote.example.invalid:11434") == "cloud_model"
+    assert _route(ON_BOX, monkeypatch, env_url="http://127.0.0.1:11434") == "owner_own_brief"  # control
+
+
+@pytest.mark.parametrize("model", ["qwen-synthetic-cloud", "qwen-synthetic:big-cloud", "qwen-synthetic:CLOUD"])
+def test_cloud_suffixes_beyond_colon_cloud_give_cloud(model, monkeypatch):
+    # Gap 3: oa matches the tag `cloud`, a tag ending `-cloud`, or a name ending `-cloud`.
+    cfg = ON_BOX.replace('model = "qwen-synthetic:9b"', f'model = "{model}"')
+    assert _route(cfg, monkeypatch) == "cloud_model"
+
+
+def test_zero_bind_address_is_not_loopback(monkeypatch):
+    # Gap 4: 0.0.0.0 is a bind address, not loopback, and oa does not count it.
+    cfg = ON_BOX.replace("http://localhost:11434", "http://0.0.0.0:11434")
+    assert _route(cfg, monkeypatch) == "cloud_model"
+    assert _route(ON_BOX, monkeypatch) == "owner_own_brief"  # control
+
+
+def test_mutant_that_drops_the_agents_check_is_caught(monkeypatch):
+    # Scratch proof: a generator with the agents read removed must go red.
+    real = _SCRIPT.read_text(encoding="utf-8")
+    needle = '    agents = cfg.get("agents")\n'
+    assert real.count(needle) == 1, "mutant anchor not found"
+    mutant = real.replace(needle, "    agents = None\n")
+    assert mutant != real, "mutation did not apply"
+    monkeypatch.delenv("ZEROCLAW_PROVIDER_URL", raising=False)
+    mod = _load("mutant_no_agents", source=mutant)
+    cloud_agent = ON_BOX + '\n[agents.helper]\nprovider = "anthropic"\nmodel = "synthetic-model"\n'
+    with pytest.raises(AssertionError):
+        assert mod.route_destination(cloud_agent) == "cloud_model"

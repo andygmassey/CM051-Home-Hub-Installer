@@ -505,7 +505,11 @@ def _today() -> datetime:
 DESTINATION_HEADER = "X-Ostler-Destination"
 DEST_ON_BOX = "owner_own_brief"
 DEST_CLOUD = "cloud_model"
-_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0")
+# Loopback and on-box rules mirror ostler-ai/ostler-assistant PR #753 (head 32c8782d):
+# hub_belt.rs ON_BOX_PROVIDERS / is_on_box_provider / is_cloud_model_name / url_is_loopback,
+# and tools/mod.rs config_reaches_cloud. Keep them in step with oa.
+_ON_BOX_PROVIDERS = ("ollama", "llamacpp", "llama.cpp", "lmstudio", "lm-studio", "vllm", "sglang", "osaurus")
+_PROVIDER_URL_ENV = "ZEROCLAW_PROVIDER_URL"
 _DESTINATION_CACHE: list[str] = []
 
 
@@ -550,17 +554,68 @@ def _parse_toml(text: str) -> dict:
     return root
 
 
-def _is_loopback_base(url: object) -> bool:
+def _url_is_loopback(url: str) -> bool:
+    """True only when the URL's host IS loopback. 0.0.0.0 is a bind address,
+    not loopback, so it is not. Forms the HTTP client accepts (127.1,
+    2130706433) count; a DNS name that merely starts with 127. does not."""
+    import ipaddress
+    import socket
     from urllib.parse import urlparse
-    if not isinstance(url, str) or not url.strip():
+    url = url.strip()
+    if "://" not in url:
+        url = "http://" + url
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
         return False
-    host = (urlparse(url.strip()).hostname or "").lower()
-    return host in _LOOPBACK_HOSTS
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host)).is_loopback
+    except (OSError, ValueError):
+        return False
+
+
+def _is_on_box_provider(name: object, api_url: object) -> bool:
+    """oa is_on_box_provider. Ollama honours ZEROCLAW_PROVIDER_URL ahead of the
+    configured URL, even when it is set empty (oa does the same). Non-string
+    input is not on-box: fail closed."""
+    import os
+    if not isinstance(name, str) or name.strip() not in _ON_BOX_PROVIDERS:
+        return False
+    name = name.strip()
+    env_url = os.environ.get(_PROVIDER_URL_ENV) if name == "ollama" else None
+    url = env_url if env_url is not None else api_url
+    if url is None:
+        return True
+    if not isinstance(url, str):
+        return False
+    url = url.strip()
+    if not url:
+        return True
+    return _url_is_loopback(url)
+
+
+def _is_cloud_model_name(model: object) -> bool:
+    """oa is_cloud_model_name: the tag is `cloud` or ends `-cloud`, or the whole
+    name ends `-cloud`. A non-string model is unknown, so it is cloud."""
+    if not isinstance(model, str):
+        return True
+    m = model.strip().lower()
+    tag = m.rsplit(":", 1)[-1]
+    return tag == "cloud" or tag.endswith("-cloud") or m.endswith("-cloud")
 
 
 def route_destination(config_text: str | None) -> str:
     """The destination the digest declares, given the assistant config text.
-    Pure: no I/O. None means the config could not be read."""
+    Pure except for reading the ZEROCLAW_PROVIDER_URL env. None means the
+    config could not be read. Every unknown shape fails closed to cloud."""
     if config_text is None:
         return DEST_CLOUD
     try:
@@ -570,31 +625,55 @@ def route_destination(config_text: str | None) -> str:
     providers = cfg.get("providers")
     if not isinstance(providers, dict):
         return DEST_CLOUD
+    # Kept stricter than oa on purpose: a model route can name any model.
     if providers.get("model_routes"):
-        return DEST_CLOUD   # a route can point at any model, so it is unknown
-    models = providers.get("models")
+        return DEST_CLOUD
+    models = providers.get("models", {})
+    if models is None:
+        models = {}
+    if not isinstance(models, dict):
+        return DEST_CLOUD
     fallback = providers.get("fallback")
-    if not isinstance(models, dict) or not models:
+    if fallback is None or not isinstance(fallback, str):
         return DEST_CLOUD
-    if not isinstance(fallback, str) or fallback not in models:
+    fb_entry = models.get(fallback)
+    if fb_entry is not None and not isinstance(fb_entry, dict):
         return DEST_CLOUD
-    for name, entry in models.items():
+    if not _is_on_box_provider(fallback, (fb_entry or {}).get("base_url")):
+        return DEST_CLOUD
+    for key, entry in models.items():
         if not isinstance(entry, dict):
             return DEST_CLOUD
-        if not _is_loopback_base(entry.get("base_url")):
+        url = entry.get("base_url")
+        if not _is_on_box_provider(key, url):
             return DEST_CLOUD
-        model = entry.get("model")
-        if not isinstance(model, str) or model.strip().endswith(":cloud"):
+        if entry.get("name") is not None and not _is_on_box_provider(entry.get("name"), url):
+            return DEST_CLOUD
+        if entry.get("model") is not None and _is_cloud_model_name(entry.get("model")):
             return DEST_CLOUD
     reliability = cfg.get("reliability")
-    if isinstance(reliability, dict):
-        named = reliability.get("fallback_providers")
-        if named not in (None, "", "[]"):
-            if not isinstance(named, list):
+    if reliability is not None:
+        if not isinstance(reliability, dict):
+            return DEST_CLOUD
+        named = reliability.get("fallback_providers", [])
+        if named is None:
+            named = []
+        if not isinstance(named, list):
+            return DEST_CLOUD
+        for item in named:
+            if not _is_on_box_provider(item, None):
                 return DEST_CLOUD
-            for item in named:
-                if item not in models or not _is_loopback_base(models[item].get("base_url")):
-                    return DEST_CLOUD
+    agents = cfg.get("agents")
+    if agents is not None:
+        if not isinstance(agents, dict):
+            return DEST_CLOUD
+        for agent in agents.values():
+            if not isinstance(agent, dict):
+                return DEST_CLOUD
+            if _is_cloud_model_name(agent.get("model")):
+                return DEST_CLOUD
+            if not _is_on_box_provider(agent.get("provider"), None):
+                return DEST_CLOUD
     return DEST_ON_BOX
 
 
