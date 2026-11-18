@@ -2009,6 +2009,15 @@ def _graph_scoped(sparql):
     return _graph_scoped_select(sparql, _USER_GRAPH_URIS)
 
 
+# CM051-LOCAL (133 regraft of CM041 #278 @2dbac8c). CM041's
+# _conversation_levels_for wraps its body in read_across_graphs, which this
+# tree does not import (see the note above). Every _sparql_select here is
+# already graph-scoped by _graph_scoped, so at that call site the wrapper is
+# the identity. Keeps the grafted function byte-identical to CM041.
+def _read_across_graphs(body):
+    return body
+
+
 def _audit_person_removal(uri, component, reason):
     """Record a Person removal in the append-only deletion audit (walk #15).
 
@@ -2290,6 +2299,35 @@ def _filter_qdrant_facts(facts, owner_level=None):
     return pwg_privacy.filter_l3_facts(facts, owner_level)
 
 
+# 133 outbound rule (Archie, 2026-11-16): anything served to the assistant for
+# channel replies or briefs, or sent off the box, passes ONLY L1, L2 and
+# untagged. L0 (owner-private on the PWG scale), L3 and any value that does
+# not parse are withheld. Untagged passes, as these readers always did.
+_OUTBOUND_PRIVACY_LEVELS = ("L1", "L2")
+
+
+def _outbound_level_ok(raw):
+    """True when a raw privacy value may leave the box (see rule above)."""
+    if raw is None or str(raw).strip() == "":
+        return True
+    return pwg_privacy.parse_privacy_level(raw) in _OUTBOUND_PRIVACY_LEVELS
+
+
+def _fact_outbound_ok(fact):
+    """True when one fact's own level is outbound-safe (L1 or L2).
+
+    A fact with no parseable level is refused: _filter_qdrant_facts has
+    already dropped those, so this only sees L0, L1 and L2 in practice.
+    """
+    if not isinstance(fact, dict):
+        return False
+    for key in pwg_privacy.FACT_PRIVACY_KEYS:
+        level = pwg_privacy.parse_privacy_level(fact.get(key))
+        if level is not None:
+            return level in _OUTBOUND_PRIVACY_LEVELS
+    return False
+
+
 def people_search(query, limit=10, timeout=30):
     """Semantic search across the Qdrant people collection.
 
@@ -2365,13 +2403,12 @@ def people_search(query, limit=10, timeout=30):
         # sender id or bulk mailbox is not found by search either.
         if _is_non_human_person(p, dn):
             continue
-        # Person-level L3 (F5): an L3-classified person must not surface in
-        # search at all. Only an EXPLICIT L3 person-tag drops the person
-        # here -- an untagged person is still searchable (search coverage
-        # must not collapse for the many points that predate the
-        # privacy_level default), and their individual facts are still
-        # fail-closed filtered below. Default person tag today is L2.
-        if pwg_privacy.parse_privacy_level(p.get("privacy_level")) == "L3":
+        # Person-level outbound gate (133): a person tagged L0 or L3, or with
+        # an unparseable tag, must not surface in search. An untagged person
+        # is still searchable (search coverage must not collapse for the many
+        # points that predate the privacy_level default), and their individual
+        # facts are still fail-closed filtered below.
+        if not _outbound_level_ok(p.get("privacy_level")):
             continue
         entry = {
             "name": dn,
@@ -2392,6 +2429,10 @@ def people_search(query, limit=10, timeout=30):
         # verbatim into the response with no downstream privacy re-check.
         # Drop explicit-L3 facts, keep untagged. See _filter_qdrant_facts.
         facts = _filter_qdrant_facts(p.get("facts"))
+        # 133 outbound: an explicit L0 fact on a served person is owner-private
+        # and must not leave the box. _filter_qdrant_facts only drops L3 and
+        # untagged, so the outbound level is checked per fact here.
+        facts = [f for f in facts if _fact_outbound_ok(f)]
         if facts:
             entry["facts"] = facts
         results.append(entry)
@@ -7563,6 +7604,12 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None):
                 "conversation_id": conv_id,
                 "wiki_url": (f"{WIKI_BASE_URL}/Conversations/{conv_id}/"
                              if conv_id else ""),
+                # Owner-local timeline EMITS the row's own level (Archie ruling,
+                # L3 window). The iPhone keeps its L0 events. The outbound
+                # gates (commitments, people, reply-debt) withhold L0 at the
+                # Hub. This route does not.
+                "privacy_level": pwg_privacy.parse_privacy_level(
+                    r.get("privacy_level")),
             })
     except Exception as exc:
         degraded_sources.append(f"conversations: {exc}")
@@ -7751,6 +7798,92 @@ def _decision_facts_from_conversations(about=None, query=None):
     return rows, None
 
 
+def _new_withheld():
+    """Fresh per-response privacy tally. ``l3`` and ``unknown`` are withheld
+    items. ``legacy_untagged`` is NOT withheld: those items are served and
+    counted so the response shows how many have no readable level yet."""
+    return {"l3": 0, "unknown": 0, "legacy_untagged": 0}
+
+
+def _count_withheld(withheld, verdict):
+    """Tally one item by its verdict. Returns True when the item is served."""
+    if verdict == "l3":
+        withheld["l3"] += 1
+        return False
+    if verdict == "unknown":
+        withheld["unknown"] += 1
+        return False
+    if verdict == "l0":
+        # L0 is withheld and counted in the unknown bucket: the response keeps
+        # its two-key withheld shape (every consumer of it reads those two).
+        withheld["unknown"] += 1
+        return False
+    if verdict == "legacy_untagged":
+        withheld["legacy_untagged"] += 1
+    return True
+
+
+def _withheld_view(withheld):
+    """The withheld block of a response: the withheld counts only."""
+    return {"l3": withheld["l3"], "unknown": withheld["unknown"]}
+
+
+def _topic_mention_verdict(own, conv_levels):
+    """Visibility of one topic mention (CM041 #278, 134 red-team CM041-01).
+
+    The mention's own level and EVERY level its conversation carries are read
+    together and the STRICTEST wins: L3, L0 or an unreadable value in any of
+    them withholds. A missing mention level never overrides a present
+    conversation level. Nothing readable anywhere is legacy_untagged: served
+    and counted (the 133 rule)."""
+    classes = [pwg_privacy._classify(x) for x in [own, *conv_levels]]
+    if "L3" in classes:
+        return "l3"
+    if "UNREADABLE" in classes:
+        return "unknown"
+    if "L0" in classes:
+        return "l0"
+    if "L1" in classes or "L2" in classes:
+        return "ok"
+    return "legacy_untagged"
+
+
+def _conversation_levels_for(convs):
+    """{conversation uri: [raw level, ...]} for the given conversations, read
+    from the conversation node AND from the facts drawn from it (CM048 stamps
+    the conversation's level on those). A URI that cannot go into a VALUES
+    clause safely maps to an unreadable marker, so it is withheld, not served.
+    Raises on an Oxigraph failure; the caller answers degraded."""
+    out = {}
+    safe = []
+    for c in sorted({c for c in convs if c}):
+        if re.fullmatch(r"[^<>\s\"{}|^`\\]+", c):
+            safe.append(c)
+        else:
+            out.setdefault(c, []).append("unreadable-conversation-uri")
+    if not safe:
+        return out
+    values = " ".join("<" + c + ">" for c in safe)
+    # CM048 writes its facts to a named graph: the facts' level is read through
+    # the same default-plus-named UNION every other CM048 reader uses.
+    body = (
+        "  VALUES ?conv { " + values + " }\n"
+        "  { ?conv pwg:privacyLevel ?lvl }\n"
+        "  UNION { ?src <urn:ostler:fromConversation> ?conv ; <urn:ostler:privacyLevel> ?lvl }\n"
+        "  UNION { ?src pwg:fromConversation ?conv ; pwg:privacyLevel ?lvl }\n"
+    )
+    rows = _sparql_select(
+        'PREFIX pwg: <{ns}>\n'.format(ns=PWG_NS)
+        + 'SELECT ?conv ?lvl WHERE {\n'
+        + _read_across_graphs(body)
+        + '\n}'
+    )
+    for r in rows:
+        if r.get("conv") and r.get("lvl") is not None:
+            out.setdefault(r["conv"], []).append(r["lvl"])
+    return out
+
+
 def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     """Handle GET /api/v1/decisions?about=<slug>&q=<text>&limit=N.
 
@@ -7779,11 +7912,13 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     ``({"decisions": [], "count": 0, "degraded": True, "reason": ...},
     503)`` -- mirroring the degraded contract used across the readers.
 
-    Privacy: decisions are derived from meeting summaries already held in
-    the graph; the extractor mints no L3-withheld content. There is no
-    per-decision privacy predicate to gate on, so all stored decisions
-    are surfaced (consistent with the meetings sub-query in
-    person_enrichment).
+    Privacy (fail closed, measured in the audit of this endpoint): a
+    decision has NO privacy predicate of its own, so its level is the
+    strictest of its provenance -- the source ``pwg:Meeting`` and every
+    attendee it is ``decisionAbout``. Any L3 hides it. Any source with no
+    parseable level (or no source meeting at all) is unknown provenance and
+    is also withheld. Withheld rows are COUNTED in ``withheld`` ({l3,
+    unknown}), never silently dropped.
     """
     # Resolve the optional about-slug to a person URI up front so we can
     # FILTER the main query on it. A slug that resolves to nobody short
@@ -7851,25 +7986,40 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     q_lower = (query or "").strip().lower()
 
     decisions = []
+    withheld = _new_withheld()
     for r in rows:
         summary = r.get("summary", "")
         if q_lower and q_lower not in summary.lower():
             continue
         decision_uri = r.get("d")
-        # Per-decision attendee list (0..n). A sub-query failure degrades
-        # only the about list for this one decision, not the whole call.
-        about_people = []
+        # One provenance query per decision: its source meeting (0..1) and
+        # every attendee it is about (0..n). A failed sub-query is unknown
+        # provenance, never an empty-but-visible decision.
         try:
             arows = _sparql_select(
                 'PREFIX pwg: <{ns}>\n'
-                'SELECT ?name WHERE {{\n'
-                '  <{uri}> pwg:decisionAbout ?p .\n'
-                '  ?p pwg:displayName ?name .\n'
+                'SELECT ?m ?mpriv ?p ?name ?ppriv WHERE {{\n'
+                # Levels live in the default graph (the decision writer) OR in
+                # the named user graphs (the seed and CM048 writers). Oxigraph has
+                # no union default graph, so each level pattern matches both.
+                '  OPTIONAL {{ <{uri}> pwg:decisionSource ?m .\n'
+                '    OPTIONAL {{ {{ ?m pwg:privacyLevel ?mpriv }} UNION {{ GRAPH ?gm {{ ?m pwg:privacyLevel ?mpriv }} }} }} }}\n'
+                '  OPTIONAL {{ <{uri}> pwg:decisionAbout ?p .\n'
+                '    OPTIONAL {{ ?p pwg:displayName ?name }}\n'
+                '    OPTIONAL {{ {{ ?p pwg:privacyLevel ?ppriv }} UNION {{ GRAPH ?gp {{ ?p pwg:privacyLevel ?ppriv }} }} }} }}\n'
                 '}}'.format(ns=PWG_NS, uri=decision_uri)
             )
+            meeting_levels = [a.get("mpriv") for a in arows if a.get("m")] or [None]
+            # Collected per attendee, not per name: an attendee whose level
+            # is found must count even if its display name is not.
+            person_levels = [a.get("ppriv") for a in arows if a.get("p")]
             about_people = [a["name"] for a in arows if a.get("name")]
+            verdict = pwg_privacy.provenance_verdict(None, meeting_levels + person_levels)
         except Exception:
             about_people = []
+            verdict = "unknown"
+        if not _count_withheld(withheld, verdict):
+            continue
         decisions.append({
             "summary": summary,
             "date": (r.get("date") or "")[:10],
@@ -7879,7 +8029,8 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
         })
 
     # The wiki Decisions page's store, merged in. De-duplicated on summary so a
-    # decision present in both stores is listed once.
+    # decision present in both stores is listed once. Conversation rows carry
+    # their own L3 withholding (_decision_facts_from_conversations).
     conv_rows, conv_err = _decision_facts_from_conversations(about, query)
     seen = {d["summary"].strip().lower() for d in decisions}
     for row in conv_rows:
@@ -7890,7 +8041,9 @@ def decisions_list(about=None, query=None, limit=_MOAT_DEFAULT_LIMIT):
     # Newest first; undated decisions sort last (empty string < any date).
     decisions.sort(key=lambda d: d["date"], reverse=True)
     decisions = decisions[:limit]
-    out = {"decisions": decisions, "count": len(decisions)}
+    out = {"decisions": decisions, "count": len(decisions),
+           "withheld": _withheld_view(withheld),
+           "legacy_untagged": withheld["legacy_untagged"]}
     if conv_err:
         out["conversations_unreadable"] = conv_err
     return out, 200
@@ -7920,21 +8073,27 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
     ``({"topics": [{slug, label, weight, mentions}], "count": N}, 200)``
     or the 503 degraded shape on Oxigraph failure.
     """
+    # Per-MENTION rows, not a SUM/COUNT in SPARQL: a topic's weight and count
+    # are built only from the mentions the reader is allowed to see. A mention
+    # is provenance-checked on its own level and its conversation's level.
     try:
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n'
-            'SELECT ?topic ?slug ?label\n'
-            '       (SUM(?w) AS ?weight) (COUNT(?m) AS ?mentions) WHERE {{\n'
+            'SELECT ?topic ?slug ?label ?m ?w ?mpriv ?conv ?cpriv WHERE {{\n'
             '  ?topic a pwg:ConversationTopic .\n'
             '  OPTIONAL {{ ?topic pwg:topicSlug ?slug }}\n'
             '  OPTIONAL {{ ?topic rdfs:label ?label }}\n'
             '  OPTIONAL {{\n'
             '    ?m a pwg:TopicMention ; pwg:mentionsTopic ?topic .\n'
             '    OPTIONAL {{ ?m pwg:topicWeight ?w }}\n'
+            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '    OPTIONAL {{ ?m pwg:inConversation ?conv .\n'
+            '      OPTIONAL {{ ?conv pwg:privacyLevel ?cpriv }} }}\n'
             '  }}\n'
-            '}} GROUP BY ?topic ?slug ?label'.format(ns=PWG_NS)
+            '}}'.format(ns=PWG_NS)
         )
+        conv_levels = _conversation_levels_for([r.get("conv") for r in rows])
     except Exception as exc:
         return {
             "topics": [],
@@ -7944,22 +8103,52 @@ def topics_list(query=None, limit=_MOAT_DEFAULT_LIMIT):
         }, 503
 
     q_lower = (query or "").strip().lower()
-    topics = []
+    withheld = _new_withheld()
+    by_topic = {}
     for r in rows:
         slug = r.get("slug", "")
         label = r.get("label", "")
         if q_lower and q_lower not in label.lower() and q_lower not in slug.lower():
             continue
+        agg = by_topic.setdefault(r["topic"], {
+            "slug": slug, "label": label, "weight": 0, "mentions": 0,
+            "_seen": set(),
+        })
+        if not r.get("m") or r["m"] in agg["_seen"]:
+            continue
+        agg["_seen"].add(r["m"])
+        # The mention inherits its conversation's level: strictest wins.
+        verdict = _topic_mention_verdict(
+            r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(r.get("conv"), []))
+        if not _count_withheld(withheld, verdict):
+            continue
+        agg["weight"] += _as_int(r.get("w"))
+        agg["mentions"] += 1
+        agg["label"] = agg["label"] or label
+        agg["slug"] = agg["slug"] or slug
+
+    topics = []
+    for agg in by_topic.values():
+        # A topic is listed only through its visible mentions. One whose
+        # mentions were all withheld is not listed; its withheld mentions are
+        # counted above. A topic with no mention rows at all is unknown
+        # provenance and is counted too.
+        if agg["mentions"] == 0:
+            if not agg["_seen"]:
+                # No mention rows at all: no provenance. Not listed, counted.
+                _count_withheld(withheld, "legacy_untagged")
+            continue
         topics.append({
-            "slug": slug,
-            "label": label,
-            "weight": _as_int(r.get("weight")),
-            "mentions": _as_int(r.get("mentions")),
+            "slug": agg["slug"],
+            "label": agg["label"],
+            "weight": agg["weight"],
+            "mentions": agg["mentions"],
         })
 
     topics.sort(key=lambda t: (t["weight"], t["mentions"]), reverse=True)
     topics = topics[:limit]
-    return {"topics": topics, "count": len(topics)}, 200
+    return {"topics": topics, "count": len(topics), "withheld": _withheld_view(withheld),
+            "legacy_untagged": withheld["legacy_untagged"]}, 200
 
 
 def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
@@ -7985,7 +8174,7 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n'
-            'SELECT ?label ?conversation ?weight ?channel ?sender ?date WHERE {{\n'
+            'SELECT ?label ?conversation ?weight ?channel ?sender ?date ?mpriv ?cpriv WHERE {{\n'
             '  ?topic a pwg:ConversationTopic ; pwg:topicSlug "{slug}" .\n'
             '  OPTIONAL {{ ?topic rdfs:label ?label }}\n'
             '  OPTIONAL {{\n'
@@ -7995,9 +8184,12 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
             '    OPTIONAL {{ ?m pwg:viaChannel ?channel }}\n'
             '    OPTIONAL {{ ?m pwg:senderName ?sender }}\n'
             '    OPTIONAL {{ ?m pwg:validFrom ?date }}\n'
+            '    OPTIONAL {{ ?m pwg:privacyLevel ?mpriv }}\n'
+            '    OPTIONAL {{ ?conversation pwg:privacyLevel ?cpriv }}\n'
             '  }}\n'
             '}}'.format(ns=PWG_NS, slug=slug)
         )
+        conv_levels = _conversation_levels_for([r.get("conversation") for r in rows])
     except Exception as exc:
         return {
             "slug": slug,
@@ -8009,12 +8201,21 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
 
     label = ""
     mentions = []
+    withheld = _new_withheld()
     for r in rows:
-        if r.get("label") and not label:
-            label = r["label"]
         conv = r.get("conversation")
         if not conv:
             continue
+        # A mention is shown only when its own level AND its conversation's
+        # level are both known and neither is L3 (fail closed). The topic
+        # label is taken only from a visible mention, so a label that exists
+        # only through withheld mentions is not disclosed.
+        verdict = _topic_mention_verdict(
+            r.get("mpriv"), [r.get("cpriv")] + conv_levels.get(conv, []))
+        if not _count_withheld(withheld, verdict):
+            continue
+        if r.get("label") and not label:
+            label = r["label"]
         mentions.append({
             "conversation": conv,
             "weight": _as_int(r.get("weight")),
@@ -8030,6 +8231,8 @@ def topic_mentions(slug, limit=_MOAT_DEFAULT_LIMIT):
         "label": label,
         "mentions": mentions,
         "count": len(mentions),
+        "withheld": _withheld_view(withheld),
+        "legacy_untagged": withheld["legacy_untagged"],
     }, 200
 
 
@@ -8074,12 +8277,10 @@ def commitments_list(owner=None, due_before=None, status="open",
         ``deadline`` strictly before it (undated commitments are dropped
         when this filter is set, kept otherwise).
 
-    Each row carries ``privacy_level`` read from the todo's own
-    ``urn:ostler:privacyLevel`` (CM048 tags it from the source
-    conversation). Missing -> ``_COMMITMENT_DEFAULT_PRIVACY_LEVEL`` ("L2");
-    present but unparseable -> "L3" (fail closed, never visible). Rows are
-    still served ungated: the consumer (ostler-assistant promise filter)
-    applies the level.
+    Privacy (fail closed): each todo is served only when its own
+    ``urn:ostler:privacyLevel`` parses to L0/L1/L2. L3, missing and
+    unparseable levels are withheld and counted in ``withheld`` ({l3,
+    unknown}). Served rows carry ``privacy_level``.
 
     Newest first by deadline then created-at. Returns
     ``({"commitments": [{action, owner, due, status, source,
@@ -8093,56 +8294,9 @@ def commitments_list(owner=None, due_before=None, status="open",
         )
 
     try:
-        # TODOS CARRY privacyLevel NOW, AND THIS READER DROPS L3 ROWS.
-        #
-        # History: when this was first written, a box measurement found 93
-        # OutstandingTodo nodes and ZERO with a privacyLevel, so a
-        # fail-closed filter would have hidden all of them. That is no longer
-        # true: CM048's ingest tags every todo it writes
-        # (vendor/cm048_pipeline/src/ingest.py, the privacyLevel line of the
-        # todo block, ~:929) and skips L3 conversations at the writer
-        # (ingest.py ~:602, processor.py ~:395 and ~:2730).
-        #
-        # The writer guards are the primary control. The loop below is the
-        # second line of defence (belt and braces): an L3-tagged row is
-        # dropped here even if a writer guard regresses, because the brief
-        # built from the same store is EMAILED. A row with NO privacyLevel
-        # (legacy, written before todos were tagged) is NOT dropped and is
-        # served at the default level, exactly as before.
-        #
-        # urn:ostler:visibility is NOT a usable substitute, and this was
-        # checked rather than assumed: it is the literal "private" on every
-        # CM048 node (471 of 471 signals, 93 of 93 todos, 1462 of 1462
-        # facts INCLUDING the 1369 tagged L0). Nothing in this repo reads it.
-        #
-        # 🔴 THE DECISION ABOVE COVERS BOTH AXES, DELIBERATELY, BECAUSE THERE
-        # ARE TWO AND ONLY ONE IS ENFORCED.
-        #
-        # Every CM048 node carries urn:ostler:privacyLevel AND
-        # urn:ostler:visibility. privacyLevel is the ENFORCED axis: the readers
-        # above join it and the L3 filter acts on it. visibility is INERT. It
-        # is written by CM048's ingest and read by nothing in the shipped tree
-        # -- in this repo the only occurrence of the string is this comment,
-        # against 27 for ostler:privacyLevel as the control, so the search
-        # finds reads where reads exist and the zero is real.
-        #
-        # This is written down because the next person to open a node will see
-        # the literal "private" sitting on it and reasonably assume something
-        # enforces it. Nothing does, and the two assertions disagree in effect:
-        # a node reading privacyLevel L1 (which policy SERVES) also reads
-        # visibility "private" (which policy never consults).
-        #
-        # NOT CLAIMED: what visibility was intended to mean, whether it
-        # predates privacyLevel, or whether it is a CM048-internal marker that
-        # was never meant for the reader side. One constant value written in
-        # one upstream file is consistent with all three, and settling it
-        # belongs to whoever owns CM048, not to this PR. What IS settled is
-        # that a reader relying on it today would be relying on nothing.
-        #
-        # CM048 writes todos into the per-user NAMED graph. Measured 0 rows
-        # as shipped, 20 with the clause, against 76 todos on the box.
-        # DISTINCT is new and is load-bearing: without it a todo present in
-        # BOTH graphs would be listed twice by the UNION.
+        # Privacy: the todo's own urn:ostler:privacyLevel, read in the query
+        # below, is the only provenance a todo carries (no source-node link).
+        # Rows are gated per row in the loop, fail closed.
         rows = _sparql_select(
             'SELECT DISTINCT ?todo ?action ?owner ?deadline ?status ?source ?createdAt ?plevel WHERE {\n'
             + (
@@ -8170,26 +8324,42 @@ def commitments_list(owner=None, due_before=None, status="open",
     due_norm = (due_before or "").strip()
 
     commitments = []
+    withheld = _new_withheld()
     for r in rows:
         if owner_norm and (r.get("owner", "") or "").strip().lower() != owner_norm:
-            continue
-        # Second line of defence behind the CM048 writer's L3 guards. Untagged
-        # legacy rows resolve to the default level and are kept; a tagged but
-        # unparseable level resolves to L3 (fail closed) and is dropped.
-        if _commitment_privacy_level(r.get("plevel")) == "L3":
             continue
         deadline = r.get("deadline", "")
         if due_norm:
             # Undated commitments cannot satisfy a "due before" window.
             if not deadline or deadline >= due_norm:
                 continue
+        verdict = pwg_privacy.provenance_verdict(r.get("plevel"))
+        if not _count_withheld(withheld, verdict):
+            continue
+        # 133 outbound gate, applied to the rows the verdict serves. This
+        # list is read by the assistant's promise filter for channel replies
+        # and briefs, so only L1, L2 and untagged may leave. An L0 row is
+        # not outbound-safe. The withheld block has no L0 key, so it is
+        # counted under "unknown" (the outbound view cannot name it).
+        # 133 outbound gate, explicit at this call site. L0 and L3 are
+        # withheld, and so is a tagged value that does not parse. Untagged is
+        # served at the default level. Same rule as _outbound_level_ok.
+        plevel_raw = r.get("plevel")
+        plevel = pwg_privacy.parse_privacy_level(plevel_raw)
+        if plevel in ("L0", "L3") or (
+                plevel is None and str(plevel_raw or "").strip()):
+            withheld["unknown"] += 1
+            continue
         commitments.append({
             "action": r.get("action", ""),
             "owner": r.get("owner", ""),
             "due": deadline,
             "status": r.get("status", ""),
             "source": r.get("source", ""),
-            "privacy_level": _commitment_privacy_level(r.get("plevel")),
+            # An untagged row is served at the default L2 label, as before,
+            # and is counted under legacy_untagged. It is not claimed tagged.
+            "privacy_level": (pwg_privacy.parse_privacy_level(r.get("plevel"))
+                              or "L2"),
             "_created": r.get("createdAt", ""),
         })
 
@@ -8202,7 +8372,8 @@ def commitments_list(owner=None, due_before=None, status="open",
     # Same contract as /api/v1/suggestions above, and the same measurement:
     # untagged means L3 means dropped, so this payload declares its level.
     return {"commitments": commitments, "count": len(commitments),
-            "privacy_level": "L2"}, 200
+            "withheld": _withheld_view(withheld),
+            "legacy_untagged": withheld["legacy_untagged"]}, 200
 
 
 # ── Reply debt (CM048 reply-debt detector, JTBD#1) ───────────────────
@@ -8332,6 +8503,14 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
 
     try:
         debts = service.compute_reply_debts(**kwargs)
+        # 133 outbound gate: the brief line and debts are sent to the
+        # assistant for channel replies. Withhold L0, L3 and unparseable
+        # threads before anything is counted or named.
+        # In-place: DebtList carries .excluded/.names_degraded/.sources/.channels,
+        # and rebinding to a plain list drops them (payload reads None).
+        debts[:] = [d for d in debts if _outbound_level_ok(
+            d.get("privacy_level") if isinstance(d, dict)
+            else getattr(d, "privacy_level", None))]
         if limit is not None and limit >= 0:
             debts = debts[:limit]
         payload = service.reply_debt_payload(debts)
@@ -12750,6 +12929,39 @@ def api_hydration_status():
     }
 
 
+_INTEREST_PRIVACY_KEYS = ("privacy_level", "privacy")
+
+
+def _interest_privacy_verdict(it):
+    """Verdict for one CM059 interest record, reading both level keys.
+
+    Each key goes through ``pwg_privacy.provenance_verdict`` (so an
+    unparseable value is ``unknown`` and withheld, per the 133 rule). The
+    strictest verdict wins: l3, then unknown, then ok, then legacy_untagged.
+    A non-dict record has no level on either key, as before.
+    """
+    raws = [it.get(k) if isinstance(it, dict) else None
+            for k in _INTEREST_PRIVACY_KEYS]
+    verdicts = [_level_verdict(raw) for raw in raws]
+    for strict in ("l3", "unknown", "l0"):
+        if strict in verdicts:
+            return strict
+    if "ok" in verdicts:
+        return "ok"
+    return "legacy_untagged"
+
+
+def _level_verdict(raw):
+    """One raw level's verdict, with L0 withheld (red-team 134 CM041-02).
+
+    ``provenance_verdict`` serves an explicit L0 as "ok". An L0 item must not
+    reach the daemon's preference tool or any outbound reader, so it is its
+    own counted withhold here. Everything else is provenance_verdict's answer."""
+    if pwg_privacy._classify(raw) == "L0":
+        return "l0"
+    return pwg_privacy.provenance_verdict(raw)
+
+
 def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     """Read the CM059 interest-profile artefact and return a flat, filtered,
     score-sorted list of interest records for the daemon's pwg_preferences
@@ -12804,12 +13016,27 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
             "reason": "special-category filter unavailable: " + str(exc)[:160],
             "source_path": INTEREST_PROFILE_PATH,
         }
-    interests = [
-        it for it in interests
-        if isinstance(it, dict) and not any(
-            _art9.is_sensitive_topic(it.get(k))
-            for k in ("subject", "name", "label", "title") if it.get(k))
-    ]
+    # Privacy gate, applied before the counts and the limit. A row is withheld
+    # if EITHER the Art. 9 filter OR the per-interest level gate applies, and
+    # is counted once (an Art. 9 hit is tallied as ``l3``). An interest record
+    # is served only when ITS OWN level (privacy or privacy_level) parses to
+    # L0/L1/L2, strictest of the two. An untagged
+    # record is legacy_untagged: served, and counted so the response shows how
+    # many have no readable level yet. An unparseable level is unknown: withheld.
+    withheld = _new_withheld()
+    visible = []
+    for it in interests:
+        if not isinstance(it, dict):
+            _count_withheld(withheld, "unknown")
+            continue
+        if any(_art9.is_sensitive_topic(it.get(k))
+               for k in ("subject", "name", "label", "title") if it.get(k)):
+            withheld["l3"] += 1
+            continue
+        verdict = _interest_privacy_verdict(it)
+        if _count_withheld(withheld, verdict):
+            visible.append(it)
+    interests = visible
 
     if domain:
         interests = [it for it in interests if it.get("domain") == domain]
@@ -12828,6 +13055,8 @@ def api_preferences(domain=None, min_confidence=0.0, limit=0, polarity=None):
     return {
         "interests": interests,
         "count": len(interests),
+        "withheld": _withheld_view(withheld),
+        "legacy_untagged": withheld["legacy_untagged"],
         "generated_at": artefact.get("generated_at"),
         "schema_version": artefact.get("schema_version"),
     }

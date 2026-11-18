@@ -32,11 +32,14 @@ CONTRACT_VERSION = "derived-preferences.v1"
 # --- Namespaces + graph (mirrors CM019 derive/model.py, Chunk 1) ------------
 PWG_NS = "https://schema.ostler.ai/ontology#"
 ENRICH_NS = "https://schema.ostler.ai/enrichment/ontology#"
-# The levels a derived node may carry and still be served. L3 is never served and
-# neither is a level that is present but not one of these (pwg_privacy doctrine:
-# an unparseable level fails closed). A node with NO level is served: it is
-# behavioural evidence, or a graph written before CM019 #423.
-SERVED_PRIVACY_LEVELS = ("L0", "L1", "L2")
+# The levels a derived node may carry and still be served OUTBOUND (this route
+# feeds the assistant's channel replies and briefs). Under the 133 outbound
+# rule only L1 and L2 pass. L0 is owner-private on the PWG scale and is
+# withheld, as is L3, and so is a level that is present but not one of these
+# (pwg_privacy doctrine: an unparseable level fails closed). A node with NO
+# level is served: it is behavioural evidence, or a graph written before
+# CM019 #423.
+SERVED_PRIVACY_LEVELS = ("L1", "L2")
 # A stated dislike is rare and decisive ("never serve me coriander"), but the
 # round-robin cap ranks it by confidence among hundreds of likes. Negatives are
 # therefore read in their own pass, bounded here and NOT counted against `limit`.

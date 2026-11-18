@@ -219,3 +219,17 @@ def test_unresolved_people_are_one_counted_line_not_one_row_each(home, now, stor
     assert rows.count("  - 3 people not in your contacts") == 1, p["brief_line"]
     assert len(rows) == 2, p["brief_line"]
     assert "Unknown number" not in p["brief_line"], p["brief_line"]
+
+
+def test_133_outbound_gate_keeps_debtlist_attributes(home, now, store):
+    """Regression (133 gate): api_reply_debt filters the DebtList in place.
+    Rebinding it to a plain list dropped .excluded and .names_degraded, so the
+    payload read None and every walk-shape call crashed. The gated result must
+    still carry both, and the withheld-level rows must not be counted."""
+    H.connect(home)
+    H.write_snapshot(home, walk_snapshot(now))
+    out = run_endpoint(home, {**OWNER_ENV, "OXIGRAPH_URL": store})
+    p = out["payload"]
+    assert isinstance(p["excluded"], dict), p["excluded"]
+    assert isinstance(p["names_degraded"], str), p["names_degraded"]
+    assert p["count"] == len(p["debts"]) == 3, p

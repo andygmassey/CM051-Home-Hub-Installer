@@ -139,6 +139,9 @@ jobs:
       - name: The Homebrew bootstrap is pinned and sha256-verified (red team DMG #27 F3-1)
         if: always()
         run: bash tests/test_homebrew_bootstrap_is_pinned.sh
+      - name: Install copy never claims 30 days of included Pro
+        if: always()
+        run: bash tests/test_strings_never_claim_30_days_included_pro.sh
 
       # INDIVIDUAL STEP, same reason as the one above: new-tests-wired needs the
       # test's path and an execution verb on one line. Pause gates on the contact

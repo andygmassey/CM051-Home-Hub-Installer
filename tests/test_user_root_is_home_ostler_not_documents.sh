@@ -89,12 +89,15 @@ PAT='(Documents|Dokumente|Documentos|Documenti|Documenten)/Ostler|"Documents" *(
 # ALLOWLIST (reason): the walk harness's cold proof WIPES ~/Documents/Ostler on a
 # walk box so a legacy root cannot carry state into a cold walk; the wipe script
 # and its test are excluded, and ttywalk.sh / post_walk_qa.sh only as COMMENT
-# lines. No shipped file is excluded.
+# lines. no_l3_box.py (a walk probe) SWEEPS the legacy root for leaked L3 output,
+# since a pre-migration install may hold it: its two path names are reads, excluded
+# by content (not by file) so the rest of the file stays under the gate.
 hits="$(git grep -n -E "$PAT" -- . \
     ':!cuts' ':!cut-manifests' ':!vendor/divergences/*.patch' ':!tests/test_user_root_is_home_ostler_not_documents.sh' \
     ':!tests/test_uninstall_legacy_documents_root.sh' ':!vendor/divergences/*.UNRECORDED.md' \
     ':!scripts/walk_cold_wipe_state.sh' ':!tests/test_ttywalk_reset_is_cold_or_refuses.sh' \
     | $GREP -v -E '^scripts/(ttywalk|post_walk_qa)\.sh:[0-9]+:[[:space:]]*#' \
+    | $GREP -v -E '^scripts/box_walk_probes/lib/no_l3_box\.py:[0-9]+:.*"~/Documents/Ostler[/"]' \
     | $GREP -v -E '^install\.sh:[0-9]+:.*(local old=|# Older installs wrote the root under|ensure legacy|# ── Legacy root: |LEGACY_ROOT="\$\{HOME\}/Documents/Ostler")' )"
 rc=$?
 if [ -z "$hits" ]; then ok "no tracked file outside the allowlist names Documents/Ostler"
