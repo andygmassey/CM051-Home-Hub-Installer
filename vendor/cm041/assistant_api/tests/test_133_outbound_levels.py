@@ -349,7 +349,16 @@ class TestTimelineEmitsLevel(unittest.TestCase):
                  "date": "2026-10-30", "location": "", "mpriv": "L1"}]
         lc = [{"lcEmail": "2026-10-10", "lcWhatsApp": "", "lcIMessage": ""}]
 
+        # Two-phase reads (2026-11-19): conversation rows carry their fact
+        # subject; levels come from each row's own tag in the scoped query.
+        conv = [dict(r, fact="urn:ostler:fact/%d" % i) for i, r in enumerate(conv)]
+
         def fake(query):
+            if "VALUES ?m {" in query:
+                return [{"m": r["m"], "lvl": r["mpriv"]} for r in meet if r["m"] in query]
+            if "VALUES ?fact {" in query:
+                return [{"fact": r["fact"], "lvl": r["fpriv"]} for r in conv
+                        if r["fact"] in query]
             if "pwg:Meeting" in query:
                 return meet
             if "urn:ostler:about" in query:
