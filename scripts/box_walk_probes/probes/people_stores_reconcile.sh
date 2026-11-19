@@ -179,7 +179,8 @@ SKOS= "http://www.w3.org/2004/02/skos/core#prefLabel"
 # installed file, by AST. The module itself is not imported: its top level needs
 # httpx and phonenumbers, which the box's system python3 does not have. Any
 # shape this loader does not recognise is a CANNOTRUN, never a silent empty rule.
-LOOKALIKE_EMAIL = "help@example.com"   # seeded by lib/contact_cards_fixture.py
+LOOKALIKE_EMAIL = "help@example.com"   # card 9: role mailbox AND a phone (the phone exemption keeps them)
+LOOKALIKE_NOPHONE_EMAIL = "info@example.com"  # card 10: role mailbox, NO phone (the name rule alone decides)
 SVC_RULES = ("service mailbox", "notification phrasing", "marketplace or domain",
              "organisation name", "hash-prefixed", "subject line")
 
@@ -568,6 +569,24 @@ try:
     look_u = sorted(set(b["u"]["value"] for b in look_rows))
     look_n = len(look_u)
     look_in = sum(1 for u in look_u if u in vec)
+    np_rows = sparql("SELECT ?u WHERE { ?u a <" + P + "Person> ; <" + P + "hasIdentifier> ?i . "
+                     "?i <" + P + "identifierType> \"email\" ; <" + P + "identifierValue> \""
+                     + LOOKALIKE_NOPHONE_EMAIL + "\" . }")
+    np_u = sorted(set(b["u"]["value"] for b in np_rows))
+    np_n = len(np_u)
+    np_in = sum(1 for u in np_u if u in vec)
+    # THE RULE, NOT THE VECTOR. A vector can outlive the writer's decision: the
+    # writer prunes only points it owns (source fda_people_index), so a point
+    # contact_syncer wrote (source icloud_contacts) survives an exclusion the
+    # writer would make today. For the phoneless control the question is whether
+    # the shipped SELECTION drops the real person, so count that directly.
+    np_rule = 0
+    for u in np_u:
+        dn_np = sparql("SELECT ?d WHERE { <" + u + "> <" + P + "displayName> ?d }")
+        if not dn_np: continue
+        ph_np, em_np = identifiers_of(u)
+        if writer_reason(dn_np[0]["d"]["value"].strip(), ph_np, em_np) is not None:
+            np_rule += 1
 
     svc = {}
     c_named = 0; c_unnamed = 0
@@ -619,10 +638,10 @@ try:
     svc_field = "svc;" + ";".join("%s=%d" % (k, svc.get(k, 0)) for k in
                                   [r.replace(" ", "_") for r in SVC_RULES]) \
         + ";total=%d" % sum(svc.values())
-    print("OK %d %d %d %d %d %d %d %d %s %s %s %s %s %s %s look=%d/%d" % (
+    print("OK %d %d %d %d %d %d %d %d %s %s %s %s %s %s %s look=%d/%d look_np=%d/%d/%d" % (
         len(graph), len(vec), a, b_orphan, c_named, c_unnamed, len(vec & graph),
         b_fixture, fpset(b_orphan_u), fpset(c_named_u), orphan_shapes(b_orphan_u), removal_records(b_orphan_u),
-        c_split(c_detail), hydrate_state(), svc_field, look_in, look_n))
+        c_split(c_detail), hydrate_state(), svc_field, look_in, look_n, np_in, np_n, np_rule))
 except urllib.error.HTTPError as exc:
     store = getattr(exc, "_store", "an unidentified store")
     if exc.code in (401, 403):
@@ -781,7 +800,7 @@ _parse_reconcile() {
     _pos() {
         local v
         v=$(printf '%s' "$out" | awk -v n="$1" '{print $n}')
-        case "$v" in svc\;*|look=*) v="" ;; esac
+        case "$v" in svc\;*|look=*|look_np=*) v="" ;; esac
         printf '%s' "$v"
     }
     graph=$(printf '%s' "$out" | awk '{print $2}')
@@ -802,6 +821,7 @@ _parse_reconcile() {
     # absent, and shifting a later field into their place would be a lie.
     svc_excl=$(printf '%s' "$out" | tr ' ' '\n' | awk '/^svc;/{print; exit}')
     look=$(printf '%s' "$out" | tr ' ' '\n' | awk '/^look=/{print; exit}')
+    look_np=$(printf '%s' "$out" | tr ' ' '\n' | awk '/^look_np=/{print; exit}')
 }
 
 # ---------------------------------------------------------------------------
@@ -823,13 +843,18 @@ _parse_reconcile() {
 RECONCILE_EXCL_JUMP_PP="${OSTLER_PROBE_EXCL_JUMP_PP:-1.0}"
 _PSR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RECONCILE_EXCL_BASELINE="${OSTLER_PROBE_EXCL_BASELINE:-${_PSR_ROOT}/people_reconcile_excluded_baseline.tsv}"
+# WHICH CORPUS THIS BOX IS (CB135 item 1). A share is only comparable to a share
+# from the same kind of corpus: the seed and a cold box have a different
+# service-sender mix from the owner's book. The caller declares it; an undeclared
+# corpus cannot be compared, so the jump arm is CANNOT-RUN, named.
+RECONCILE_CORPUS="${OSTLER_PROBE_CORPUS:-}"
 
 # _judge_excluded <graph> <svc_field> <look_field>
 # Sets: excl_total excl_share base_share excl_jump look_in look_of excl_known
 # excl_known=no means the field did not measure: the verdict must not pass.
 _judge_excluded() {
-    local g="$1" svc="$2" lk="$3" base_g base_e
-    excl_known=yes; excl_jump=no; excl_base_err=""
+    local g="$1" svc="$2" lk="$3" lnp="$4" n_same base_g base_e np_rest
+    excl_known=yes; excl_jump=no; excl_base_err=""; jump_known=yes; jump_corpus=""
     case "$svc" in
         svc\;*) : ;;
         *) excl_known=no; return 0 ;;
@@ -839,10 +864,26 @@ _judge_excluded() {
         look=*/*) look_in="${lk#look=}"; look_in="${look_in%%/*}"; look_of="${lk##*/}" ;;
         *) excl_known=no; return 0 ;;
     esac
-    if [ "${look_of:-0}" -eq 0 ]; then excl_known=no; return 0; fi
-    if [ ! -r "$RECONCILE_EXCL_BASELINE" ]; then excl_known=no; excl_base_err="baseline file unreadable"; return 0; fi
-    read -r base_g base_e <<< "$(awk -F'\t' '!/^#/ && NF>=4 {g=$3; e=$4} END{print g+0, e+0}' "$RECONCILE_EXCL_BASELINE")"
-    if [ "${base_g:-0}" -le 0 ]; then excl_known=no; excl_base_err="baseline has no data row"; return 0; fi
+    case "$lnp" in
+        look_np=*/*/*) np_in="${lnp#look_np=}"; np_in="${np_in%%/*}"; np_rest="${lnp#look_np=*/}"; np_of="${np_rest%%/*}"; np_rule="${np_rest#*/}" ;;
+        *) excl_known=no; return 0 ;;
+    esac
+    # Both look-alike controls must be seeded: an unseeded control proves nothing.
+    if [ "${look_of:-0}" -eq 0 ] || [ "${np_of:-0}" -eq 0 ]; then excl_known=no; return 0; fi
+    # The jump arm is a SEPARATE measurement: it needs a declared corpus and a
+    # same-corpus baseline row. Its absence is CANNOT-RUN for that arm, named, and
+    # never a comparison against another corpus.
+    if [ -z "$RECONCILE_CORPUS" ]; then
+        jump_known=no; excl_base_err="OSTLER_PROBE_CORPUS is not declared, so no same-corpus baseline can be chosen"; return 0
+    fi
+    jump_corpus="$RECONCILE_CORPUS"
+    if [ ! -r "$RECONCILE_EXCL_BASELINE" ]; then
+        jump_known=no; excl_base_err="baseline file unreadable"; return 0
+    fi
+    read -r n_same base_g base_e <<< "$(awk -F'\t' -v c="$RECONCILE_CORPUS" '!/^#/ && NF>=6 && $3==c {n++; g=$4; e=$5} END{print n+0, g+0, e+0}' "$RECONCILE_EXCL_BASELINE")"
+    if [ "${n_same:-0}" -eq 0 ]; then
+        jump_known=no; excl_base_err="no baseline row for corpus '${RECONCILE_CORPUS}' in people_reconcile_excluded_baseline.tsv"; return 0
+    fi
     excl_share=$(awk -v e="$excl_total" -v g="$g" 'BEGIN{printf "%.2f", (g>0)?100*e/g:0}')
     base_share=$(awk -v e="$base_e" -v g="$base_g" 'BEGIN{printf "%.2f", 100*e/g}')
     excl_jump=$(awk -v a="$excl_share" -v b="$base_share" -v t="$RECONCILE_EXCL_JUMP_PP" 'BEGIN{print ((a-b)>t)?"yes":"no"}')
@@ -852,6 +893,7 @@ _judge_excluded() {
 # Output only; the failure decision is in the verdict, never here.
 _note_excluded() {
     local svc="$1" g="$2" known="$3" share="$4" bshare="$5" jump="$6" lin="$7" lof="$8" err="$9"
+    local jknown="${10}" jcorp="${11}" nin="${12}" nof="${13}" nrule="${14}"
     if [ "$known" != yes ]; then
         probe_note "            writer's exclusion (shipped)     : NOT MEASURED${err:+ -- $err}"
         return 0
@@ -864,8 +906,14 @@ _note_excluded() {
             probe_note "              ${k}$(printf '%*s' $((24 - ${#k})) '') : ${v}" ;;
         esac
     done
-    probe_note "              excluded total                 : $(printf '%s' "$svc" | tr ';' '\n' | awk -F= '$1=="total"{print $2}')  (${share}% of graph; baseline ${bshare}%; jump over +${RECONCILE_EXCL_JUMP_PP}pp: ${jump})"
-    probe_note "            look-alike control               : ${lin}/${lof} seeded real persons with a service-looking address are embedded"
+    probe_note "              excluded total                 : $(printf '%s' "$svc" | tr ';' '\n' | awk -F= '$1=="total"{print $2}')  (${share}% of graph)"
+    if [ "$jknown" = yes ]; then
+        probe_note "              jump arm, corpus '${jcorp}'      : baseline ${bshare}% from its own corpus; jump over +${RECONCILE_EXCL_JUMP_PP}pp: ${jump}"
+    else
+        probe_note "              jump arm                       : CANNOT-RUN -- ${err}"
+    fi
+    probe_note "            look-alike control, phone        : ${lin}/${lof} seeded real persons (role mailbox + phone) are embedded"
+    probe_note "            look-alike control, NO phone     : ${nin}/${nof} seeded real persons (role mailbox, no phone) are embedded; the shipped rule excludes ${nrule}"
 }
 
 # _note_c_split <field14> <c_named>: print WHY each named person has no vector.
@@ -1049,11 +1097,11 @@ run_probe() {
     _guard_reconcile_output "$out"
 
     local graph vec a b c_named c_unnamed both b_fixture b_set c_set b_shapes b_removal c_split hydrate
-    local svc_excl look excl_known="no" excl_total="" excl_share="" base_share="" excl_jump="no" look_in="" look_of="" excl_base_err=""
+    local svc_excl look look_np excl_known="no" excl_total="" excl_share="" base_share="" excl_jump="no" look_in="" look_of="" np_in="" np_of="" np_rule="" excl_base_err="" jump_known="no" jump_corpus=""
     _parse_reconcile "$out"
     # The exclusion is a property of the graph, not of the re-read, so it is
     # judged on the first reading only. Set before any re-read can overwrite it.
-    _judge_excluded "$graph" "$svc_excl" "$look"
+    _judge_excluded "$graph" "$svc_excl" "$look" "$look_np"
 
     # ─── READ IT AGAIN BEFORE CALLING A DIFFERENCE A DISAGREEMENT ───────────
     # The reasoning, and the measurement it came from, are in the header.
@@ -1144,7 +1192,7 @@ run_probe() {
     probe_note "residual C  NAMED persons with no vector     : ${c_named}"
     probe_note "            unnamed stubs with no vector     : ${c_unnamed}  (reported, not failed -- see header)"
     probe_note "              stub rule: no pwg:displayName and no name distinct from its address. The writer selects on displayName, so it has nothing to embed; reported, not failed, and a product question, not a defect this gate settles."
-    _note_excluded "$svc_excl" "$graph" "$excl_known" "$excl_share" "$base_share" "$excl_jump" "$look_in" "$look_of" "$excl_base_err"
+    _note_excluded "$svc_excl" "$graph" "$excl_known" "$excl_share" "$base_share" "$excl_jump" "$look_in" "$look_of" "$excl_base_err" "$jump_known" "$jump_corpus" "$np_in" "$np_of" "$np_rule"
     _note_c_split "$c_split" "$c_named"
     _note_hydrate "$hydrate"
 
@@ -1277,7 +1325,13 @@ run_probe() {
     if [ "$excl_known" = yes ]; then
         [ "$excl_jump" = yes ] && failures="${failures}EXCLUDED SHARE JUMPED to ${excl_share}% of the graph from the baseline ${base_share}% (over +${RECONCILE_EXCL_JUMP_PP}pp): the writer's exclusion now drops more people than it did last walk, so review what it drops before accepting it; "
         if [ "${look_in:-0}" -lt "${look_of:-0}" ]; then
-            failures="${failures}LOOK-ALIKE CONTROL: $((look_of - look_in)) of ${look_of} seeded real person(s) with a service-looking address are not embedded; the writer's exclusion swallowed a real person, or the point never landed; "
+            failures="${failures}LOOK-ALIKE CONTROL (phone): $((look_of - look_in)) of ${look_of} seeded real person(s) with a role mailbox and a phone are not embedded; the writer's exclusion swallowed a real person, or the point never landed; "
+        fi
+        # THE PHONELESS CONTROL tests the NAME rule, which the phone exemption does
+        # not shield. A FAIL here is the probe telling the truth about the product;
+        # the probe is not relaxed to make it pass.
+        if [ "${np_in:-0}" -lt "${np_of:-0}" ] || [ "${np_rule:-0}" -gt 0 ]; then
+            failures="${failures}LOOK-ALIKE CONTROL (no phone): the shipped writer's selection rule drops ${np_rule} of ${np_of} seeded real person(s) whose only mailbox is a role mailbox (embedded: ${np_in}); a real person is excluded by the name rule. Defect filed as CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON; "
         fi
     fi
     if [ -n "$failures" ]; then
@@ -1287,7 +1341,10 @@ run_probe() {
     # Absent fields, an absent look-alike seed or an unreadable baseline are
     # named, never read as zero.
     if [ "$excl_known" != yes ]; then
-        probe_cannot_run "the writer's exclusion was NOT MEASURED${excl_base_err:+ (${excl_base_err})}: the reading did not carry the by-rule counts and the look-alike control, or the seed (lib/contact_cards_fixture.py, card 9) is not on this box. Nothing is passed on an unmeasured exclusion."
+        probe_cannot_run "the writer's exclusion was NOT MEASURED${excl_base_err:+ (${excl_base_err})}: the reading did not carry the by-rule counts and the look-alike controls, or the seeds (lib/contact_cards_fixture.py, cards 9 and 10) are not on this box. Nothing is passed on an unmeasured exclusion."
+    fi
+    if [ "$jump_known" != yes ]; then
+        probe_cannot_run "the jump arm is CANNOT-RUN: ${excl_base_err}. The share is only compared against a baseline row of the SAME corpus, so no comparison was made. Nothing is passed on an unmeasured jump."
     fi
     if [ "$c_writer" = "queued" ] || [ "$d_writer" = "ran" ]; then
         probe_pass "graph, vector store and People tile agree once the product's own writers have run: ${c_writer:+every person missing across the re-reads was queued for the next people_index run and is now searchable; }${d_writer:+the tile was one compile behind and now renders the graph; }nothing was dropped"
@@ -1315,6 +1372,7 @@ self_test() {
     # and phase 1 treats that as BROKEN. So probe_pass below is the failure
     # path, not the success path.
     SELF_TEST_LOCAL=1
+    RECONCILE_CORPUS=real   # the default arms declare the owner's corpus; corpus arms override
     local rc out fails=0 firstbad=""
 
     # ── THE DENOMINATOR COUNTS ITSELF (#2120, #2138) ──────────────────────
@@ -1392,29 +1450,29 @@ self_test() {
 
     # ---- residual D. graph vec A B Cn Cu both ; reconciled = graph + A - Cu
     # stores agree (A=B=0), tile matches reconciled -> PASS
-    _tcase "D tile correct -> PASS"           "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "7187" "$PROBE_EX_PASS"
+    _tcase "D tile correct -> PASS"           "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "7187" "$PROBE_EX_PASS"
     # stores agree, tile matches NEITHER -> the #273 defect -> FAIL
-    _tcase "D tile is a THIRD number -> FAIL" "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "6547" "$PROBE_EX_FAIL"
+    _tcase "D tile is a THIRD number -> FAIL" "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "6547" "$PROBE_EX_FAIL"
     # A tile still catching up: lower, then equal on a later reading -> PASS
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" FAKE_TILE_SEQ="7100|7150|7187" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" FAKE_TILE_SEQ="7100|7150|7187" run_probe 2>&1)"; rc=$?
     if [ "$rc" -eq "$PROBE_EX_PASS" ] && [ "$(printf '%s' "$out" | grep -c 'tile re-read .*7100 -> 7187')" -gt 0 ]; then _st_tick; printf '  ok [D tile catches up on a re-read -> PASS, and the re-read is what passed it]\n'
     else _st_tick; printf '  SELF-TEST FAIL [D catch-up]: expected %s, got %s\n' "$PROBE_EX_PASS" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D catch-up"; fi
     # A tile that stays short for every reading -> FAIL
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" FAKE_TILE_SEQ="7100|7100|7100" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" FAKE_TILE_SEQ="7100|7100|7100" run_probe 2>&1)"; rc=$?
     if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile never catches up -> FAIL]\n'
     else _st_tick; printf '  SELF-TEST FAIL [D stuck]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D stuck"; fi
     # A tile HIGHER than the stores is never lag: FAIL even if a later reading would match
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" FAKE_TILE_SEQ="7300|7187" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" FAKE_TILE_SEQ="7300|7187" run_probe 2>&1)"; rc=$?
     if [ "$rc" -eq "$PROBE_EX_FAIL" ]; then _st_tick; printf '  ok [D tile above the stores is not re-read -> FAIL]\n'
     else _st_tick; printf '  SELF-TEST FAIL [D above]: expected %s, got %s\n' "$PROBE_EX_FAIL" "$rc"; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="D above"; fi
     # stores agree, tile tracks the graph, which here EQUALS reconciled -> PASS
-    _tcase "D tile tracks graph -> PASS"      "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "7187" "$PROBE_EX_PASS"
+    _tcase "D tile tracks graph -> PASS"      "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "7187" "$PROBE_EX_PASS"
     # THE ONE THAT MATTERS: A is non-zero, so a graph-tracking tile is a
     # CONSEQUENCE and must not be reported as a separate D failure.
     # Exit code ALONE cannot test this: suppressed and not-suppressed both exit
     # 1, because A already failed. The claim is about the MESSAGE, so the
     # message is what gets asserted.
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7111 7284 106 0 0 30 7081 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7111 7284 106 0 0 30 7081 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
            FAKE_TILE="7111" run_probe 2>&1)"; rc=$?
     if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
         _st_tick; printf '  SELF-TEST FAIL [D suppressed]: expected exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
@@ -1428,45 +1486,45 @@ self_test() {
         esac
     fi
     # an unreadable tile must never read as "the customer is shown zero people"
-    _tcase "D unreadable -> not a zero"       "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "UNREADABLE" "$PROBE_EX_PASS"
-    _tcase "D empty -> not a zero"            "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "" "$PROBE_EX_PASS"
+    _tcase "D unreadable -> not a zero"       "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "UNREADABLE" "$PROBE_EX_PASS"
+    _tcase "D empty -> not a zero"            "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "" "$PROBE_EX_PASS"
 
-    _case "all residuals zero -> PASS"        "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"   "$PROBE_EX_PASS"
-    _case "A untyped survivors -> FAIL"       "OK 7111 7284 106 0 0 30 7081 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "$PROBE_EX_FAIL"
-    _case "B orphan vectors -> FAIL"          "OK 7187 7284 0 97 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"  "$PROBE_EX_FAIL"
+    _case "all residuals zero -> PASS"        "OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"   "$PROBE_EX_PASS"
+    _case "A untyped survivors -> FAIL"       "OK 7111 7284 106 0 0 30 7081 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "$PROBE_EX_FAIL"
+    _case "B orphan vectors -> FAIL"          "OK 7187 7284 0 97 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_FAIL"
     # The orphan's payload source and URI SHAPE must be printed (walk #15 had to
     # characterise its one orphan by hand). Positive: a 12th field is echoed.
     # Control: a reading with no 12th field says NOT MEASURED, never a shape.
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=fda_people_index;shape=https://x/person_<h>;x1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=fda_people_index;shape=https://x/person_<h>;x1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"
     if grep -qF "orphan source and URI shape      : source=fda_people_index;shape=https://x/person_<h>;x1" <<< "$out"; then
         _st_tick; printf '  ok [orphan source and URI shape is printed]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan source and URI shape is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape"
     fi
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=x;shape=y;x1 eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - source=x;shape=y;x1 eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"
     if grep -qF "eeeeeeeeeee5:ostler_fda.dedupe_merge;exact_identifier_merge;2026-10-09T11:05:17Z" <<< "$out"; then
         _st_tick; printf '  ok [orphan deletion record is printed]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan deletion record is printed]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan deletion record"
     fi
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"
     if grep -qF "orphan source and URI shape      : NOT MEASURED" <<< "$out"; then
         _st_tick; printf '  ok [orphan shape absent reading says NOT MEASURED]\n'
     else
         _st_tick; printf '  SELF-TEST FAIL [orphan shape absent reading says NOT MEASURED]\n'; fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="orphan shape absent"
     fi
-    _case "C named unsearchable -> FAIL"      "OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"  "$PROBE_EX_FAIL"
+    _case "C named unsearchable -> FAIL"      "OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_FAIL"
     # instr119: WHY C has no vector, and the install-time sweep, are PRINTED
     # (fields 14 and 15) and change no exit code. Control: a reading without
     # them says NOT MEASURED rather than inventing a split.
-    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_PEOPLE_WRITER=NOTLOADED FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 0 - aaaaaaaaaaa1,aaaaaaaaaaa2 - - csplit;merged:2;nodisplayname:3;afterindex:4;embedfailed:3;undated:1;noindex:0;index_at:2026-10-26T06:49:47Z;index_src:people_index.tsv hydrate;people.done:present;status:error;rc:1;install_log:absent svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_PEOPLE_WRITER=NOTLOADED FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 0 - aaaaaaaaaaa1,aaaaaaaaaaa2 - - csplit;merged:2;nodisplayname:3;afterindex:4;embedfailed:3;undated:1;noindex:0;index_at:2026-10-26T06:49:47Z;index_src:people_index.tsv hydrate;people.done:present;status:error;rc:1;install_log:absent svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"; rc=$?
     case "$rc|$out" in
         "$PROBE_EX_FAIL|"*"merged away (indexer skips)    : 2"*"no pwg:displayName (unselectable): 3"*"Person created after index     : 4"*"embed failed (existed at index): 3"*"last index                     : 2026-10-26T06:49:47Z (from people_index.tsv)"*"install-time hydrate-people          : people.done:present status:error rc:1"*)
             _st_tick; printf '  ok [C cause split and hydrate status are printed; exit unchanged]\n' ;;
         *) _st_tick; printf '  SELF-TEST FAIL [C cause split printed]: rc=%s\n' "$rc"
            fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="C cause split" ;;
     esac
-    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 OSTLER_PROBE_RECONCILE_READS=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"; rc=$?
     case "$rc|$out" in
         "$PROBE_EX_FAIL|"*"why C has no vector              : NOT MEASURED"*"install-time hydrate-people          : NOT MEASURED"*)
             _st_tick; printf '  ok [a reading without the cause fields says NOT MEASURED]\n' ;;
@@ -1494,22 +1552,46 @@ self_test() {
         fi
     }
     _xcase "excluded share steady at the baseline (347 of 11577) -> PASS" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1" "$PROBE_EX_PASS" "service_mailbox"
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "service_mailbox"
     _xcase "excluded share jumped (500 of 11577 = 4.32%, over 4.00%) -> FAIL" \
-        "OK 11577 11077 0 0 0 0 11077 $(_sv 500) look=1/1" "$PROBE_EX_FAIL" "EXCLUDED SHARE JUMPED"
+        "OK 11577 11077 0 0 0 0 11077 $(_sv 500) look=1/1 look_np=1/1/0" "$PROBE_EX_FAIL" "EXCLUDED SHARE JUMPED"
     _xcase "excluded share fell (100 of 11577) -> PASS, the fall is printed" \
-        "OK 11577 11477 0 0 0 0 11477 $(_sv 100) look=1/1" "$PROBE_EX_PASS" "jump over +1.0pp: no"
+        "OK 11577 11477 0 0 0 0 11477 $(_sv 100) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "jump over +1.0pp: no"
     _xcase "look-alike swallowed (0 of 1 embedded) -> FAIL" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=0/1" "$PROBE_EX_FAIL" "LOOK-ALIKE CONTROL"
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=0/1 look_np=1/1/0" "$PROBE_EX_FAIL" "LOOK-ALIKE CONTROL (phone)"
     _xcase "look-alike not seeded on this box (0 of 0) -> CANNOT-RUN, not a pass" \
         "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=0/0" "$PROBE_EX_CANNOT_RUN" "NOT MEASURED"
     _xcase "reading carries no exclusion fields -> CANNOT-RUN, not a pass" \
         "OK 11577 11230 0 0 0 0 11230" "$PROBE_EX_CANNOT_RUN" "NOT MEASURED"
     XENV="RECONCILE_EXCL_BASELINE=/nonexistent/baseline.tsv" _xcase "baseline unreadable -> CANNOT-RUN, named" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1" "$PROBE_EX_CANNOT_RUN" "baseline file unreadable"
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_CANNOT_RUN" "baseline file unreadable"
     _xcase "clean run prints the rule breakdown and the stub rule" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1" "$PROBE_EX_PASS" "stub rule: no pwg:displayName"
-    _case "unnamed stubs only -> PASS"        "OK 7217 7187 0 0 0 30 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"  "$PROBE_EX_PASS"
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "stub rule: no pwg:displayName"
+    # ── CB135 round 2: CORPUS-KEYED JUMP, PHONELESS LOOK-ALIKE ──────────────
+    # A share is compared only against a baseline row of the SAME corpus. The
+    # self-test writes its own TSV so the arms do not depend on the committed one.
+    _ctsv="$(mktemp 2>/dev/null || mktemp -t psrtsv)"
+    printf 'measured_on\twalk\tcorpus\tgraph\texcluded\tnote\n2026-01-01\tseed-row\tseed\t11577\t347\tfixture\n2026-01-01\treal-row\treal\t11577\t50\tfixture\n' > "$_ctsv"
+    XENV="RECONCILE_CORPUS=" _xcase "corpus undeclared -> jump arm CANNOT-RUN, named" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_CANNOT_RUN" "OSTLER_PROBE_CORPUS is not declared"
+    XENV="RECONCILE_CORPUS=seed RECONCILE_EXCL_BASELINE=/nonexistent/b.tsv" _xcase "baseline missing for the corpus -> CANNOT-RUN named" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_CANNOT_RUN" "baseline file unreadable"
+    XENV="RECONCILE_CORPUS=seed RECONCILE_EXCL_BASELINE=$_ctsv" _xcase "seed corpus: steady against the SEED row -> PASS (real row ignored)" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "corpus 'seed'"
+    XENV="RECONCILE_CORPUS=real RECONCILE_EXCL_BASELINE=$_ctsv" _xcase "real corpus: same 347 vs the real row of 50 -> FAIL jump" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_FAIL" "EXCLUDED SHARE JUMPED"
+    XENV="RECONCILE_CORPUS=synthetic-cold RECONCILE_EXCL_BASELINE=$_ctsv" _xcase "corpus with no row of its own -> CANNOT-RUN named" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_CANNOT_RUN" "no baseline row for corpus 'synthetic-cold'"
+    _xcase "phoneless look-alike not embedded -> FAIL, names CB136" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=0/1/1" "$PROBE_EX_FAIL" "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON"
+    _xcase "phoneless look-alike unseeded (0 of 0) -> CANNOT-RUN, not a pass" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=0/0/0" "$PROBE_EX_CANNOT_RUN" "NOT MEASURED"
+    _xcase "phoneless look-alike embedded -> PASS, both controls printed" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "NO phone     : 1/1"
+    _xcase "phoneless look-alike embedded BUT the shipped rule drops them -> FAIL, names CB136" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/1" "$PROBE_EX_FAIL" "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON"
+    rm -f "$_ctsv"
+    _case "unnamed stubs only -> PASS"        "OK 7217 7187 0 0 0 30 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_PASS"
     # CANNOT-RUN is a third outcome and must not collapse into either.
     # ---- B, split by who made the orphan. Ninth field = this suite's fixtures.
     # THE FALSE RED: every orphan vector is a seed people_seed_and_retrieval
@@ -1517,15 +1599,15 @@ self_test() {
     # is artefact-owned, so failing here would refuse the promote over the
     # harness.
     _case "B is entirely our own leaked fixtures -> PASS" \
-          "OK 7187 7188 0 0 0 0 7187 1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"  "$PROBE_EX_PASS"
+          "OK 7187 7188 0 0 0 0 7187 1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_PASS"
     # THE FALSE GREEN THE SPLIT COULD BUY: a genuine orphan standing beside one
     # of ours must still fail. Excluding ours must never excuse theirs.
     _case "a real orphan beside a leaked fixture -> FAIL" \
-          "OK 7187 7189 0 1 0 0 7187 1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"  "$PROBE_EX_FAIL"
+          "OK 7187 7189 0 1 0 0 7187 1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_FAIL"
     # An eight-field line is a reconciliation that did not measure the flag. It
     # must say NOT MEASURED, never print a zero it did not observe. Exit code
     # alone cannot test this -- both branches pass -- so assert the MESSAGE.
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7187 7187 0 0 0 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"; rc=$?
     case "$out" in
         *"NOT MEASURED"*) _st_tick; printf '  ok [eight-field line says NOT MEASURED, not zero]\n' ;;
         *) _st_tick; printf '  SELF-TEST FAIL [fixture attribution]: an unmeasured attribution did not say so.\n'
@@ -1541,31 +1623,31 @@ self_test() {
     # THE ONE THAT MUST STILL FAIL. The same person URI is missing from the
     # vector store in every reading. Nothing is settling; the stores disagree.
     _scase "C: the SAME URI missing in all 3 readings -> FAIL" \
-        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_FAIL"
     # THE v1.0.79 SHAPE. C is non-zero at every reading INCLUDING the last, but
     # never the same people twice: the population is being written under the
     # probe. A count-only check fails this box; a set check does not.
     _scase "C: a set that changes every reading -> PASS" \
-        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_PASS"
     # THE FALSE GREEN THE RE-READ COULD BUY, and the reason the check is an
     # INTERSECTION and not "did the count move". One URI is stably missing while
     # the others churn around it. The churn must not excuse it.
     _scase "C: one URI persists while the rest churn -> FAIL" \
-        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7201 7195 0 0 2 0 7195 0 - aaaaaaaaaaa1,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7202 7201 0 0 2 0 7201 0 - aaaaaaaaaaa1,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7201 7195 0 0 2 0 7195 0 - aaaaaaaaaaa1,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7202 7201 0 0 2 0 7201 0 - aaaaaaaaaaa1,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_FAIL"
     # B gets the same treatment, and must behave the same way in both directions.
     _scase "B: the SAME orphan vector in all 3 readings -> FAIL" \
-        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_FAIL"
     _scase "B: a different orphan each reading -> PASS" \
-        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7187 7188 0 1 0 0 7187 0 fffffffffff6 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7187 7188 0 1 0 0 7187 0 ggggggggggg7 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7187 7188 0 1 0 0 7187 0 eeeeeeeeeee5 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7187 7188 0 1 0 0 7187 0 fffffffffff6 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7187 7188 0 1 0 0 7187 0 ggggggggggg7 - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_PASS"
     # RESIDUAL A IS EXEMPT AND MUST STAY EXEMPT. C and B are zero, so no re-read
     # happens at all, and A fails on the single reading exactly as it always has.
     _scase "A: fails on the first reading, no re-read -> FAIL" \
-        "OK 7111 7284 106 0 0 30 7081 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" \
+        "OK 7111 7284 106 0 0 30 7081 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" \
         "$PROBE_EX_FAIL"
 
     # ── THE WRITER ARMS (v1.0.102 walk 4) ─────────────────────────────────
@@ -1584,8 +1666,8 @@ self_test() {
             _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
-    _C1="OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"
-    _C0="OK 7201 7201 0 0 0 0 7201 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"
+    _C1="OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"
+    _C0="OK 7201 7201 0 0 0 0 7201 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"
     _wcase "C held 3 readings, the writer ran, now searchable -> PASS (queued)" \
         "${_C1}|${_C1}|${_C1}|${_C0}" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
     _wcase "C held 3 readings, the writer ran, STILL missing -> FAIL (dropped)" \
@@ -1593,7 +1675,7 @@ self_test() {
     _wcase "C held, the writer could not be driven -> FAIL on the re-reads" \
         "${_C1}|${_C1}|${_C1}|${_C0}" "TIMEOUT" "$PROBE_EX_FAIL" "the verdict stays on the re-reads alone"
     _wcase "C held, a NEW person missing after the writer does not fail it -> PASS" \
-        "${_C1}|${_C1}|${_C1}|OK 7202 7201 0 0 1 0 7201 0 - zzzzzzzzzzz9 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
+        "${_C1}|${_C1}|${_C1}|OK 7202 7201 0 0 1 0 7201 0 - zzzzzzzzzzz9 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" DONE "$PROBE_EX_PASS" "QUEUED for the next people_index run"
 
     # _dcase <label> <FAKE_RECONCILE_SEQ> <FAKE_TILE_SEQ> <FAKE_WIKI_WRITER> <expected exit> <text>
     _dcase() {
@@ -1610,11 +1692,11 @@ self_test() {
             _st_tick; printf '  ok [%s] exit %s\n' "$label" "$rc"
         fi
     }
-    _Q="OK 7187 7187 0 0 0 0 7187 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"
+    _Q="OK 7187 7187 0 0 0 0 7187 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"
     _dcase "D short after re-reads, compile ran, tile now equal -> PASS" \
         "$_Q" "7100|7100|7187" DONE "$PROBE_EX_PASS" "it was only a compile behind"
     _dcase "D short, graph grew during the compile, tile inside the bracket -> PASS" \
-        "${_Q}|OK 7190 7190 0 0 0 0 7190 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" "7100|7100|7188" DONE "$PROBE_EX_PASS" "(7187..7190)"
+        "${_Q}|OK 7190 7190 0 0 0 0 7190 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" "7100|7100|7188" DONE "$PROBE_EX_PASS" "(7187..7190)"
     _dcase "D short, compile ran, tile still outside the bracket -> FAIL" \
         "$_Q" "7100|7100|7100" DONE "$PROBE_EX_FAIL" "computed a number of its own"
     _dcase "D short, the compile could not be driven -> FAIL" \
@@ -1628,7 +1710,7 @@ self_test() {
     #
     # A CLEAN reading is used throughout, so the only thing that can move the
     # verdict is the hold itself.
-    _CLEAN="OK 7111 7111 0 0 0 0 7111 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1"
+    _CLEAN="OK 7111 7111 0 0 0 0 7111 0 - - svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"
     _KBUDGET=900
     _kcase() {
         # _kcase <label> <FAKE_TICK_SEQ> <FAKE_TICK_UNREADABLE 0|1> <expected exit>
@@ -1741,10 +1823,10 @@ LOG_NOLINE" FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=900 run_probe 2>&1
     # refused or empty must be adjudicated, never quietly dropped in favour of
     # the reading before it.
     _scase "a re-read refused by the store -> FAIL, not the earlier reading" \
-        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|AUTHFAIL 401 Oxigraph (SPARQL) at http://127.0.0.1:7878/query" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|AUTHFAIL 401 Oxigraph (SPARQL) at http://127.0.0.1:7878/query" \
         "$PROBE_EX_FAIL"
     _scase "a re-read that returns nothing -> CANNOT-RUN, not a pass" \
-        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|" \
+        "OK 7200 7187 0 0 1 0 7187 0 - aaaaaaaaaaa1 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|" \
         "$PROBE_EX_CANNOT_RUN"
 
     # THE OLD SHAPE MUST STILL GIVE THE OLD VERDICT. A reading with no digest
@@ -1752,7 +1834,7 @@ LOG_NOLINE" FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=900 run_probe 2>&1
     # must not soften, and it must SAY which of those it is -- a probe that
     # silently kept the strict path would look identical to one that had
     # measured identity and found a persistent miss.
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"; rc=$?
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE="OK 7200 7187 0 0 13 0 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"; rc=$?
     if [ "$rc" -ne "$PROBE_EX_FAIL" ]; then
         _st_tick; printf '  SELF-TEST FAIL [single-reading shape]: expected the old exit %s, got %s\n' "$PROBE_EX_FAIL" "$rc"
         fails=$((fails + 1)); [ -z "$firstbad" ] && firstbad="single-reading exit"
@@ -1775,7 +1857,7 @@ LOG_NOLINE" FAKE_RECONCILE="$_CLEAN" OSTLER_PROBE_TICK_WAIT_S=900 run_probe 2>&1
     # AND THE IN-FLIGHT CASE MUST SAY SO IN ITS OWN WORDS. Exit code alone
     # cannot test this: a pass here and a pass on a genuinely clean box are both
     # exit 0, and the whole point is that they are DIFFERENT findings.
-    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1" run_probe 2>&1)"
+    out="$(SELF_TEST_LOCAL=1 FAKE_RECONCILE_SEQ="OK 7200 7187 0 0 2 0 7187 0 - aaaaaaaaaaa1,bbbbbbbbbbb2 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7201 7195 0 0 2 0 7195 0 - bbbbbbbbbbb2,ccccccccccc3 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0|OK 7202 7201 0 0 2 0 7201 0 - ccccccccccc3,ddddddddddd4 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0" run_probe 2>&1)"
     case "$out" in
         *"ingestion is still in flight"*)
             _st_tick; printf '  ok [a changing set is reported as ingestion in flight, not as a disagreement]\n' ;;

@@ -1,5 +1,7 @@
 # people_stores_reconcile: the writer's excluded share, the baseline its jump is judged against (CB135).
-# One row per accepted walk. The LAST data row is the baseline. Columns: measured_on, walk, graph, excluded, note.
-# Update in the same PR that accepts a new walk. Graph count is approximate for the first row (Archie: ~11,577).
-measured_on	walk	graph	excluded	note
-2026-11-14	v1.0.134-box	11577	347	CB135 Archie ruling: 337 service mailbox, 5 organisation name, 4 notification phrasing, 1 marketplace or domain; 13 unnamed stubs are reported separately and are not in this count
+# One row per accepted walk, per CORPUS. The probe compares only against the LAST row whose corpus
+# equals the corpus it was told it is reading (OSTLER_PROBE_CORPUS). No same-corpus row = the jump arm
+# is CANNOT-RUN, named. Corpora: real (the owner's book), seed (lib/contact_cards_fixture.py), synthetic-cold.
+# Update in the same PR that accepts a new walk. Columns: measured_on, walk, corpus, graph, excluded, note.
+measured_on	walk	corpus	graph	excluded	note
+2026-11-19	v1.0.134-E-mini16	real	11577	347	ORM-134 E on Mini16, 2026-11-19 ~14:21Z (message to coordinator: graph 11577, vectors 11217, 347 by design: 337 service mailbox, 5 organisation name, 4 notification phrasing, 1 marketplace or domain; 13 unnamed stubs reported separately). Source log ~/walkdriver/v1.0.134/walk134_E.log does not carry these counts.

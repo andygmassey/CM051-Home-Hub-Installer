@@ -421,7 +421,7 @@ def test_people_stores_reconcile_passes_with_the_seed(stores, home):
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("people_stores_reconcile", home, stores,
                     {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    assert v.startswith("PASS"), text
+    assert_only_cb136(v, text)
 
 
 def test_people_stores_reconcile_is_red_for_the_r1_shape(stores, home):
@@ -532,7 +532,7 @@ def test_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, 
     assert len(stores.points) == len(fx.CARDS)
     v, text = probe("people_stores_reconcile", home, stores,
                     {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    assert v.startswith("PASS"), text
+    assert_only_cb136(v, text)
 
 
 def test_the_survivor_order_the_probes_pass_on_today_all_three_probes_pass(stores, home, monkeypatch):
@@ -540,7 +540,7 @@ def test_the_survivor_order_the_probes_pass_on_today_all_three_probes_pass(store
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("people_stores_reconcile", home, stores,
                     {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    assert v.startswith("PASS"), text
+    assert_only_cb136(v, text)
     knobs = {"OSTLER_PEOPLE_STABILITY_STEP_S": "1", "OSTLER_PEOPLE_STABILITY_WAIT_S": "10",
              "OSTLER_PEOPLE_CONVERGE_WAIT_S": "0", "OSTLER_PROBE_STATE_DIR": str(home / "pstate")}
     v, text = probe("people_count_agreement", home, stores, knobs)
@@ -681,7 +681,17 @@ def test_the_name_check_goes_red_on_the_v1_0_116_cast():
 
 
 # ── CB135: the writer's exclusion, judged by people_stores_reconcile ──────────
-LOOKALIKE = "help@example.com"   # card 9 in lib/contact_cards_fixture.py
+LOOKALIKE = "help@example.com"        # card 9: role mailbox AND a phone
+LOOKALIKE_NOPHONE = "info@example.com"  # card 10: role mailbox, NO phone
+SEED_BASELINE_ROW = "measured_on\twalk\tcorpus\tgraph\texcluded\tnote\n2026-01-01\tseed-fixture\tseed\t11577\t347\tfixture\n"
+
+
+def seed_knobs(home):
+    """The probe is told it is reading the SEED corpus and gets a seed-only baseline."""
+    base = home / "seed_baseline.tsv"
+    base.write_text(SEED_BASELINE_ROW, encoding="utf-8")
+    return {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0",
+            "OSTLER_PROBE_CORPUS": "seed", "OSTLER_PROBE_EXCL_BASELINE": str(base)}
 
 
 def run_writer(home, stores):
@@ -698,45 +708,66 @@ def run_writer(home, stores):
     return json.loads(r.stdout.split("WRITER ", 1)[1].splitlines()[0])
 
 
-def lookalike_uri(stores):
+def uri_of(stores, email):
     rows = list(stores.g.query(
         "PREFIX pwg: <https://schema.ostler.ai/ontology#> "
         "SELECT ?u WHERE { ?u a pwg:Person ; pwg:hasIdentifier ?i . "
-        "?i pwg:identifierType \"email\" ; pwg:identifierValue \"%s\" . }" % LOOKALIKE))
-    assert len(rows) == 1, "the look-alike card must be exactly one graph Person, found %d" % len(rows)
+        "?i pwg:identifierType \"email\" ; pwg:identifierValue \"%s\" . }" % email))
+    assert len(rows) == 1, "%s must be exactly one graph Person, found %d" % (email, len(rows))
     return str(rows[0][0])
 
 
-def test_lookalike_is_embedded_by_the_shipped_writer_and_counted_by_the_probe(stores, home, monkeypatch):
+def embedded_uris(stores):
+    return {p["payload"].get("person_uri") for p in stores.points.values()}
+
+
+
+def assert_only_cb136(v, text):
+    """The seed's only residual is the phoneless role-mailbox person the shipped writer's rule
+    excludes (CB136). Checked on the VERDICT line, where failures are named. The probe must FAIL,
+    and nothing but CB136 may be among the named failures."""
+    assert v.startswith("FAIL"), text
+    verdict = [ln for ln in text.splitlines() if "VERDICT:" in ln]
+    assert verdict, text
+    vd = verdict[-1]
+    assert "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON" in vd, vd
+    for named in ("named persons unsearchable", "untyped merge survivors;", "orphan vectors;",
+                  "LOOK-ALIKE CONTROL (phone)", "EXCLUDED SHARE JUMPED"):
+        assert named not in vd, vd
+
+
+def test_seed_reports_what_the_shipped_writer_does_with_both_lookalikes(stores, home, monkeypatch):
+    """Measured, not assumed. The phone look-alike is embedded by the writer. The PHONELESS
+    look-alike is excluded by the shipped selection rule (service mailbox, no phone) but is
+    still a vector, because contact_syncer embedded it (source icloud_contacts) and the writer
+    prunes only its own points. The probe judges the RULE, so it FAILs naming CB136. The
+    probe is not relaxed to make this pass."""
     monkeypatch.setenv("CCS_CARD_ID", "high")
     assert run_seed(home, stores)[0] == "seeded"
-    w = run_writer(home, stores)
-    assert w.get("status") == "ok", w
-    assert lookalike_uri(stores) in {p["payload"].get("person_uri") for p in stores.points.values()}, \
-        "the shipped writer must EMBED a real person whose address looks like a service one"
-    v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    print("\n--- BASELINE (shipped writer, clean): probe output ---\n" + text)
-    assert v.startswith("PASS"), text
-    assert "1/1 seeded real persons" in text, text
-    assert re.search(r"service_mailbox\s*: 0\b", text), text
+    assert run_writer(home, stores).get("status") == "ok"
+    assert uri_of(stores, LOOKALIKE) in embedded_uris(stores), "phone look-alike must be embedded"
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- SEED WRITER, both look-alikes: probe output ---\n" + text)
+    assert "look-alike control, phone        : 1/1" in text, text
+    assert "look-alike control, NO phone     : 1/1 seeded real persons (role mailbox, no phone) are embedded; the shipped rule excludes 1" in text, text
+    assert v.startswith("FAIL"), text
+    assert "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON" in text, text
 
 
 def test_mutant_a_deleted_vector_of_a_real_person_is_red(stores, home, monkeypatch):
     monkeypatch.setenv("CCS_CARD_ID", "high")
     assert run_seed(home, stores)[0] == "seeded"
     assert run_writer(home, stores).get("status") == "ok"
-    uri = lookalike_uri(stores)
+    uri = uri_of(stores, LOOKALIKE)
     gone = [i for i, p in stores.points.items() if p["payload"].get("person_uri") == uri]
     assert len(gone) == 1
     for i in gone:
         del stores.points[i]
-    v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    print("\n--- MUTANT a: probe output ---\n" + text)
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- MUTANT a (delete the phone look-alike's vector): probe output ---\n" + text)
     assert v.startswith("FAIL"), text
     assert "C=1 named persons unsearchable" in text, text
-    assert "LOOK-ALIKE CONTROL: 1 of 1" in text, text
+    assert "LOOK-ALIKE CONTROL (phone): 1 of 1" in text, text
 
 
 def test_mutant_b_widened_exclusion_swallows_the_lookalike_and_is_red(stores, home, monkeypatch):
@@ -753,12 +784,11 @@ def test_mutant_b_widened_exclusion_swallows_the_lookalike_and_is_red(stores, ho
                                                      encoding="utf-8")
     assert run_seed(home, stores)[0] == "seeded"
     assert run_writer(home, stores).get("status") in ("ok", "partial_landing", "no_data")
-    assert lookalike_uri(stores) not in {p["payload"].get("person_uri") for p in stores.points.values()}, \
-        "the widened writer must have pruned the look-alike (the mutant has to bite before the probe can judge it)"
-    v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
-    print("\n--- MUTANT b: probe output ---\n" + text)
+    assert uri_of(stores, LOOKALIKE) not in embedded_uris(stores), \
+        "the widened writer must have pruned the phone look-alike before the probe can judge it"
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- MUTANT b (phone exemption removed): probe output ---\n" + text)
     assert v.startswith("FAIL"), text
-    assert "LOOK-ALIKE CONTROL: 1 of 1" in text, text
+    assert "EXCLUDED SHARE JUMPED" in text, text
+    assert "LOOK-ALIKE CONTROL (phone): 1 of 1" in text, text
     assert re.search(r"service_mailbox\s*: 1\b", text), text
-
