@@ -241,13 +241,13 @@ def _fc_fake(level_behaviour):
     return fake
 
 
-def _fc_run(srv, level_behaviour):
+def _fc_run(srv, level_behaviour, destination="owner_own_brief"):
     """(result, error). result is person_context's dict, or None if it raised."""
     from unittest.mock import patch
     with patch.object(srv, "_sparql_select", side_effect=_fc_fake(level_behaviour)), \
          patch.object(srv, "_timeline_conversations", return_value=([], None)):
         try:
-            return srv.person_context("Dana L2", destination="owner_own_brief"), None
+            return srv.person_context("Dana L2", destination=destination), None
         except Exception as exc:  # the route turns this into a degraded answer
             return None, exc
 
@@ -427,6 +427,7 @@ def test_person_enrichment_ratio(store_and_mod, monkeypatch, capsys):
 
 TL_L3 = "SECRET-L3-MEETING-DO-NOT-SERVE"
 TL_L1 = "fc-control-L1-meeting"
+TL_L2 = "fc-control-L2-meeting"
 TL_URI = "urn:ostler:person/dana"
 TL_SLUG = "dana"
 
@@ -441,6 +442,8 @@ def _route_fake(level_mode):
          "location": "", "lvl": "L3"},
         {"m": "urn:ostler:meeting/fc-l1", "summary": TL_L1, "date": "2026-10-02",
          "location": "", "lvl": "L1"},
+        {"m": "urn:ostler:meeting/fc-l2", "summary": TL_L2, "date": "2026-10-03",
+         "location": "", "lvl": "L2"},
     ]
 
     def fake(query):
@@ -469,14 +472,14 @@ def _route_fake(level_mode):
     return fake
 
 
-def _route_run(srv, route, level_mode):
+def _route_run(srv, route, level_mode, destination="owner_own_brief"):
     from unittest.mock import patch
     fake = _route_fake(level_mode)
     with patch.object(srv, "_sparql_select", side_effect=fake):
         try:
             if route == "timeline":
-                return srv.person_timeline_by_uri(TL_URI, destination="owner_own_brief")[0], None
-            return srv.person_enrichment(TL_SLUG, destination="owner_own_brief")[0], None
+                return srv.person_timeline_by_uri(TL_URI, destination=destination)[0], None
+            return srv.person_enrichment(TL_SLUG, destination=destination)[0], None
         except Exception as exc:
             return None, exc
 
@@ -594,3 +597,107 @@ def test_structural_guard_fails_on_the_unscoped_mutant(store_and_mod, monkeypatc
         for route, verdict in red.items():
             print("\n[MUTANT STRUCTURAL %s %s] %s" % (route, transport, verdict))
     assert all(v.startswith("caught") for v in red.values()), red
+
+
+# --- POSITIVE owner cases (Archie, #310): the owner gets their data BACK -----
+#
+# The fail-closed tests above prove that L3 is withheld. They do not prove the
+# owner gets anything, so a fast route that returns nothing would pass them. These
+# assert the owner's own L3 comes back on owner_local, and that L2 comes back on
+# owner_own_brief with L3 still withheld. The mutant empties the level lookup:
+# the positive cases must go red.
+
+def _served_meetings(route, result):
+    """{summary: privacy_level} for the meetings a route served."""
+    if route == "timeline":
+        rows = [e for e in result.get("events", []) if e.get("type") == "meeting"]
+    else:
+        rows = result.get("person", {}).get("meetings", [])
+    return {m.get("summary"): m.get("privacy_level") for m in rows}
+
+
+def _owner_local_must_return_l3(route, srv=None):
+    """The owner gets the L3 meeting BACK, labelled L3. A label of None (an empty
+    level lookup) is the owner getting untagged rows, not their data, so it fails."""
+    srv = srv or _srv()
+    result, error = _route_run(srv, route, "normal", destination="owner_local")
+    assert error is None, error
+    got = _served_meetings(route, result)
+    assert got.get(TL_L3) == "L3", "%s/owner_local: the owner's L3 meeting did not come back labelled L3 (got %r)" % (route, got)
+    assert got.get(TL_L2) == "L2", "%s/owner_local: the owner's L2 meeting did not come back labelled L2 (got %r)" % (route, got)
+
+
+def _brief_must_return_l2_and_withhold_l3(route, srv=None):
+    srv = srv or _srv()
+    result, error = _route_run(srv, route, "normal", destination="owner_own_brief")
+    out = json.dumps(result) if result is not None else ""
+    assert error is None, error
+    assert TL_L2 in out, "%s/owner_own_brief: L2 did not come back" % route
+    assert TL_L3 not in out, "%s/owner_own_brief served L3" % route
+
+
+def _context_owner_local_must_return_l3(srv=None):
+    """The L3 fact comes back in the owner's private list, and the L1 fact stays
+    in the served list. With an empty lookup the L1 fact falls to the private
+    list (untagged), so this distinguishes the two."""
+    srv = srv or _srv()
+    result, error = _fc_run(srv, "L3", destination="owner_local")
+    assert error is None, error
+    person = result["person"]
+    assert L3_TEXT in person.get("private_facts", []), "people/context/owner_local: the owner's L3 fact did not come back"
+    assert "fc-explicit-L1" in person.get("facts", []), "people/context/owner_local: the L1 fact is not in the served list"
+    assert "fc-explicit-L1" not in person.get("private_facts", []), (
+        "people/context/owner_local: the L1 fact is labelled private (untagged): the level read did not happen")
+
+
+def _context_brief_must_return_l1_and_withhold_l3(srv=None):
+    srv = srv or _srv()
+    result, error = _fc_run(srv, "L3", destination="owner_own_brief")
+    out = json.dumps(result) if result is not None else ""
+    assert error is None, error
+    assert "fc-explicit-L1" in out, "people/context/owner_own_brief: L1 did not come back"
+    assert L3_TEXT not in out, "people/context/owner_own_brief served L3"
+
+
+@pytest.mark.parametrize("route", ["timeline", "enrichment"])
+def test_owner_local_gets_the_l3_meeting_back(route):
+    _owner_local_must_return_l3(route)
+
+
+@pytest.mark.parametrize("route", ["timeline", "enrichment"])
+def test_owner_own_brief_gets_l2_back_and_withholds_l3(route):
+    _brief_must_return_l2_and_withhold_l3(route)
+
+
+def test_owner_local_gets_the_l3_fact_back_on_people_context():
+    _context_owner_local_must_return_l3()
+
+
+def test_owner_own_brief_gets_l1_back_and_withholds_l3_on_people_context():
+    _context_brief_must_return_l1_and_withhold_l3()
+
+
+def test_positive_cases_go_red_when_the_level_lookup_is_empty(monkeypatch, capsys):
+    """Mutant: the level lookup returns nothing for every subject. Each positive
+    case must fail, so a fast route that returns an empty answer cannot pass."""
+    srv = _srv()   # ONE module instance: the patch must reach the calls below
+    monkeypatch.setattr(srv, "_levels_for", lambda subject_var, uris: {})
+    checks = {
+        "timeline/owner_local": lambda: _owner_local_must_return_l3("timeline", srv),
+        "enrichment/owner_local": lambda: _owner_local_must_return_l3("enrichment", srv),
+        "timeline/owner_own_brief": lambda: _brief_must_return_l2_and_withhold_l3("timeline", srv),
+        "enrichment/owner_own_brief": lambda: _brief_must_return_l2_and_withhold_l3("enrichment", srv),
+        "people/context/owner_local": lambda: _context_owner_local_must_return_l3(srv),
+        "people/context/owner_own_brief": lambda: _context_brief_must_return_l1_and_withhold_l3(srv),
+    }
+    verdicts = {}
+    for name, check in checks.items():
+        try:
+            check()
+            verdicts[name] = "NOT CAUGHT"
+        except AssertionError as exc:
+            verdicts[name] = "caught: " + str(exc)
+    with capsys.disabled():
+        for name, v in verdicts.items():
+            print("\n[MUTANT EMPTY-LOOKUP positive %s] %s" % (name, v))
+    assert all(v.startswith("caught") for v in verdicts.values()), verdicts
