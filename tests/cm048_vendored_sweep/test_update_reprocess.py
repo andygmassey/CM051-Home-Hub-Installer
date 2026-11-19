@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -55,11 +56,19 @@ V2 = (
 )
 
 
+# The conversation is dated yesterday, computed at run time. A fixed date made
+# these tests depend on the wall clock: the vendored writer's 30-day staleness
+# cutoff (CM048 #106, graft 4aba40a0) drops any bundle older than that, so the
+# fixed 2026-10-19 became stale on 2026-11-19 and the two supersede/keep-row
+# assertions began reading stale_source instead of what they test.
+_SOURCE_DAY = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+
+
 def _metadata(**overrides) -> dict:
     md = {
         "conversation_id": CONV_ID,
-        "date": "2026-10-19",
-        "started_at": "2026-10-19T10:00:00Z",
+        "date": _SOURCE_DAY.isoformat(),
+        "started_at": f"{_SOURCE_DAY.isoformat()}T10:00:00Z",
         "channel": "im",
         "source": "imessage",
         "privacy_level": "L1",
