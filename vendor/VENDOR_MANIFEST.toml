@@ -932,6 +932,8 @@ vendor_path      = "vendor/cm059_editor/compiler"
 source_repo      = "$CM059"
 source_path      = "compiler"
   pinned_sha = "fdb11f2b8d979732407b3822018025f21a74aa3f"
+  hold_ack_shas = "396aad85048d3f441c5b62c564436d85025198c7"
+  hold_ack_reason = "2026-11-19 (ORM-135, v1.0.135 cut, Archie ruling 2026-11-19, cut/v1.0.135 ONLY): HELD, NOT GRAFTED. Launch DMG: no re-vendor without walk proof (CB135-REVENDOR). Measured delta at the cut: pinned fdb11f2b vs upstream CM059 main 396aad85, 1 commit: 396aad85 (#37, interest profile reads derived preferences; compiler/interest_profile.py +73 -1; #38 was squashed into #37 first, Archie). It landed 2026-11-19 06:18Z, after the 134 tag. expires_at_cut = v1.0.136."
   divergence_patch = "vendor/divergences/cm059_editor.patch"
   unrecorded_divergence = "vendor/divergences/cm059_editor_dietary_guard.UNRECORDED.md"  # DECLARED 2026-10-23: two guard lines (project_preferences.py, interest_profile.py) so grocery diet signals are never projected; upstream CM059 follow-up
   # RECORDED 2026-10-18 (vendor drift reduction): the calls field plus the five later grafts that file listed (#2603, shape sweep, interest provenance, walks #29/#30) now in this tree's divergence patch,
