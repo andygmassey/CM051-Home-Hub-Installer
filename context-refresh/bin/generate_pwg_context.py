@@ -1219,13 +1219,15 @@ def _about_you_section() -> list[str]:
                 if _PHONE_RUN.search(text):
                     continue
             if row.get("t") != "location":
-                # DMG #23/#25: the owner's family line keeps a fact ONLY when it
-                # is about the owner (urn:ostler:about == the owner), or it is a
-                # kinship fact with the owner as an explicit end (subject or
-                # object). Untagged legacy facts are NOT kept: they were facts
-                # about other people ("<A> met <B> at a party", "<A> has a son").
+                # Walk 134E: STRUCTURAL gate first. A fact whose about names a
+                # subject other than the owner is never admitted, whatever its
+                # text says (a contact's own statement that mentions the owner
+                # is still the contact's fact). Untagged legacy facts are kept
+                # only when the owner is the subject of the sentence.
                 # A raw phone handle never prints, whoever it is about.
-                if about != owner_about and not _owner_is_kin_end(text, owner_name):
+                if about and about != owner_about:
+                    continue
+                if not about and not _owner_is_kin_end(text, owner_name):
                     continue
                 if _PHONE_RUN.search(text):
                     continue
@@ -1263,8 +1265,12 @@ def _owner_is_kin_end(text: str, owner_name: str) -> bool:
     kin = re.search(r"\b(?:%s)\b" % _KIN, t)
     if not kin:
         return False
-    return bool(re.match(r"%s\b" % o, t) or re.search(r"\bof\s+%s\b" % o, t)
-                or re.search(r"%s['\u2019]s\b" % o, t))
+    # Owner as the SUBJECT of the sentence only ("<Owner> has a daughter ...",
+    # "<Owner>'s son ..." starts with the name). A mid-sentence owner name, in a
+    # possessive or after "of", is someone else's sentence: "Sam Patel said Jane
+    # Doe's sister is moving", "Sam Patel's mother is a friend of Jane Doe".
+    # Used only for UNTAGGED facts; a tagged fact is gated on its about.
+    return bool(re.match(r"%s\b" % o, t))
 
 
 def _meetings_section() -> list[str]:
