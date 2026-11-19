@@ -56,7 +56,11 @@ OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
 NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
 # #27: UNTAGGED legacy location facts. A contact's must go; the owner as explicit subject stays.
-UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton")
+UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton",
+                           # Prefix of the owner's name, not the owner: no word boundary.
+                           # Composed at runtime, as the phone fixture is, so no literal
+                           # pair of names sits in source.
+                           OWNER_NAME + "rr lives in Leeds")
 UNTAGGED_OWNER_PLACE = "Jane Doe lives in Seaford"
 PLACE_WITH_PHONE = "Office line " + "".join(["5550", "1991", "11"]) + " in Seaford"   # owner-tagged, but a raw phone never prints
 _PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source

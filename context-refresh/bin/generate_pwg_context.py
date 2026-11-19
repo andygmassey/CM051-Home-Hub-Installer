@@ -1198,8 +1198,9 @@ def _about_you_section() -> list[str]:
         # urn:ostler:person/<slug> for anyone else. Reading userId alone put
         # "<a contact> is based in <city>" on the owner's Places line, and
         # "what do you know about me" recited it as the owner's. A place
-        # about somebody else is not the owner's place. (Family and close
-        # people are other people by definition, so that bucket keeps them.)
+        # about somebody else is not the owner's place. The family bucket is
+        # gated the same way: a fact about another subject is dropped (walk
+        # 134E), and an untagged one is kept only with the owner as subject.
         owner_about = f"urn:ostler:user/{uid}".lower()
         owner_name = (identity.get("name") or "").strip().lower()
         for row in fact_rows:
@@ -1214,7 +1215,8 @@ def _about_you_section() -> list[str]:
                 # owner, or (legacy, untagged) the owner is its explicit
                 # subject. An untagged "<contact> lives in <city>" is dropped.
                 if about != owner_about and not (
-                        not about and owner_name and text.lower().startswith(owner_name)):
+                        not about and owner_name
+                        and re.match(r"%s\b" % re.escape(owner_name), text.lower())):
                     continue
                 if _PHONE_RUN.search(text):
                     continue
