@@ -17627,6 +17627,33 @@ else
     ok "$(printf "$MSG_OK_SEEDED_PWG_SERVICE_TOKEN" "${SERVICE_TOKEN_FILE}")"
 fi
 
+# Owner token (CB137, CB137-PAIRCODE-MINT-UNAUTHENTICATED): the ONE owner
+# secret. Gates the pair-code mint and the minors write routes. Distinct from
+# service_token, which has many holders and must not carry owner powers.
+# Generated ONLY if absent, so re-install and upgrade KEEP it. Created under
+# umask 077 through a temp file, so it is never even briefly world-readable.
+# The value never reaches argv: openssl writes straight to the file.
+OWNER_TOKEN_FILE="${SECRETS_DIR}/owner_token"
+if [[ ! -e "$OWNER_TOKEN_FILE" ]]; then
+    umask_owner_orig=$(umask)
+    umask 0077
+    mkdir -p "$SECRETS_DIR"
+    chmod 700 "$SECRETS_DIR"
+    _owner_tmp="${OWNER_TOKEN_FILE}.tmp.$$"
+    if ! openssl rand -hex 32 > "$_owner_tmp"; then
+        rm -f "$_owner_tmp"
+        umask "$umask_owner_orig"
+        fail "Could not generate the owner token. Re-run the installer."
+    fi
+    chmod 600 "$_owner_tmp"
+    mv -f "$_owner_tmp" "$OWNER_TOKEN_FILE"
+    umask "$umask_owner_orig"
+    unset umask_owner_orig _owner_tmp
+    ok "Owner token created at ${OWNER_TOKEN_FILE} (mode 600)"
+else
+    info "Keeping existing owner token at ${OWNER_TOKEN_FILE}"
+fi
+
 # ── Browser-extension credential (B3, #180) ───────────────────────
 #
 # THE DEFECT THIS CLOSES. Andy, 2026-09-02: *"no, it's a fucking BUG"*.
