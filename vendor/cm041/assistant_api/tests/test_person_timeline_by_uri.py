@@ -89,8 +89,17 @@ class _Store:
     def __init__(self) -> None:
         self.queries: list[str] = []
 
+    # Two-phase reads (2026-11-19): levels are served by the scoped query from
+    # each fixture meeting's own tag.
+    _LEVELS = {"urn:ostler:meeting:b1": "L1", "urn:ostler:meeting:a1": "L1"}
+
     def __call__(self, query: str, *a, **k):
         self.queries.append(query)
+        if "VALUES ?m {" in query:
+            return [{"m": m, "lvl": lvl} for m, lvl in self._LEVELS.items()
+                    if f"<{m}>" in query]
+        if "VALUES ?person {" in query:
+            return []
         if "SELECT ?person ?name" in query:
             # Slug-resolution candidate scan: both people, one slug.
             return [{"person": PERSON_A, "name": NAME_A},
