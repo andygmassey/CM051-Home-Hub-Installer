@@ -111,3 +111,14 @@ jobs:
             exit 1
           fi
           python -m pytest tests/test_reply_debt_names_people_p13.py -v -rs
+      - name: Reply debt counts the owner's own sent mail as the owner's
+        if: always()
+        run: |
+          n="$(python -m pytest vendor/email_source/tests/test_reply_debt_sent_mail.py \
+                 --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 3 ]; then
+            echo "REFUSING: expected at least 3 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          python -m pytest vendor/email_source/tests/test_reply_debt_sent_mail.py -v -rs

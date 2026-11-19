@@ -476,6 +476,13 @@ def box_reply_debt():
     l3 = [d.get("person_name") for d in debts if d.get("person_name") and _withheld(d.get("privacy_level"))]
     out["count"] = len(debts)
     out["fields_ok"] = all("person_name" in d and "waiting_hours" in d for d in debts)
+    # WITHHELD (2026-11-16 ruling): minor and private debts are counted, and the
+    # text that says so is graded HERE, on the box. Only counts and yes/no leave.
+    excl = body.get("excluded") or {}
+    out["withheld"] = int(excl.get("minor_withheld") or 0) + int(excl.get("l3_withheld") or 0)
+    said = ((body.get("brief_line") or "") + " " + (body.get("reason") or "")).lower()
+    out["withheld_says_withheld"] = "withheld" in said
+    out["withheld_says_caught_up"] = "caught up" in said
     if out["degraded"]:
         return out
     tools, text, err = ws_chat("Who do I owe a reply to?")
@@ -520,6 +527,10 @@ def judge_reply_debt(c):
     check("reply debt is not degraded (the detector can read Messages)%s"
           % (": " + c.get("reason", "") if c.get("degraded") else ""), not c.get("degraded"))
     check("every debt carries person_name and waiting_hours", c.get("fields_ok", False))
+    if c.get("withheld", 0) > 0:
+        check("%d debt(s) withheld (under-18 or private) are said WITHHELD, never caught up"
+              % c["withheld"],
+              bool(c.get("withheld_says_withheld")) and not c.get("withheld_says_caught_up"))
     if c.get("degraded"):
         return lines, EX_FAIL
     if c.get("chat_cannot"):
@@ -954,6 +965,16 @@ def self_test():
     ok &= rc == EX_PASS
     _, rc = judge_reply_debt(dict(all_unsaved, says_unsaved=False))
     print("  %s  reply debt mutant rejected: all debts unsaved and the answer omits the line" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    wh_good = dict(rd_good, withheld=1, withheld_says_withheld=True, withheld_says_caught_up=False)
+    _, rc = judge_reply_debt(wh_good)
+    print("  %s  reply debt: a withheld debt said WITHHELD passes" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(wh_good, withheld_says_withheld=False))
+    print("  %s  reply debt mutant rejected: a withheld debt the brief does not mention" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    _, rc = judge_reply_debt(dict(wh_good, withheld_says_caught_up=True))
+    print("  %s  reply debt mutant rejected: a withheld debt the brief calls caught up" % ("ok   " if rc == EX_FAIL else "FAIL "))
     ok &= rc == EX_FAIL
     mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
                                       {"person_name": "Unknown number", "resolved": False}])
