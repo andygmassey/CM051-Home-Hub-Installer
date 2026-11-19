@@ -2437,3 +2437,9 @@ Revision (CM041 8309e840, #308 people/context latency). Tree: cm041/assistant_ap
 - The vendored `person_context` signal query is in the `+ (` form (not `_read_across_graphs(`); the port keeps that form.
 - Tests: `vendor/cm041/assistant_api/tests/test_people_context_latency.py` (byte-identical to CM041 8309e840), run by `.github/workflows/cm041-136-people-context-latency.yml`. The 2x Oxigraph-server run is a builder measurement on the Studio, not in CI.
 Pin: the file moves to CM041 8309e840 when the CM051 drift is re-grafted function by function.
+
+Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline). Tree: cm041/assistant_api. NOT byte-identical, as above. Function-level port:
+- `_person_timeline_body`: the owner level, the meetings level, and the conversation level are two-phase and subject-scoped (the conversation rows carry `?fact`; levels come from `_levels_for("fact", ...)`). Hand-ported because the vendored conversation query is the `+ (` form.
+- `person_enrichment`: the person row's level, the facts level, the meetings level, and the signal level are two-phase and subject-scoped. The person row survives an empty core row (`rows = [{}]`). Hand-ported because the vendored signal query is the `+ (` form.
+- The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
+- Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.

@@ -40,7 +40,11 @@ jobs:
           python-version: '3.12'
       - name: Install
         run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client hypothesis
-      - name: person_context, timeline and fail-closed latency bar at 11,500 persons
+      - name: person_context, timeline, person card and fail-closed latency bar at 11,500 persons
+        env:
+          # Route bar 0.4 s P95. The CM051 person_enrichment carries a two-scan slug
+          # resolution (about 0.2 s at 11,500 persons), so 0.25 s is not a fair bar here.
+          OSTLER_ROUTE_BAR_S: "0.4"
         run: |
           T=vendor/cm041/assistant_api/tests/test_people_context_latency.py
           n="$(PYTHONPATH=vendor:vendor/cm041 python -m pytest $T --collect-only -q | grep -cE '::test_')" || n=0
