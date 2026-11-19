@@ -71,6 +71,8 @@ on:
       - 'tests/test_import_kicks_digest_after_frontpage_compile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      - 'tests/test_doctor_enrichment_switch.py'
+      - 'tests/test_enrich_tick_idle_while_declined.sh'
       # The two behavioural gates added with the credential-route refusal and
       # the Front Page add verb. Both BOOT the shipped Doctor over real HTTP,
       # so both are watched here as well as run below: a path entry alone only
@@ -609,6 +611,22 @@ jobs:
       - name: Install the vendored Doctor's runtime deps (behavioural gates)
         if: always()
         run: python3 -m pip install --quiet -r vendor/doctor/agent/requirements.txt
+
+      # R02 (CB135-ENRICHMENT-SETTINGS-SWITCH): the Doctor's public-look-up switch
+      # writes the config/.env key the enricher reads. The test drives the real
+      # routes, the CM019 reader and the real enricher's consent gate (network
+      # clients are recorders). Runs after the Doctor deps so fastapi is present.
+      - name: Doctor enrichment switch writes the store the enricher honours (R02)
+        if: always()
+        run: |
+          python3 -m pip install --quiet pytest pydantic-settings aiolimiter click 'httpx>=0.28.1,<1.0' 'pyyaml>=6.0,<7.0'
+          python3 -m pytest -q -p no:cacheprovider tests/test_doctor_enrichment_switch.py
+      # CB136-WALK-UPGRADE-PATH (R02): a declined tick stands down with zero network
+      # calls (the REAL wrapper, network tools shimmed). The re-install default is in
+      # its own PR, not here.
+      - name: A declined enrich tick makes no network call (R02)
+        if: always()
+        run: bash tests/test_enrich_tick_idle_while_declined.sh
 
       # web_ui.py has 34 routes, zero uses of Depends(, and one middleware:
       # CORS with allow_origins=["*"]. Four routes vend or rotate a credential,

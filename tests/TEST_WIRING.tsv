@@ -361,6 +361,7 @@ test_docker_cli_presence_gates_the_colima_install.sh	WIRED	.github/workflows/con
 test_doctor_a_timeout_is_not_a_dispatch_failure.py	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_doctor_credential_routes_owner_only.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_credential_routes_refuse_cross_site.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_doctor_enrichment_switch.py	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_governor_routes_vendored.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_doctor_minors_registry_row.py	WIRED	.github/workflows/minors-registry-row.yml
 test_doctor_never_opens_chat_db.py	WIRED	.github/workflows/reply-debt-never-reads-protected-data.yml
@@ -416,6 +417,7 @@ test_engine_supervisor_judges_the_ports_not_colima_list.sh	WIRED	.github/workflo
 test_engine_supervisor_logind_selfheal.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_enrich_tick_idle_while_declined.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml

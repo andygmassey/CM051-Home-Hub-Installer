@@ -1367,6 +1367,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="يبقى التعرف على المتحدثي�
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="لقد اخترت عدم استخدام الاستعلامات العامة، لذلك لن يتصل Ostler بـ"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L2="Wikidata أو MusicBrainz أو OpenLibrary. المهمة الخلفية مثبتة"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L3="لكنها تبقى خاملة حتى تفعّل الاستعلامات العامة في Doctor."  # NEEDS REVIEW
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="هل تريد البحث عن حقائق عامة حول ما تحفظه؟"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="يمكن لـ Ostler إضافة تفاصيل مرجعية عامة إلى ما يعثر عليه – كتاب أو فيلم أو ألبوم أو مكان. ولفعل ذلك يرسل اسم ذلك الشيء وحده إلى خدمات مرجعية عامة مثل Wikidata وMusicBrainz وOpenLibrary، ويخزّن الإجابة على هذا Mac.
 

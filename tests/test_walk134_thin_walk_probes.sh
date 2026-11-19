@@ -19,7 +19,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 P="${REPO}/scripts/box_walk_probes/probes"
 L="${REPO}/scripts/box_walk_probes/lib"
 J="${L}/walk134_judges.py"
-PROBES="enrichment_reaches_clients enrichment_decline_survives_upgrade derived_themes_still_learning proxy_reads_are_owner_own_brief"
+PROBES="enrichment_reaches_clients enrichment_decline_survives_upgrade derived_themes_still_learning proxy_reads_are_owner_own_brief enrichment_switch_off_reaches_clients enrichment_switch_on_reaches_clients"
 
 fails=0
 pass() { printf '  held   %s\n' "$1"; }

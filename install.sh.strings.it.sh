@@ -1364,6 +1364,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Il riconoscimento dei parlanti resta su questo
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="Hai rifiutato le ricerche pubbliche, quindi Ostler non contatterà"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L2="Wikidata, MusicBrainz o OpenLibrary. Il processo in background è"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L3="installato ma resta inattivo finché non attivi le ricerche in Doctor."  # NEEDS REVIEW
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Cercare fatti pubblici sulle cose che salvi?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler può aggiungere dettagli di riferimento pubblici a ciò che trova: un libro, un film, un album, un luogo. Per farlo invia il NOME di quella singola cosa a servizi di riferimento pubblici come Wikidata, MusicBrainz e OpenLibrary e conserva la risposta su questo Mac.
 

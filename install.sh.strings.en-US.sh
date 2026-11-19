@@ -1353,6 +1353,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="Speaker recognition stays on this Mac. Creativ
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="You said no to public look-ups, so Ostler will not contact"
+MSG_ENRICH_DECLINED_L2="Wikidata, MusicBrainz or OpenLibrary. The background job is"
+MSG_ENRICH_DECLINED_L3="installed but stays idle until you turn look-ups on in the Doctor."
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="Look up public facts about things you save?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler can add public reference detail to things it finds – a book, a film, an album, a place. To do that it sends the NAME of that one thing to public reference services such as Wikidata, MusicBrainz and OpenLibrary and stores the answer on this Mac.
 

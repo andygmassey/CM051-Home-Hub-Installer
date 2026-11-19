@@ -13766,9 +13766,9 @@ if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
     echo "  Those lookups send the thing being looked up, never your files,"
     echo "  messages or contacts."
 else
-    echo "  You said no to public look-ups, so Ostler will not contact"
-    echo "  Wikidata, MusicBrainz or OpenLibrary, and the background"
-    echo "  enrichment job will not be installed."
+    echo "  ${MSG_ENRICH_DECLINED_L1}"
+    echo "  ${MSG_ENRICH_DECLINED_L2}"
+    echo "  ${MSG_ENRICH_DECLINED_L3}"
 fi
 echo "  Also local web search (Vane + SearXNG, bundled) and model/software"
 echo "  updates. Full list of everything Ostler contacts in the privacy"
@@ -26037,11 +26037,11 @@ except Exception:
         # The one-shot enrichment pass earlier in this step is unaffected and
         # still runs, and the #410 provenance gate covers what it may send.
         # The customer-facing question that turns this on lives in #397.
-        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
-            _install_enrichment_agent
-        else
-            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
-        fi
+        # CB136-WALK-UPGRADE-PATH (R02): installed on EVERY box, so the Doctor switch
+        # can turn look-ups on later without a re-install. A declined box's tick reads
+        # the recorded answer and stands down before any enrichment call (see the
+        # consent gate in the tick wrapper, and tests/test_enrich_tick_idle_while_declined.sh).
+        _install_enrichment_agent
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
