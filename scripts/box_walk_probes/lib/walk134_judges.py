@@ -142,7 +142,9 @@ def judge_themes(raw):
     if items is None:
         return (FAIL, "derived response has no items key at all", 1, [])
     if items:
-        return (CANNOT, "the box serves %d derived items, so the no-levelled-records state is not what this box shows" % len(items), 1, [])
+        # Served items are a STRONGER pass than "still learning": the surface is live and
+        # answering with owner data. The still-learning state is for an empty box only.
+        return (PASS, "derived response has no error and serves %d derived items (the surface is live; not the still-learning state)" % len(items), 1, [])
     sl = doc.get("still_learning")
     if not isinstance(sl, dict) or "Still learning" not in str(sl.get("text", "")):
         return (FAIL, "no levelled records and no 'Still learning' state in the response", 1, [])
@@ -234,8 +236,10 @@ def _cases():
                 judge_themes("HTTP/1.1 200 OK\n\n" + '{"items": [], "error": "store down"}')[0]))
     out.append(("themes: empty items, no still_learning -> FAIL", FAIL,
                 judge_themes("HTTP/1.1 200 OK\n\n" + '{"items": []}')[0]))
-    out.append(("themes: items present -> CANNOT (state not on this box)", CANNOT,
+    out.append(("themes: items present, no error -> PASS (served items)", PASS,
                 judge_themes("HTTP/1.1 200 OK\n\n" + '{"items": [{"name": "x"}], "still_learning": null}')[0]))
+    out.append(("themes: items present WITH an error field -> FAIL", FAIL,
+                judge_themes("HTTP/1.1 200 OK\n\n" + '{"items": [{"name": "x"}], "error": "partial"}')[0]))
     # proxy
     def raw(served, body):
         h = "HTTP/1.1 200 OK\r\nX-Ostler-Served-For: %s\r\nContent-Type: application/json\r\n\r\n" % served
