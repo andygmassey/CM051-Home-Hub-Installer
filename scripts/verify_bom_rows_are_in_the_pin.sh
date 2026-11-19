@@ -257,7 +257,26 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
         # is left to short-circuit. This file declares bash, so the herestring
         # is available; a POSIX-sh consumer would need the `grep -c` form.
         _touched="$(git -C "$HERE" show --name-only --format='' "$ref" 2>/dev/null)"
-        if grep -q '^install\.sh$' <<< "$_touched"; then
+        # COMMENT-ONLY (v1.0.134, CM051 #3605): a commit whose install.sh diff
+        # adds and removes ONLY comment or blank lines changes no executed byte of
+        # install.sh, so there is nothing in this blob to key on, exactly like a
+        # commit that does not touch install.sh. It is NOT a pass for the change:
+        # its substance lives elsewhere and its capability row proves it. A diff
+        # with ANY non-comment line, however short, stays UNMEASURABLE below.
+        # A comment line is blank or matches ^\s*# ; an inline "cmd # note" is
+        # code, and a shebang (^#!) is code too (Archie 2026-11-19).
+        # Headers anchored (Archie 2026-11-19): a content line starting "--" or
+        # "++" shows as "---..."/"+++..." and must stay counted.
+        _diff="$(git -C "$HERE" show --format= --no-color "$ref" -- install.sh 2>/dev/null \
+            | grep -E '^[-+]' | grep -vE '^(\+\+\+|---) (a/|b/|/dev/null)' || true)"
+        _all="$(printf '%s\n' "$_diff" | grep -cE '^[-+]' || true)"
+        _code="$(printf '%s\n' "$_diff" | grep -cvE '^[-+][[:space:]]*(#|$)' || true)"
+        _bang="$(printf '%s\n' "$_diff" | grep -cE '^[-+]#!' || true)"
+        _code=$(( ${_code:-1} + ${_bang:-1} ))
+        if grep -q '^install\.sh$' <<< "$_touched" && [ "${_all:-0}" -gt 0 ] && [ "$_code" -eq 0 ]; then
+            NA=$((NA+1))
+            echo "  COMMENT-ONLY  ${ticket}  ${ref:0:12}  ${_all} install.sh diff line(s), all comments or blank; nothing to key on (scored NA, not PASS)"
+        elif grep -q '^install\.sh$' <<< "$_touched"; then
             UNMEASURABLE=$((UNMEASURABLE+1))
             echo "  UNMEASURABLE  ${ticket}  touches install.sh but added no keyable line"
         else
