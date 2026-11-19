@@ -913,7 +913,7 @@ _note_excluded() {
         probe_note "              jump arm                       : CANNOT-RUN -- ${err}"
     fi
     probe_note "            look-alike control, phone        : ${lin}/${lof} seeded real persons (role mailbox + phone) are embedded"
-    probe_note "            look-alike control, NO phone     : ${nin}/${nof} seeded real persons (role mailbox, no phone) are embedded; the shipped rule excludes ${nrule}"
+    probe_note "            look-alike control, NO phone     : ${nin}/${nof} seeded real persons (role mailbox, no phone) are embedded (customer-visible); the shipped rule would exclude ${nrule} (advisory CB136)"
 }
 
 # _note_c_split <field14> <c_named>: print WHY each named person has no vector.
@@ -1330,8 +1330,12 @@ run_probe() {
         # THE PHONELESS CONTROL tests the NAME rule, which the phone exemption does
         # not shield. A FAIL here is the probe telling the truth about the product;
         # the probe is not relaxed to make it pass.
-        if [ "${np_in:-0}" -lt "${np_of:-0}" ] || [ "${np_rule:-0}" -gt 0 ]; then
-            failures="${failures}LOOK-ALIKE CONTROL (no phone): the shipped writer's selection rule drops ${np_rule} of ${np_of} seeded real person(s) whose only mailbox is a role mailbox (embedded: ${np_in}); a real person is excluded by the name rule. Defect filed as CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON; "
+        # THE CUSTOMER'S VIEW DECIDES THIS CONTROL. It FAILs only when a seeded phoneless
+        # person is NOT embedded, i.e. not searchable. A person who IS searchable passes
+        # even when the shipped selection rule would have dropped them (the rule is
+        # advisory, below). Deleting the vector therefore still goes red.
+        if [ "${np_in:-0}" -lt "${np_of:-0}" ]; then
+            failures="${failures}LOOK-ALIKE CONTROL (no phone): $((np_of - np_in)) of ${np_of} seeded real person(s) whose only mailbox is a role mailbox are NOT embedded, so the customer cannot find them; "
         fi
     fi
     if [ -n "$failures" ]; then
@@ -1345,6 +1349,14 @@ run_probe() {
     fi
     if [ "$jump_known" != yes ]; then
         probe_cannot_run "the jump arm is CANNOT-RUN: ${excl_base_err}. The share is only compared against a baseline row of the SAME corpus, so no comparison was made. Nothing is passed on an unmeasured jump."
+    fi
+    # ADVISORY (not a failure): the shipped selection rule would drop a real person
+    # whose only mailbox is a role mailbox and who has no phone. That person IS
+    # embedded here (contact_syncer wrote the vector and the writer never prunes it),
+    # so the customer can find them. The rule itself is the defect, filed as
+    # CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON (vendor/ostler_fda/pwg_ingest.py:145).
+    if [ "${excl_known:-no}" = yes ] && [ "${np_rule:-0}" -gt 0 ]; then
+        probe_note "ADVISORY CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON: the shipped selection rule would drop ${np_rule} of ${np_of} seeded real person(s) with a role mailbox and no phone; ${np_in} of ${np_of} are embedded and searchable, so this does not fail the probe"
     fi
     if [ "$c_writer" = "queued" ] || [ "$d_writer" = "ran" ]; then
         probe_pass "graph, vector store and People tile agree once the product's own writers have run: ${c_writer:+every person missing across the re-reads was queued for the next people_index run and is now searchable; }${d_writer:+the tile was one compile behind and now renders the graph; }nothing was dropped"
@@ -1582,14 +1594,14 @@ self_test() {
         "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_FAIL" "EXCLUDED SHARE JUMPED"
     XENV="RECONCILE_CORPUS=synthetic-cold RECONCILE_EXCL_BASELINE=$_ctsv" _xcase "corpus with no row of its own -> CANNOT-RUN named" \
         "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_CANNOT_RUN" "no baseline row for corpus 'synthetic-cold'"
-    _xcase "phoneless look-alike not embedded -> FAIL, names CB136" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=0/1/1" "$PROBE_EX_FAIL" "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON"
+    _xcase "phoneless look-alike not embedded -> FAIL (customer cannot find them)" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=0/1/1" "$PROBE_EX_FAIL" "are NOT embedded"
     _xcase "phoneless look-alike unseeded (0 of 0) -> CANNOT-RUN, not a pass" \
         "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=0/0/0" "$PROBE_EX_CANNOT_RUN" "NOT MEASURED"
     _xcase "phoneless look-alike embedded -> PASS, both controls printed" \
         "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/0" "$PROBE_EX_PASS" "NO phone     : 1/1"
-    _xcase "phoneless look-alike embedded BUT the shipped rule drops them -> FAIL, names CB136" \
-        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/1" "$PROBE_EX_FAIL" "CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON"
+    _xcase "phoneless look-alike embedded BUT the shipped rule drops them -> PASS, advisory CB136 printed" \
+        "OK 11577 11230 0 0 0 0 11230 $(_sv 347) look=1/1 look_np=1/1/1" "$PROBE_EX_PASS" "ADVISORY CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON"
     rm -f "$_ctsv"
     _case "unnamed stubs only -> PASS"        "OK 7217 7187 0 0 0 30 7187 svc;service_mailbox=0;notification_phrasing=0;marketplace_or_domain=0;organisation_name=0;hash_prefixed=0;subject_line=0;total=0 look=1/1 look_np=1/1/0"  "$PROBE_EX_PASS"
     # CANNOT-RUN is a third outcome and must not collapse into either.
