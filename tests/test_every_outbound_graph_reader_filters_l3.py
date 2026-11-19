@@ -101,6 +101,10 @@ ONBOX = {
     # CM041 #278 @2dbac8c: returns {conversation uri: [raw levels]} only, no content.
     # Called only by topics_list and topic_mentions (Hub-only, above), to withhold.
     (ICAL, "_conversation_levels_for"): "conversation levels for topic withholding, no content",
+    # CM041 #309 (136 people/context latency): returns {subject IRI: privacy level}
+    # for the given subjects only, no content. Read by person_context, the person
+    # timeline and the person card, which withhold on the level.
+    (ICAL, "_levels_for"): "privacy levels of given subjects only, no content",
     (ICAL, "_wiki_triples_count"): "a count",
     (ICAL, "api_health_day"): "counts for the Hub health screen",
     (ICAL, "api_people_suppress_suggestions"): "Hub write action", (ICAL, "api_people_forget"): "Hub write action",

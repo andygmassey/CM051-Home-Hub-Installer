@@ -5839,7 +5839,36 @@ def _hygiene_weight(uri: str, verdicts: dict, fallback: float) -> float:
     return fallback
 
 
-def _hygiene_drop_retired(fact_rows):
+def _levels_for(subject_var, uris):
+    """Privacy level per subject IRI, read with ONE query scoped to those subjects.
+
+    Two-phase reads (2026-11-19): the caller first selects its rows WITHOUT a
+    privacy level, then asks here for the levels of exactly those subjects.
+    The scope goes INSIDE the level subquery (pwg_privacy.sparql_effective_level
+    subjects=), so the store is not aggregated per call. Returns {iri: level}
+    with absent subjects missing, which is the same as an unbound OPTIONAL.
+    """
+    iris = sorted({u for u in uris if u})
+    out = {}
+    for i in range(0, len(iris), 500):
+        chunk = iris[i:i + 500]
+        sparql = (
+            'PREFIX pwg: <{ns}>\n'
+            'SELECT ?{s} ?lvl WHERE {{\n'
+            '  VALUES ?{s} {{ {vals} }}\n'
+            '  {opt}\n'
+            '}}'.format(
+                ns=PWG_NS, s=subject_var,
+                vals=" ".join("<%s>" % u for u in chunk),
+                opt=_pr.optional_level(subject_var, "lvl", subjects=chunk))
+        )
+        for row in _sparql_select(sparql):
+            if row.get("lvl") is not None:
+                out[row[subject_var]] = row["lvl"]
+    return out
+
+
+def _hygiene_drop_retired(fact_rows, overlay=None):
     """Drop the fact rows the Memory-Hygiene pass retired.
 
     Read-side consumer for the person-page fact lists (``person_context`` /
@@ -5858,7 +5887,7 @@ def _hygiene_drop_retired(fact_rows):
     absence of a verdict means "active" per the hygiene contract. Never
     raises.
     """
-    hygiene, verdicts = _hygiene_overlay()
+    hygiene, verdicts = overlay if overlay is not None else _hygiene_overlay()
     if hygiene is None or not verdicts:
         return fact_rows
     return [
@@ -5996,9 +6025,8 @@ def _query_operator_career_facts(outbound: bool = False, destination=None) -> li
         rows = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
             'SELECT ?fact ?org ?title ?startDate ?endDate ?factText ?conf '
-            '?fpriv ?ownerPriv '
             'WHERE {{\n'
-            '  ?fact a pwg:PersonFact ; pwg:aboutPerson <{user}> ; '
+            '  ?fact pwg:aboutPerson <{user}> ; a pwg:PersonFact ; '
             'pwg:factType "career_position" .\n'
             '  OPTIONAL {{ ?fact pwg:organization ?org }}\n'
             '  OPTIONAL {{ ?fact pwg:jobTitle ?title }}\n'
@@ -6006,13 +6034,16 @@ def _query_operator_career_facts(outbound: bool = False, destination=None) -> li
             '  OPTIONAL {{ ?fact pwg:endDate ?endDate }}\n'
             '  OPTIONAL {{ ?fact pwg:factText ?factText }}\n'
             '  OPTIONAL {{ ?fact pwg:confidence ?conf }}\n'
-            '  {pf_fact}\n'
-            '  {pf_owner}\n'
             '  FILTER NOT EXISTS {{ ?fact pwg:validTo ?vt }}\n'
-            '}}'.format(ns=PWG_NS, user=USER_URI,
-                        pf_fact=_pr.optional_level("fact", "fpriv"),
-                        pf_owner=_pr.optional_level_iri(USER_URI, "ownerPriv"))
+            '}}'.format(ns=PWG_NS, user=USER_URI)
         )
+        # Phase 2: levels of exactly these facts and of the operator node, each
+        # scoped (see _levels_for). Same values the old OPTIONALs bound.
+        _flv = _levels_for("fact", [_r["fact"] for _r in rows])
+        _olv = _levels_for("person", [USER_URI]).get(USER_URI)
+        for _r in rows:
+            _r["fpriv"] = _flv.get(_r["fact"])
+            _r["ownerPriv"] = _olv
     except Exception:
         return []
     if outbound:
@@ -7020,13 +7051,16 @@ def person_context(name, destination=None):
         '  OPTIONAL {{ ?person pwg:lastContactIMessage ?lcIMessage }}\n'
         '  OPTIONAL {{ ?person pwg:notes ?notes }}\n'
         '  OPTIONAL {{ ?person pwg:birthday ?bday }}\n'
-        '  {pf_person}\n'
-        '}} LIMIT 50').format(ns=PWG_NS, q=esc,
-                             pf_person=_pr.optional_level("person", "priv"))
+        '}} LIMIT 50').format(ns=PWG_NS, q=esc)
     )
     if not persons:
         return {"query": name, "found": False,
                 "message": "No person found matching '{}'.".format(name)}
+    # Phase 2 (two-phase read): the levels of exactly these persons.
+    _plv = _levels_for("person", [_r["person"] for _r in persons])
+    for _r in persons:
+        _r["priv"] = _plv.get(_r["person"])
+    _hyg = None   # hygiene overlay: loaded once per request, not per person
 
     # Merged-name search (v1.0.107, Mini16 #27). A contact merge retires the
     # human-named nodes (pwg:RetiredPerson + pwg:mergedInto <survivor>) and
@@ -7158,11 +7192,10 @@ def person_context(name, destination=None):
         # selected so the Memory-Hygiene overlay can be keyed per fact.
         facts = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?f ?text ?fpriv WHERE {{\n'
-            '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
-            '  {pf_f}\n'
+            'SELECT ?f ?text WHERE {{\n'
+            '  ?f pwg:aboutPerson <{uri}> ; a pwg:PersonFact ; pwg:factText ?text .\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
-            '}}'.format(ns=PWG_NS, uri=uri, pf_f=_pr.optional_level("f", "fpriv"))
+            '}}'.format(ns=PWG_NS, uri=uri)
         )
         if facts:
             # Memory-Hygiene overlay (LEFT JOIN <urn:ostler:hygiene>): drop any
@@ -7172,7 +7205,12 @@ def person_context(name, destination=None):
             # so a person page must honour the same verdicts the memory tab
             # does. Empty overlay (hygiene never run / Oxigraph down) => the
             # list is unchanged; the reader never raises.
-            facts = _hygiene_drop_retired(facts)
+            _flv = _levels_for("f", [_f["f"] for _f in facts])
+            for _f in facts:
+                _f["fpriv"] = _flv.get(_f["f"])
+            if _hyg is None:
+                _hyg = _hygiene_overlay()
+            facts = _hygiene_drop_retired(facts, _hyg)
             visible = _pr.outbound_filter(
                 [{"text": f["text"], "privacy_level": f.get("fpriv")}
                  for f in facts],
@@ -7199,14 +7237,15 @@ def person_context(name, destination=None):
         # the filter, so hidden rows cannot crowd visible ones out.
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
-            '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
+            'SELECT ?m ?summary ?date ?location WHERE {{\n'
+            '  ?m pwg:meetingAttendee <{uri}> ; a pwg:Meeting ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  {pf_m}\n'
-            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri,
-                                                       pf_m=_pr.optional_level("m", "mpriv"))
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=uri)
         )
+        _mlv = _levels_for("m", [_m["m"] for _m in meetings])
+        for _m in meetings:
+            _m["mpriv"] = _mlv.get(_m["m"])
         visible_meetings = []
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), person.get("priv"))
@@ -7235,15 +7274,13 @@ def person_context(name, destination=None):
         # not `read_across_graphs` (not available in this tree's vendored
         # identity_resolver; see the note above `_graph_scoped`).
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+            'SELECT ?signal ?warmth ?trust ?observedAt WHERE {\n'
             + (
                 '  ?signal <urn:ostler:about> ?person .\n'
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
                 '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-                '  {pf_spriv}\n'
-                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
-                    slug=person_slug, pf_spriv=_pr.optional_level("signal", "spriv"))
+                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(slug=person_slug)
             )
             + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
@@ -7283,6 +7320,9 @@ def person_context(name, destination=None):
         # When everything returned is hidden the field is OMITTED rather than
         # emitted empty: `if signals:` guards the assignment below. An absence
         # a consumer can see is not the same as a false claim of no warmth.
+        _slv = _levels_for("signal", [_s["signal"] for _s in signals])
+        for _s in signals:
+            _s["spriv"] = _slv.get(_s["signal"])
         signals = _pr.outbound_filter(
             [dict(_s, privacy_level=_s.get("spriv")) for _s in signals],
             owner_level=person.get("priv"),
@@ -7450,10 +7490,15 @@ def person_enrichment(slug, destination=None):
             '  OPTIONAL {{ <{uri}> pwg:lastContactIMessage ?lcIMessage }}\n'
             '  OPTIONAL {{ <{uri}> pwg:notes ?notes }}\n'
             '  OPTIONAL {{ <{uri}> pwg:birthday ?bday }}\n'
-            '  {pf_priv}\n'
-            '}} LIMIT 1'.format(ns=PWG_NS, uri=person_uri,
-                                pf_priv=_pr.optional_level_iri(person_uri, "priv"))
+            '}} LIMIT 1'.format(ns=PWG_NS, uri=person_uri)
         )
+        # Two-phase (2026-11-19): the person's level, read scoped to this person.
+        _plv = _levels_for("person", [person_uri]).get(person_uri)
+        # The core row is all OPTIONALs: one solution in SPARQL, which some
+        # engines return as zero rows. The level must survive either way.
+        if not rows:
+            rows = [{}]
+        rows[0]["priv"] = _plv
     except Exception as exc:
         return {
             "found": False,
@@ -7552,12 +7597,14 @@ def person_enrichment(slug, destination=None):
         # selected so the overlay can be keyed per fact.
         facts = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?f ?text ?fpriv WHERE {{\n'
-            '  ?f a pwg:PersonFact ; pwg:aboutPerson <{uri}> ; pwg:factText ?text .\n'
-            '  {pf_f}\n'
+            'SELECT ?f ?text WHERE {{\n'
+            '  ?f pwg:aboutPerson <{uri}> ; a pwg:PersonFact ; pwg:factText ?text .\n'
             '  FILTER NOT EXISTS {{ ?f pwg:validTo ?end }}\n'
-            '}}'.format(ns=PWG_NS, uri=person_uri, pf_f=_pr.optional_level("f", "fpriv"))
+            '}}'.format(ns=PWG_NS, uri=person_uri)
         )
+        _flv = _levels_for("f", [_f["f"] for _f in facts])
+        for _f in facts:
+            _f["fpriv"] = _flv.get(_f["f"])
         if facts:
             # Drop facts the hygiene pass retired before the L3 filter (same
             # verdicts the memory tab and person_context honour). Empty
@@ -7583,14 +7630,15 @@ def person_enrichment(slug, destination=None):
         # carries privacy_level. LIMIT applies to VISIBLE rows.
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
-            '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; pwg:meetingSummary ?summary .\n'
+            'SELECT ?m ?summary ?date ?location WHERE {{\n'
+            '  ?m pwg:meetingAttendee <{uri}> ; a pwg:Meeting ; pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  {pf_m}\n'
-            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=person_uri,
-                                                       pf_m=_pr.optional_level("m", "mpriv"))
+            '}} ORDER BY DESC(?date) LIMIT 50'.format(ns=PWG_NS, uri=person_uri)
         )
+        _mlv = _levels_for("m", [_m["m"] for _m in meetings])
+        for _m in meetings:
+            _m["mpriv"] = _mlv.get(_m["m"])
         visible_meetings = []
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), row.get("priv"))
@@ -7617,18 +7665,19 @@ def person_enrichment(slug, destination=None):
         # not `read_across_graphs` (not available in this tree's vendored
         # identity_resolver; see the note above `_graph_scoped`).
         signals = _sparql_select(
-            'SELECT ?warmth ?trust ?observedAt ?spriv WHERE {\n'
+            'SELECT ?signal ?warmth ?trust ?observedAt WHERE {\n'
             + (
                 '  ?signal <urn:ostler:about> ?person .\n'
                 '  ?signal <urn:ostler:warmth> ?warmth .\n'
                 '  ?signal <urn:ostler:trust> ?trust .\n'
                 '  ?signal <urn:ostler:observedAt> ?observedAt .\n'
-                '  {pf_spriv}\n'
-                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(
-                    slug=slug, pf_spriv=_pr.optional_level("signal", "spriv"))
+                '  FILTER(CONTAINS(STR(?person), "{slug}"))\n'.format(slug=slug)
             )
             + '\n} ORDER BY DESC(?observedAt) LIMIT 10'
         )
+        _slv = _levels_for("signal", [_s["signal"] for _s in signals])
+        for _s in signals:
+            _s["spriv"] = _slv.get(_s["signal"])
         # 🔴 THE LEVEL IS urn:ostler:privacyLevel, NOT pwg:privacyLevel.
         # The facts path ~45 lines up joins pwg:privacyLevel, and copying that
         # predicate here matches NOTHING: measured on the box, 471 of 471
@@ -7906,24 +7955,21 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None, destinat
         # withholds. The person's level is read here (this route did not
         # read it before); if that read fails the meetings source degrades
         # rather than serving unlabelled rows.
-        owner_rows = _sparql_select(
-            'PREFIX pwg: <{ns}>\n'
-            'SELECT ?priv WHERE {{ {pf} }} LIMIT 1'
-            .format(ns=PWG_NS, uri=person_uri,
-                    pf=_pr.optional_level_iri(person_uri, "priv"))
-        )
-        owner_level = owner_rows[0].get("priv") if owner_rows else None
+        # Two-phase (2026-11-19): the person's level and each meeting's level
+        # are read in subject-scoped queries after the rows are known.
+        owner_level = _levels_for("person", [person_uri]).get(person_uri)
         meetings = _sparql_select(
             'PREFIX pwg: <{ns}>\n'
-            'SELECT ?m ?summary ?date ?location ?mpriv WHERE {{\n'
-            '  ?m a pwg:Meeting ; pwg:meetingAttendee <{uri}> ; '
+            'SELECT ?m ?summary ?date ?location WHERE {{\n'
+            '  ?m pwg:meetingAttendee <{uri}> ; a pwg:Meeting ; '
             'pwg:meetingSummary ?summary .\n'
             '  OPTIONAL {{ ?m pwg:meetingDate ?date }}\n'
             '  OPTIONAL {{ ?m pwg:meetingLocation ?location }}\n'
-            '  {pf_m}\n'
-            '}} ORDER BY DESC(?date)'.format(ns=PWG_NS, uri=person_uri,
-                                             pf_m=_pr.optional_level("m", "mpriv"))
+            '}} ORDER BY DESC(?date)'.format(ns=PWG_NS, uri=person_uri)
         )
+        _mlv = _levels_for("m", [_m["m"] for _m in meetings])
+        for _m in meetings:
+            _m["mpriv"] = _mlv.get(_m["m"])
         for m in meetings:
             level = _effective_privacy_level(m.get("mpriv"), owner_level)
             # The meeting's OWN level goes to the gate beside the owner's, so a
@@ -7958,17 +8004,25 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None, destinat
         # Same named-graph problem as the warmth reader: CM048's facts are
         # not in the default graph. DISTINCT already collapses a row that
         # matches in both arms of the UNION.
-        conv_rows = _sparql_select(
-            'SELECT DISTINCT ?conv ?date ?fpriv WHERE {\n'
+        _cfacts = _sparql_select(
+            'SELECT DISTINCT ?fact ?conv ?date WHERE {\n'
             + (
                 '  ?fact <urn:ostler:about> <{uri}> ; '
                 '<urn:ostler:fromConversation> ?conv .\n'
-                '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'
-                '  {pf_fpriv}\n'.format(
-                    uri=person_uri, pf_fpriv=_pr.optional_level("fact", "fpriv"))
+                '  OPTIONAL {{ ?conv <urn:ostler:date> ?date }}\n'.format(uri=person_uri)
             )
             + '\n}'
         )
+        # Phase 2 (two-phase read, CM041 #309): a conversation row inherits each
+        # fact's own level; the distinct (conv, date, level) rows are the set the
+        # single query produced.
+        _clv = _levels_for("fact", [_c["fact"] for _c in _cfacts])
+        conv_rows, _seen_rows = [], set()
+        for _c in _cfacts:
+            _key = (_c.get("conv"), _c.get("date"), _clv.get(_c["fact"]))
+            if _key not in _seen_rows:
+                _seen_rows.add(_key)
+                conv_rows.append({"conv": _key[0], "date": _key[1], "fpriv": _key[2]})
         # Same L3 filter the facts path uses, on the SAME predicate the data
         # actually carries: urn:ostler:privacyLevel, not pwg:. Measured on the
         # box: 1462 urn:ostler:Fact nodes, 1369 L0 / 88 L1 / 5 L2 / 0 L3, and
