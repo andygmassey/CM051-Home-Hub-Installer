@@ -8013,7 +8013,7 @@ def _person_timeline_body(person_uri, pname, slug, limit=50, days=None, destinat
             )
             + '\n}'
         )
-        # Phase 2 (two-phase read, CM041 #PR2): a conversation row inherits each
+        # Phase 2 (two-phase read, CM041 #309): a conversation row inherits each
         # fact's own level; the distinct (conv, date, level) rows are the set the
         # single query produced.
         _clv = _levels_for("fact", [_c["fact"] for _c in _cfacts])
