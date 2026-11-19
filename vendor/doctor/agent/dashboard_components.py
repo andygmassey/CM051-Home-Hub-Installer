@@ -262,11 +262,11 @@ def render_system_overview(snapshot: SystemSnapshot) -> str:
     elif healthy > 0:
         overall = "degraded"
         overall_text = f"{healthy}/{total_services} services healthy"
-        overall_color = "#5C4611"
+        overall_color = "#8A6D1F"
     else:
         overall = "down"
         overall_text = "Services not responding"
-        overall_color = "#7A1F1F"
+        overall_color = "#A82A2A"
 
     # Disk summary
     disk_text = ""
@@ -364,12 +364,12 @@ def render_security_posture() -> str:
             icon = "&#10003;"
             detail = f"{p.get('backend', 'sqlcipher')} via {p.get('key_source', 'OSTLER_DB_KEY')}"
         elif encryption == "disabled":
-            colour = "#7A1F1F"
+            colour = "#A82A2A"
             icon = "&#9888;"
             reason = p.get("reason") or "unknown"
             detail = f"plaintext &ndash; reason: {reason}"
         else:
-            colour = "rgba(236,232,221,0.40)"
+            colour = "rgba(20, 18, 14,0.40)"
             icon = "?"
             detail = encryption
         tiles += f"""
@@ -471,12 +471,12 @@ def _is_stale(marker: dict, now_dt=None) -> bool:
 # loud failure.
 _STATUS_COLOURS = {
     "success": "#2C4A2C",
-    "fda_denied": "#7A1F1F",
-    "extract_failed": "#7A1F1F",
-    "mailbox_unreadable": "#7A1F1F",
-    "other": "#5C4611",
-    "stale": "rgba(236,232,221,0.40)",
-    "unknown": "rgba(236,232,221,0.40)",
+    "fda_denied": "#A82A2A",
+    "extract_failed": "#A82A2A",
+    "mailbox_unreadable": "#A82A2A",
+    "other": "#8A6D1F",
+    "stale": "rgba(20, 18, 14,0.40)",
+    "unknown": "rgba(20, 18, 14,0.40)",
 }
 _STATUS_ICONS = {
     "success": "&#10003;",
@@ -578,8 +578,8 @@ def render_observability_posture(now_dt=None) -> str:
             # Stale badge: muted-cream background, contrasts against
             # the warm panel without competing with the oxblood accent.
             stale_badge = (
-                '<span style="background:rgba(236,232,221,0.16);'
-                'color:rgba(236,232,221,0.90);'
+                '<span style="background:rgba(20, 18, 14,0.16);'
+                'color:rgba(20, 18, 14,0.90);'
                 'padding:2px 8px;border-radius:999px;font-size:10px;'
                 'font-family:Outfit,system-ui,sans-serif;font-weight:500;'
                 'letter-spacing:0.16em;text-transform:uppercase;'
@@ -594,10 +594,10 @@ def render_observability_posture(now_dt=None) -> str:
                 <div class="status-detail">{detail}</div>
                 {error_line}
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         Full marker JSON
                     </summary>
-                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px">{full_json}</pre>
                 </details>
             </div>
         </div>"""
@@ -670,7 +670,7 @@ def render_consent_status() -> str:
         <div class="section-title">Consent (A7+A8 records)</div>
         <div class="status-grid">
         <div class="status-card">
-            <div class="status-indicator" style="background:#7A1F1F">&#9888;</div>
+            <div class="status-indicator" style="background:#A82A2A">&#9888;</div>
             <div class="status-info">
                 <div class="status-name">{_html_escape(CONSENT_UNREADABLE_TITLE)}</div>
                 <div class="status-detail">{_html_escape(detail)}</div>
@@ -696,18 +696,18 @@ def render_consent_status() -> str:
 
         bundled = bundled_consents.get(tickbox_id)
         if decision == "declined":
-            colour = "#7A1F1F"
+            colour = "#A82A2A"
             icon = "&#9888;"
             state = "declined"
         elif bundled is None:
             # Record exists but the bundled wording doesn't (legal
             # package missing or unknown tickbox). We can show the
             # decision but not check drift.
-            colour = "rgba(236,232,221,0.40)"
+            colour = "rgba(20, 18, 14,0.40)"
             icon = "?"
             state = "unknown wording"
         elif rec.get("wording_hash") != bundled.sha256():
-            colour = "#5C4611"
+            colour = "#8A6D1F"
             icon = "&#9888;"
             state = f"renewal needed ({wording_version} -> {bundled.version})"
         else:
@@ -751,9 +751,9 @@ def render_consent_status() -> str:
 # unrecognised status field.
 _IMESSAGE_TCC_COLOURS = {
     "granted-and-working": "#2C4A2C",
-    "tcc-denied": "#5C4611",
-    "check-failed": "#7A1F1F",
-    "unknown": "rgba(236,232,221,0.40)",
+    "tcc-denied": "#8A6D1F",
+    "check-failed": "#A82A2A",
+    "unknown": "rgba(20, 18, 14,0.40)",
 }
 _IMESSAGE_TCC_ICONS = {
     "granted-and-working": "&#10003;",
@@ -876,9 +876,9 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
         if in_marker_remediation:
             fix_bits.append(
                 '<pre style="font-size:12px;background:#ECEBE5;'
-                'color:rgba(236,232,221,0.74);font-family:'
+                'color:rgba(20, 18, 14,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
-                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
                 'overflow:auto;margin-top:6px;'
                 f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
             )
@@ -887,16 +887,16 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(IMESSAGE_TCC_STDERR_LABEL)}:</strong></div>'
                 '<pre style="font-size:11px;background:#ECEBE5;'
-                'color:rgba(236,232,221,0.74);font-family:'
+                'color:rgba(20, 18, 14,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
-                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
                 'overflow:auto;margin-top:6px;'
                 f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
             )
         body = "".join(fix_bits)
         how_to_fix = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(IMESSAGE_TCC_HOW_TO_FIX_LABEL)}
                     </summary>
                     {body}
@@ -909,10 +909,10 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
     if raw_text:
         full_marker_block = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(IMESSAGE_TCC_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -943,11 +943,11 @@ def render_imessage_tcc_posture(now_dt=None) -> str:
 # other tiles' grey fallback.
 _REMINDERS_COLOURS = {
     "granted": "#2C4A2C",
-    "denied": "#5C4611",
-    "not-determined": "#5C4611",
-    "restricted": "#7A1F1F",
-    "check-failed": "#7A1F1F",
-    "unknown": "rgba(236,232,221,0.40)",
+    "denied": "#8A6D1F",
+    "not-determined": "#8A6D1F",
+    "restricted": "#A82A2A",
+    "check-failed": "#A82A2A",
+    "unknown": "rgba(20, 18, 14,0.40)",
 }
 _REMINDERS_ICONS = {
     "granted": "&#10003;",
@@ -1075,9 +1075,9 @@ def render_reminders_posture(now_dt=None) -> str:
         if in_marker_remediation:
             fix_bits.append(
                 '<pre style="font-size:12px;background:#ECEBE5;'
-                'color:rgba(236,232,221,0.74);font-family:'
+                'color:rgba(20, 18, 14,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
-                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
                 'overflow:auto;margin-top:6px;'
                 f'white-space:pre-wrap">{_html_escape(in_marker_remediation)}</pre>'
             )
@@ -1086,16 +1086,16 @@ def render_reminders_posture(now_dt=None) -> str:
                 f'<div class="status-detail" style="margin-top:8px">'
                 f'<strong>{_html_escape(REMINDERS_STDERR_LABEL)}:</strong></div>'
                 '<pre style="font-size:11px;background:#ECEBE5;'
-                'color:rgba(236,232,221,0.74);font-family:'
+                'color:rgba(20, 18, 14,0.74);font-family:'
                 '\'IBM Plex Mono\',\'SF Mono\',Menlo,monospace;padding:10px;'
-                'border-radius:6px;border:1px solid rgba(236,232,221,0.08);'
+                'border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);'
                 'overflow:auto;margin-top:6px;'
                 f'white-space:pre-wrap">{_html_escape(stderr_fragment)}</pre>'
             )
         body = "".join(fix_bits)
         how_to_fix = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(REMINDERS_HOW_TO_FIX_LABEL)}
                     </summary>
                     {body}
@@ -1106,10 +1106,10 @@ def render_reminders_posture(now_dt=None) -> str:
     if raw_text:
         full_marker_block = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(REMINDERS_FULL_MARKER_LABEL)}
                     </summary>
-                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(236,232,221,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(236,232,221,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
+                    <pre style="font-size:11px;background:#ECEBE5;color:rgba(20, 18, 14,0.74);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;padding:10px;border-radius:6px;border:1px solid rgba(20, 18, 14,0.08);overflow:auto;margin-top:6px;white-space:pre-wrap">{_html_escape(raw_text)}</pre>
                 </details>"""
 
     tile = f"""
@@ -1137,11 +1137,11 @@ def render_reminders_posture(now_dt=None) -> str:
 # no-data=grey neutral.
 _REMINDERS_RUNTIME_COLOURS = {
     STATE_OK: "#2C4A2C",
-    STATE_PERMISSION_DENIED: "#5C4611",
-    STATE_LIST_REMOVED: "#5C4611",
-    STATE_PUSH_FAILING: "#5C4611",
-    STATE_CANNOT_READ: "rgba(236,232,221,0.40)",
-    STATE_NO_DATA: "rgba(236,232,221,0.40)",
+    STATE_PERMISSION_DENIED: "#8A6D1F",
+    STATE_LIST_REMOVED: "#8A6D1F",
+    STATE_PUSH_FAILING: "#8A6D1F",
+    STATE_CANNOT_READ: "rgba(20, 18, 14,0.40)",
+    STATE_NO_DATA: "rgba(20, 18, 14,0.40)",
 }
 _REMINDERS_RUNTIME_ICONS = {
     STATE_OK: "&#10003;",
@@ -1262,7 +1262,7 @@ def render_reminders_runtime(now_dt=None) -> str:
 
         how_to_fix = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(REMINDERS_RUNTIME_HOW_TO_FIX_LABEL)}
                     </summary>
                     <div class="status-detail">{_html_escape(REMINDERS_RUNTIME_REMEDIATION_DENIED)}</div>
@@ -1317,9 +1317,9 @@ def render_reminders_runtime(now_dt=None) -> str:
 _WHATSAPP_KEEPALIVE_COLOURS = {
     "healthy": "#2C4A2C",
     "recovered": "#2C4A2C",
-    "needs_customer": "#5C4611",
-    "still_unhealthy": "#7A1F1F",
-    "cannot_run": "rgba(236,232,221,0.40)",
+    "needs_customer": "#8A6D1F",
+    "still_unhealthy": "#A82A2A",
+    "cannot_run": "rgba(20, 18, 14,0.40)",
 }
 _WHATSAPP_KEEPALIVE_ICONS = {
     "healthy": "&#10003;",
@@ -1462,7 +1462,7 @@ def render_whatsapp_keepalive(now_dt=None) -> str:
             )
         how_to_fix = f"""
                 <details style="margin-top:8px">
-                    <summary style="cursor:pointer;font-size:12px;color:rgba(236,232,221,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
+                    <summary style="cursor:pointer;font-size:12px;color:rgba(20, 18, 14,0.50);font-family:'IBM Plex Mono','SF Mono',Menlo,monospace;letter-spacing:0.04em">
                         {_html_escape(WHATSAPP_KEEPALIVE_HOW_TO_FIX_LABEL)}
                     </summary>
                     <div class="status-detail">{_html_escape(remediation)}</div>

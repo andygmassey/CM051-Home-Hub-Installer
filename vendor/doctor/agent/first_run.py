@@ -220,13 +220,18 @@ def get_wizard_steps(snapshot: SystemSnapshot) -> list[dict]:
 
 
 # The wizard's four status colours, NAMED so a test can assert "the green this
-# module uses" rather than pinning a literal (HR015 #979, fd10f28). Values are
-# the brand tokens already used by this tree's light palette, except "blocked",
-# which was a near-black grey (#4a4540) and is now the brand's muted grey.
+# module uses" rather than pinning a literal. Two tests asserted the hex codes
+# directly and went red the moment the palette moved, which is a snapshot
+# wearing the costume of a contract: the property is that a complete step reads
+# green and a needed one reads as the brand's red, not that green is any
+# particular six digits.
+#
+# Values are the marketing stylesheet's tokens (OS001 assets/ostler.css :root),
+# not invented here: --accent-3 #2C4A2C, --accent-warm #A82A2A, --ink #14120e.
 STATUS_COLOUR = {
     "complete": "#2C4A2C",
-    "partial": "#5C4611",
-    "needed": "#7A1F1F",
+    "partial": "#8A6D1F",
+    "needed": "#A82A2A",
     "blocked": "#6B655C",
 }
 STATUS_COLOUR_UNKNOWN = "rgba(20,18,14,0.40)"
@@ -280,8 +285,12 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
         /* PRIVACY: Google Fonts @import removed -- a local privacy-first product must not beacon the customer IP+timestamp to googleapis.com on every dashboard open. System-ui / -apple-system fallbacks below render cleanly. TODO(v1.0.1 privacy): self-host Outfit/IBM Plex via @font-face if branded type is wanted; do NOT re-add the googleapis @import. */
         * {{ margin:0; padding:0; box-sizing:border-box; }}
         :root {{
-            /* Ostler LIGHT palette (HR015 #979: --bg was still the Lifeline ground
-               under light cards and dark text). The wizard
+            /* Ostler LIGHT palette, the brand's own (OS001 assets/ostler.css).
+               This block said "dark palette" and rebound --amber to one of
+               the banned bright reds with a comment claiming it was oxblood.
+               The value is not spelled here: a comment naming a banned colour
+               makes every future audit grep report this file as carrying it,
+               which is how a clean file starts reading dirty. The wizard
                shares the dashboard's tokens so the welcome -> dashboard
                transition feels seamless. */
             --bg: #F8F8F4;
@@ -297,7 +306,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
                Rebind to oxblood so the wording stays the same but the
                surface reads brand-true. */
             --amber: #7A1F1F;
-            --amber-light: #7A1F1F;
+            --amber-light: #A82A2A;
             --amber-glow: rgba(122, 31, 31, 0.18);
             --font-display: 'Outfit', -apple-system, system-ui, sans-serif;
             --font-body: 'IBM Plex Sans', -apple-system, system-ui, sans-serif;
@@ -355,7 +364,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
             color: var(--text-primary);
             background: var(--bg-elevated);
             transform: translateY(-1px);
-            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 4px 12px rgba(20,18,14,0.07);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 4px 12px rgba(0,0,0,0.28);
         }}
         .done-box {{
             background: var(--amber-glow);
@@ -364,7 +373,7 @@ def render_wizard(snapshot: SystemSnapshot, steps: list[dict]) -> str:
             padding: 28px;
             text-align: center;
             margin-top: 36px;
-            box-shadow: 0 1px 2px rgba(20,18,14,0.10), 0 8px 24px rgba(20,18,14,0.08);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.40), 0 8px 24px rgba(0,0,0,0.32);
         }}
         .done-box h2 {{
             font-family: var(--font-display);
