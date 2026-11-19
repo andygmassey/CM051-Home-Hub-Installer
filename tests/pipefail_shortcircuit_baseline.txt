@@ -30,7 +30,6 @@
 .github/workflows/dry-run-ledger.yml	4
 .github/workflows/fda-deps-installed.yml	1
 bin/redact_selftest.sh	1
-bin/rollforward_gate.sh	1
 gui/scripts/sign-python-bundle.sh	2
 install.sh	21
 scripts/_vendor_lib.sh	2
