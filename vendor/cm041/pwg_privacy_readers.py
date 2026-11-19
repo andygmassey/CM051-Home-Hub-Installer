@@ -22,6 +22,11 @@ def optional_level(subject_var: str, out_var: str, subjects=None) -> str:
 
     Both names are given without the leading ``?``.
     """
+    # An unscoped call is the old call, byte for byte: `subjects` is passed only
+    # when given. A copy of pwg_privacy without the parameter (the cm019 copy on
+    # some sys.path orders) must keep working for unscoped readers.
+    if subjects is None:
+        return "OPTIONAL { " + _p.sparql_effective_level(subject_var, out_var) + " }"
     return "OPTIONAL { " + _p.sparql_effective_level(subject_var, out_var, subjects=subjects) + " }"
 
 
