@@ -452,8 +452,10 @@ def _route_fake(level_mode):
             return [{"name": "Dana Fixture"}]
         if "pwg:Meeting" in query:
             return [{k: v for k, v in r.items() if k != "lvl"} for r in meetings]
-        if "SELECT ?person ?name" in query and "displayName" in query:
-            return [{"person": TL_URI, "name": "Dana Fixture"}]
+        # the card's slug candidate query: plain in CM041, merge-aware in the
+        # CM051 vendored tree ("SELECT DISTINCT ?person ?name ?node")
+        if "?person ?name" in query and "displayName" in query:
+            return [{"person": TL_URI, "name": "Dana Fixture", "node": TL_URI}]
         if "lastContactCalendar" in query:
             return [{}]
         return []
