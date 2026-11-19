@@ -169,7 +169,9 @@ def run_payload(payload, store):
     sys.modules["urllib.request"] = urlreq
     sys.modules["urllib.error"] = urlerr
     old_argv, old_out = sys.argv, sys.stdout
-    sys.argv = ["-", "http://oxi", "http://qd", "people", ""]
+    # the fifth argument is the shipped writer the probe reads its exclusion from (CB135)
+    sys.argv = ["-", "http://oxi", "http://qd", "people", "",
+                os.path.join(REPO, "vendor", "ostler_fda", "pwg_ingest.py")]
     sys.stdout = io.StringIO()
     try:
         g = {"__name__": "__main__"}
