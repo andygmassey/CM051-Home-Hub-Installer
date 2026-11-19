@@ -421,8 +421,8 @@ def test_person_enrichment_ratio(store_and_mod, monkeypatch, capsys):
 
 TL_L3 = "SECRET-L3-MEETING-DO-NOT-SERVE"
 TL_L1 = "fc-control-L1-meeting"
-TL_URI = "urn:ostler:person/dana-fixture"
-TL_SLUG = "dana-fixture"
+TL_URI = "urn:ostler:person/dana"
+TL_SLUG = "dana"
 
 
 def _route_fake(level_mode):
@@ -449,13 +449,13 @@ def _route_fake(level_mode):
         if "VALUES ?person {" in query or "VALUES ?fact {" in query:
             return []
         if "SELECT ?name WHERE" in query:
-            return [{"name": "Dana Fixture"}]
+            return [{"name": "Dana"}]
         if "pwg:Meeting" in query:
             return [{k: v for k, v in r.items() if k != "lvl"} for r in meetings]
         # the card's slug candidate query: plain in CM041, merge-aware in the
         # CM051 vendored tree ("SELECT DISTINCT ?person ?name ?node")
         if "?person ?name" in query and "displayName" in query:
-            return [{"person": TL_URI, "name": "Dana Fixture", "node": TL_URI}]
+            return [{"person": TL_URI, "name": "Dana", "node": TL_URI}]
         if "lastContactCalendar" in query:
             return [{}]
         return []
