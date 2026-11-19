@@ -1359,6 +1359,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="화자 인식은 이 Mac에서만 이루어집
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="공개 자료 조회를 거부하셨으므로 Ostler는"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L2="Wikidata, MusicBrainz, OpenLibrary에 연결하지 않습니다. 백그라운드 작업은"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L3="설치되어 있지만 Doctor에서 조회를 켜기 전까지 대기합니다."  # NEEDS REVIEW
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="저장한 항목의 공개 정보를 조회하시겠습니까?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler는 책, 영화, 앨범, 장소처럼 찾아낸 항목에 공개 참고 정보를 추가할 수 있습니다. 이를 위해 해당 항목 하나의 이름을 Wikidata, MusicBrainz, OpenLibrary 같은 공개 참고 서비스로 보내고, 받은 답변을 이 Mac에 저장합니다.
 

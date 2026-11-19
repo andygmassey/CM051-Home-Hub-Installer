@@ -308,9 +308,11 @@ def test_J4_no_per_client_line_is_cannot_run_not_pass():
 # -- E3/E4/W5: the declined install (option b: the job is installed and idle) ---
 
 def test_E4_declined_makes_no_socket_connection(sandbox):
-    """Off means ZERO outbound: the enricher's consent gate refuses before any client
-    is built, so no connect() is ever attempted. Counted at connect(), not at socket
-    creation: asyncio builds a socketpair for its own loop, which is not outbound."""
+    """WEAK, NOT PROOF OF ZERO EGRESS. The recorder clients cannot connect even when
+    the consent gate is removed, so the zero-connect count here is not an independent
+    instrument. It is kept only as a regression check. The real instrument is the walk
+    probe enrichment_switch_off_reaches_clients, which reads the enricher's per-client
+    line on the box (enricher.py, the logger.info call near line 1142)."""
     import socket
     attempts = []
     real = socket.socket
@@ -355,9 +357,9 @@ def test_W5_declined_install_then_toggle_on_installs_nothing_new_and_looks_up(cl
     assert all(v > 0 for v in counts.values()), counts
 
 
-def test_J5_the_tick_stood_down_is_a_pass_with_no_counts_above_zero():
+def test_J5_a_tick_stand_down_alone_is_cannot_not_a_pass():
     v, _, _, _ = _judge().judge_switch_off("2026-11-20 INFO [x] declined; standing down, nothing sent\n")
-    assert v == "PASS"
+    assert v == "CANNOT"
 
 
 def test_J6_a_stand_down_with_a_look_up_above_zero_is_a_fail():
@@ -368,3 +370,29 @@ def test_J6_a_stand_down_with_a_look_up_above_zero_is_a_fail():
 def test_J7_nothing_in_the_log_is_cannot_run():
     v, _, _, _ = _judge().judge_switch_off("2026-11-20 INFO unrelated line\n")
     assert v == "CANNOT"
+
+
+def test_J8_the_real_enricher_line_with_the_switch_off_passes():
+    """The walk instrument on the REAL enricher's own output (enricher.py per-client
+    line + its refusal), with the switch off. Under a consent choke-point mutant this
+    log carries look-ups above zero and the judge must FAIL it."""
+    sw.set_enabled(False)
+    lines = _run_real_gate_batch()
+    v, reason, _, _ = _judge().judge_switch_off("\n".join("2026-11-20 INFO " + ln for ln in lines) + "\n")
+    assert v == "PASS", (v, reason)
+
+
+# -- L: the decline copy is in every locale catalogue, and install.sh uses it ------
+
+def test_L1_decline_copy_keys_exist_in_all_fifteen_catalogues_and_install_uses_them():
+    import re
+    keys = ("MSG_ENRICH_DECLINED_L1", "MSG_ENRICH_DECLINED_L2", "MSG_ENRICH_DECLINED_L3")
+    files = sorted(ROOT.glob("install.sh.strings.*.sh"))
+    assert len(files) == 15, [f.name for f in files]
+    missing = [f.name for f in files
+               if not all(re.search(r'^%s="[^"]+"' % k, f.read_text(encoding="utf-8"), re.M) for k in keys)]
+    assert not missing, f"decline copy missing in: {missing}"
+    install = (ROOT / "install.sh").read_text(encoding="utf-8")
+    for k in keys:
+        assert "${%s}" % k in install, f"install.sh does not print {k}"
+    assert "You said no to public look-ups" not in install, "the hardcoded English decline copy is back"

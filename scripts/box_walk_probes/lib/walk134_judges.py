@@ -82,34 +82,32 @@ _STOOD_DOWN = re.compile(r"standing down, nothing sent")
 
 
 def judge_switch_off(log_text):
-    """R02: after the owner switched enrichment OFF, the next run made no look-up.
+    """R02: with the switch OFF, the enricher's own per-client look-up line reads 0.
 
-    Two ways a switched-off box shows ZERO outbound (CB136, option b):
-      (1) the tick wrapper stood down before it ran the enricher: its log line
-          "standing down, nothing sent" is on the record and no per-client look-up
-          count is above zero;
-      (2) the enricher ran its batch, every client is 0 for the last batch, and the
-          enricher's refusal reason ("owner has not accepted enrichment") is logged.
-    FAIL when any per-client count is above zero on the last batch. CANNOT-RUN when
-    the log shows neither a stand-down nor a per-client line.
+    The instrument is the enricher's counts-only line "enrichment looked up per
+    client: music=N ..." (enricher.py, the logger.info call near line 1142), read on
+    the box after one enrich batch has run with enrichment off. PASS only when every
+    one of the seven clients is 0 on the last batch AND the enricher's refusal reason
+    ("owner has not accepted enrichment") is on the record.
+
+    A tick "standing down" line proves the wrapper stopped, not that the enricher
+    counted zero, so it is NOT enough: with no per-client line the verdict is
+    CANNOT-RUN. FAIL on any per-client count above zero.
     """
     lines = log_text.splitlines()
     perc = [m.group(1) for ln in lines for m in [_PER_CLIENT.search(ln)] if m]
-    stood = any(_STOOD_DOWN.search(ln) for ln in lines)
-    if perc:
-        counts = {k: int(v) for k, v in (t.split("=") for t in perc[-1].split())}
-        missing = [c for c in CLIENTS if c not in counts]
-        if missing:
-            return (CANNOT, "the per-client line does not name: %s" % ", ".join(missing), 0, missing)
-        nonzero = [c for c in CLIENTS if counts[c] != 0]
-        if nonzero:
-            return (FAIL, "switch is off but the last batch looked up: %s" % ", ".join("%s=%d" % (c, counts[c]) for c in nonzero), len(CLIENTS), [])
-        if not any(_REFUSED.search(ln) for ln in lines):
-            return (FAIL, "every client is 0 but the refusal reason is not on the record: a zero with no reason is not a proof the switch did it", len(CLIENTS), [])
-        return (PASS, "switch off: the last batch looked up 0 for all seven clients and logged the refusal reason", len(CLIENTS), [])
-    if stood:
-        return (PASS, "switch off: the tick stood down before the enricher ran (\"standing down, nothing sent\"); no look-up line above zero", len(CLIENTS), [])
-    return (CANNOT, "no 'enrichment looked up per client' line and no stand-down line in enrich.log: nothing shows the switch did anything", 0, CLIENTS)
+    if not perc:
+        return (CANNOT, "no 'enrichment looked up per client' line in enrich.log: the enricher has not run one batch with the switch off (a tick stand-down does not count)", 0, CLIENTS)
+    counts = {k: int(v) for k, v in (t.split("=") for t in perc[-1].split())}
+    missing = [c for c in CLIENTS if c not in counts]
+    if missing:
+        return (CANNOT, "the per-client line does not name: %s" % ", ".join(missing), 0, missing)
+    nonzero = [c for c in CLIENTS if counts[c] != 0]
+    if nonzero:
+        return (FAIL, "switch is off but the last batch looked up: %s" % ", ".join("%s=%d" % (c, counts[c]) for c in nonzero), len(CLIENTS), [])
+    if not any(_REFUSED.search(ln) for ln in lines):
+        return (FAIL, "every client is 0 but the refusal reason is not on the record: a zero with no reason is not a proof the switch did it", len(CLIENTS), [])
+    return (PASS, "switch off: the enricher's per-client line reads 0 for all seven clients and logs the refusal reason", len(CLIENTS), [])
 
 
 def _decision(env_text):

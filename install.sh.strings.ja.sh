@@ -1363,6 +1363,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="話者認識はこのMac内で行われます�
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="公開情報の照会を行わない設定のため、Ostler は"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L2="Wikidata、MusicBrainz、OpenLibrary には接続しません。バックグラウンド処理は"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L3="インストール済みですが、Doctor で照会を有効にするまで待機します。"  # NEEDS REVIEW
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="保存した内容の公開情報を調べますか?"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostlerは、見つけた本、映画、アルバム、場所などに、公開されている参照情報を追加できます。そのために、その1つの対象の名前を、Wikidata、MusicBrainz、OpenLibraryなどの公開参照サービスに送信し、返ってきた結果をこのMacに保存します。
 

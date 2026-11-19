@@ -1,23 +1,24 @@
 #!/bin/sh
 # scripts/box_walk_probes/probes/enrichment_switch_off_reaches_clients.sh
 # ============================================================================
-# READ-ONLY. R02: after the owner turned enrichment OFF in the Doctor
-# (/config, "Public look-ups"; POST /api/v1/enrichment {"enabled": false}), the
-# NEXT enrich batch must look up nothing, and the enricher must say why.
+# READ-ONLY. R02: with the owner's switch OFF, the enricher's own per-client
+# look-up line reads 0 on the box. The instrument is the enricher's counts-only line
+#   enrichment looked up per client: music=N books=N films=N podcasts=N places=N food=N interests=N
+# (enricher.py, the logger.info call near line 1142), read after one enrich batch has
+# run with enrichment off, plus the enricher's refusal line
+#   refused: owner has not accepted enrichment
 #
 # THE WALK HARNESS DOES THE WRITES, THIS PROBE ONLY READS:
 #   1. POST /api/v1/enrichment {"enabled": false} on the box (owner session)
-#   2. run one enrich batch on the seed fixture (the enrich agent's own tick)
+#   2. run ONE enrich batch on the seed fixture THROUGH THE ENRICHER (not only the tick:
+#      a tick that stands down writes no per-client line, and that is CANNOT-RUN here)
 #   3. this probe reads the tail of ~/.ostler/logs/enrich.log
 #
-# PASS when EITHER the tick stood down ("standing down, nothing sent": the wrapper's
-# consent gate ran before any enricher call; CB136 option b, the agent is installed
-# on every box) OR the last per-client line names all seven clients at 0 AND the
-# enricher's refusal line ("owner has not accepted enrichment") is on the record.
-# FAIL on any per-client look-up above zero. Counts are the enricher's own outbound
-# look-up counts; the tick's stand-down line is written before any network call.
+# PASS only when the last per-client line names all seven clients at 0 AND the refusal
+# line is on the record. FAIL on any per-client count above zero. CANNOT-RUN when no
+# per-client line exists. A tick stand-down line is NOT an instrument.
 # Judge: scripts/box_walk_probes/lib/walk134_judges.py switch-off.
-# Emitter tests: tests/test_doctor_enrichment_switch.py (E1).
+# Mutant of the judge and of the consent gate: tests/test_doctor_enrichment_switch.py (J2, J8, E1).
 # ============================================================================
 set -u
 . "$(dirname "$0")/../lib/probe.sh"

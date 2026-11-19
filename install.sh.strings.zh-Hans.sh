@@ -1360,6 +1360,9 @@ MSG_PROMPT_CONSENT_VOICE_EU_HELP="说话人识别只在这台 Mac 上进行。Cr
 # the second one is true and easy to omit: measured 2026-08-18, enrichment
 # requests carry no IP obfuscation and identify themselves as Ostler. A
 # consent question that describes only the flattering half is not consent.
+MSG_ENRICH_DECLINED_L1="您选择了不使用公开查询，因此 Ostler 不会连接"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L2="Wikidata、MusicBrainz 或 OpenLibrary。后台任务已安装，"  # NEEDS REVIEW
+MSG_ENRICH_DECLINED_L3="但会保持空闲，直到您在 Doctor 中开启公开查询。"  # NEEDS REVIEW
 MSG_PROMPT_CONSENT_ENRICHMENT_TITLE="查询你保存内容的公开信息吗？"
 MSG_PROMPT_CONSENT_ENRICHMENT_HELP="Ostler 可以为它发现的内容补充公开的参考信息，例如一本书、一部电影、一张专辑或一个地点。为此，它会把这一项内容的名称发送给维基数据（Wikidata）、MusicBrainz 和 OpenLibrary 等公共参考服务，并将结果保存在这台 Mac 上。
 
