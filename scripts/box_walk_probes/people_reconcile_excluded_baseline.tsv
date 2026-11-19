@@ -1,0 +1,5 @@
+# people_stores_reconcile: the writer's excluded share, the baseline its jump is judged against (CB135).
+# One row per accepted walk. The LAST data row is the baseline. Columns: measured_on, walk, graph, excluded, note.
+# Update in the same PR that accepts a new walk. Graph count is approximate for the first row (Archie: ~11,577).
+measured_on	walk	graph	excluded	note
+2026-11-14	v1.0.134-box	11577	347	CB135 Archie ruling: 337 service mailbox, 5 organisation name, 4 notification phrasing, 1 marketplace or domain; 13 unnamed stubs are reported separately and are not in this count
