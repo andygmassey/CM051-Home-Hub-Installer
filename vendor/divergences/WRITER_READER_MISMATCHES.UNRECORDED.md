@@ -1917,3 +1917,27 @@ Its request URL is also in installer Q11 (`install.sh`), which the drift test ch
 Why (CM041 #296, Archie 2026-11-17): the ical-server serves `owner_local` (L3 and untagged, labelled private) only to a loopback peer. Port 8089 is tailscale-served as raw TCP, so tailnet devices reach this proxy, and through it the ical-server, as 127.0.0.1. Without this a tailnet caller could claim `owner_local` with one header or one query parameter. Until the owner-scoped bearer lands every proxied request is the owner's own brief.
 
 Tests: `tests/test_doctor_proxy_pins_the_privacy_destination.py` drives the real `proxy_request` against an httpx MockTransport upstream (5 tests, including a planted pass-through mutant that must fail). No upstream patch: the Doctor source has no destination handling yet.
+
+## 2026-11-20 (R02): Doctor enrichment switch (CB135-ENRICHMENT-SETTINGS-SWITCH)
+
+Edits to vendor/doctor, all for one purpose: the owner turns public look-ups on
+and off in the Doctor, and the enricher honours it on its next run.
+
+1. NEW FILE `vendor/doctor/agent/enrichment_switch.py`. Reads and writes the
+   key `OSTLER_CONSENT_ENRICHMENT_DECISION` in `${OSTLER_DIR}/config/.env`, the
+   same key the installer writes and CM019's `services/enrich/src/consent.py`
+   reads. Writes replace every existing line for that key with one new line at
+   the end, keep every other line, and replace the file atomically at mode 600.
+   It also updates `${OSTLER_DIR}/posture/enrichment-decision.json` (best effort).
+
+2. `vendor/doctor/agent/web_ui.py`, two additions and nothing else changed:
+   - routes `GET /api/v1/enrichment` and `POST /api/v1/enrichment` (inserted
+     just above `/api/v1/reminders/turn-on`). They sit behind the global owner
+     middleware and the same cross-site guard as `/api/v1/config`.
+   - a "Public look-ups" section and a small script inserted into the `/config`
+     page, just above its `meta-bottom` footer and just before the closing body.
+
+Where it is measured: tests/test_doctor_enrichment_switch.py (18 tests, the
+CM019 reader and the real enricher consent gate included). Mutants applied
+locally and reverted: always-accepted (5 red), first-match-wins (1 red),
+off-never-written (4 red).

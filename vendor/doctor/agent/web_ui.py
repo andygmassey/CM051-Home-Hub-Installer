@@ -4504,6 +4504,46 @@ async def api_resume_post(request: Request):
     return JSONResponse(state, status_code=200)
 
 
+# ── Public-data enrichment switch (R02) ──────────────────────────────
+#
+# The owner's on/off for public look-ups (Wikidata, MusicBrainz, ...). Reads
+# and writes the same config/.env key the installer writes and the enricher
+# reads (enrichment_switch.py), so the next enrich run honours it. Both
+# routes are the same-origin guarded pair used by /api/v1/config.
+
+
+@app.get("/api/v1/enrichment", response_class=JSONResponse)
+async def api_enrichment_get(request: Request):
+    """Current enrichment choice and whether the enricher will act on it."""
+    refusal = _hub_read_refusal(request)
+    if refusal is not None:
+        return refusal
+    from enrichment_switch import status as _enrichment_status
+
+    return JSONResponse(_enrichment_status(), status_code=200)
+
+
+@app.post("/api/v1/enrichment", response_class=JSONResponse)
+async def api_enrichment_post(request: Request):
+    """Body ``{"enabled": true|false}``. Records the owner's choice."""
+    refusal = _cross_site_refusal(request)
+    if refusal is not None:
+        return refusal
+    from enrichment_switch import EnrichmentSwitchError, set_enabled
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return JSONResponse({"error": f"invalid JSON: {exc}"}, status_code=400)
+    if not isinstance(body, dict) or "enabled" not in body:
+        return JSONResponse({"error": "body must be {\"enabled\": true|false}"}, status_code=400)
+    try:
+        state = set_enabled(body["enabled"])
+    except EnrichmentSwitchError as exc:
+        return JSONResponse({"error": exc.detail}, status_code=exc.status)
+    return JSONResponse(state, status_code=200)
+
+
 @app.post("/api/v1/reminders/turn-on", response_class=JSONResponse)
 async def api_reminders_turn_on(request: Request):
     """"Turn reminders back on" after the customer deleted Ostler's Reminders
@@ -7688,6 +7728,14 @@ def _render_config_page() -> str:
             <span class="config-path" id="configPath"></span>
         </div>
 
+        <section class="enrich-switch" id="enrichSwitch" aria-labelledby="enrichTitle">
+            <h2 id="enrichTitle">Public look-ups</h2>
+            <p class="enrich-copy">Ostler looks up music, books, films, podcasts, places, food and interests in public reference sources (Wikidata, MusicBrainz, OpenLibrary). Only the name of the thing being looked up is sent. Your files, messages and contacts are never sent.</p>
+            <label class="toggle"><input type="checkbox" id="enrichToggle"><span class="slider"></span></label>
+            <span class="enrich-state" id="enrichState"></span>
+            <p class="enrich-note" id="enrichNote"></p>
+        </section>
+
         <div class="meta-bottom">
             {CONFIG_META_FOOTER}
         </div>
@@ -7856,6 +7904,45 @@ def _render_config_page() -> str:
 
         saveBtn.addEventListener('click', save);
         load();
+    }})();
+    </script>
+    <script>
+    (function() {{
+        const toggle = document.getElementById('enrichToggle');
+        const stateEl = document.getElementById('enrichState');
+        const noteEl = document.getElementById('enrichNote');
+        function render(st) {{
+            toggle.checked = !!st.enabled;
+            stateEl.textContent = st.enabled ? 'On' : 'Off';
+            let note = st.note || '';
+            if (st.reason === 'env_override') {{
+                note = 'This Mac has an environment override set to decline, so look-ups stay off until it is removed.';
+            }}
+            noteEl.textContent = note;
+        }}
+        function fail(msg) {{
+            noteEl.textContent = msg;
+        }}
+        fetch('/api/v1/enrichment', {{credentials: 'same-origin'}})
+            .then(function(r) {{ return r.json(); }})
+            .then(render)
+            .catch(function(err) {{ fail('Could not read the setting: ' + err); }});
+        toggle.addEventListener('change', function() {{
+            toggle.disabled = true;
+            fetch('/api/v1/enrichment', {{
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{enabled: toggle.checked}})
+            }})
+                .then(function(r) {{ return r.json().then(function(b) {{ return {{ok: r.ok, body: b}}; }}); }})
+                .then(function(res) {{
+                    if (!res.ok) {{ fail(res.body.error || 'Could not save the setting.'); toggle.checked = !toggle.checked; return; }}
+                    render(res.body);
+                }})
+                .catch(function(err) {{ fail('Could not save the setting: ' + err); toggle.checked = !toggle.checked; }})
+                .finally(function() {{ toggle.disabled = false; }});
+        }});
     }})();
     </script>
 </body>
