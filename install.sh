@@ -13722,7 +13722,7 @@ echo ""
 # string is written to read correctly as one run.
 OSTLER_ENRICH_AGENT_ENABLED=1
 legal_prevails_note
-_PRIOR_ENRICH_DECISION="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "${OSTLER_DIR}/config/.env" 2>/dev/null | tail -n 1)"; _PRIOR_ENRICH_DECISION="${_PRIOR_ENRICH_DECISION%\"}"; _PRIOR_ENRICH_DECISION="${_PRIOR_ENRICH_DECISION#\"}"; _ENRICH_DEFAULT=y; [[ "$_PRIOR_ENRICH_DECISION" == "declined" ]] && _ENRICH_DEFAULT=n; ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "$_ENRICH_DEFAULT" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"  # CB136-WALK-UPGRADE-PATH: a re-install keeps a prior decline; no prior answer = cold install = "y", as before
+_ENRICH_DEFAULT=y; _PRIOR_ENRICH_DECISION=""; if [[ "$_OSTLER_FINAL_PREEXISTED" == true && -e "${OSTLER_FINAL_DIR}/config/.env" ]]; then _PRIOR_ENRICH_DECISION="$(sed -n 's/^OSTLER_CONSENT_ENRICHMENT_DECISION=//p' "${OSTLER_FINAL_DIR}/config/.env")" || _PRIOR_ENRICH_DECISION="__UNREADABLE__"; _PRIOR_ENRICH_DECISION="${_PRIOR_ENRICH_DECISION##*$'\n'}"; _PRIOR_ENRICH_DECISION="${_PRIOR_ENRICH_DECISION%\"}"; _PRIOR_ENRICH_DECISION="${_PRIOR_ENRICH_DECISION#\"}"; fi; case "$_PRIOR_ENRICH_DECISION" in declined|__UNREADABLE__) _ENRICH_DEFAULT=n ;; esac; ENRICH_CHOICE="$(gui_read "$MSG_PROMPT_CONSENT_ENRICHMENT_TITLE" yesno "$_ENRICH_DEFAULT" "$MSG_PROMPT_CONSENT_ENRICHMENT_HELP" "" "consent_enrichment")"  # CB136-WALK-UPGRADE-PATH: a re-install reads the PRIOR answer from the FINAL tree (OSTLER_DIR is the staging tree at this point); an unreadable prior file fails toward n; no prior file (cold install) keeps y
 case "${ENRICH_CHOICE:-}" in
     y|Y) OSTLER_ENRICH_AGENT_ENABLED=1 ;;
     *)   OSTLER_ENRICH_AGENT_ENABLED=0 ;;
