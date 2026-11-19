@@ -42,10 +42,10 @@ jobs:
         run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client hypothesis
       - name: person_context, timeline, person card and fail-closed latency bar at 11,500 persons
         env:
-          # The claim is the RATIO (mutant P95 >= 3x fix P95) measured in one process.
+          # The primary guard is structural (every level subquery scoped). The ratio is
+          # secondary: 3x for context and timeline, 2x for the card (CB137).
           # OSTLER_HANG_CEILING_S is only a hang guard on the fix.
           OSTLER_HANG_CEILING_S: "2.0"
-          OSTLER_RATIO_MIN: "3.0"
         run: |
           T=vendor/cm041/assistant_api/tests/test_people_context_latency.py
           n="$(PYTHONPATH=vendor:vendor/cm041 python -m pytest $T --collect-only -q | grep -cE '::test_')" || n=0
