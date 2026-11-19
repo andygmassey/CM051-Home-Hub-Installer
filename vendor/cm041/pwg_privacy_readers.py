@@ -17,12 +17,12 @@ except ImportError:  # root on sys.path (ical-server, brief, tests)
     import pwg_privacy as _p
 
 
-def optional_level(subject_var: str, out_var: str) -> str:
+def optional_level(subject_var: str, out_var: str, subjects=None) -> str:
     """OPTIONAL group binding ``?out_var`` to ``?subject_var``'s effective level.
 
     Both names are given without the leading ``?``.
     """
-    return "OPTIONAL { " + _p.sparql_effective_level(subject_var, out_var) + " }"
+    return "OPTIONAL { " + _p.sparql_effective_level(subject_var, out_var, subjects=subjects) + " }"
 
 
 def optional_level_iri(iri: str, out_var: str) -> str:

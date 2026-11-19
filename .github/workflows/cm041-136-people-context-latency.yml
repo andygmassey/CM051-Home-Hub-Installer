@@ -1,0 +1,53 @@
+# 136 people/context and person-card latency (2026-11-20). The privacy level
+# reads are scoped to their subjects, and the level read fails closed. The
+# vendored CM041 latency bar and the fail-closed tests run here at CI scale
+# (11,500 synthetic persons, in-process pyoxigraph). The 2x Oxigraph-server
+# run is a builder measurement on the Studio, not in this job.
+# Collected-count floor so a shrinking suite cannot pass.
+name: cm041-136-people-context-latency
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/pwg_privacy.py'
+      - 'vendor/cm041/pwg_privacy_readers.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_context_latency.py'
+      - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - '.github/workflows/cm041-136-people-context-latency.yml'
+  pull_request:
+    paths:
+      - 'vendor/cm041/assistant_api/ical-server.py'
+      - 'vendor/cm041/pwg_privacy.py'
+      - 'vendor/cm041/pwg_privacy_readers.py'
+      - 'vendor/cm041/assistant_api/tests/test_people_context_latency.py'
+      - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - '.github/workflows/cm041-136-people-context-latency.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  people-context-latency-136:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install --quiet pytest httpx rdflib pyoxigraph cryptography keyring phonenumbers rapidfuzz qdrant-client hypothesis
+      - name: person_context, timeline and fail-closed latency bar at 11,500 persons
+        run: |
+          T=vendor/cm041/assistant_api/tests/test_people_context_latency.py
+          n="$(PYTHONPATH=vendor:vendor/cm041 python -m pytest $T --collect-only -q | grep -cE '::test_')" || n=0
+          echo "collected ${n} test(s)"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "REFUSING: expected at least 12 collected tests, got ${n:-0}." >&2
+            exit 1
+          fi
+          cd vendor/cm041/assistant_api
+          PYTHONPATH=../..:.. python -m pytest tests/test_people_context_latency.py -v -s
