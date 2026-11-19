@@ -1,6 +1,6 @@
 """Remote access = the Tailscale the INSTALLER set up (Doctor, v1.0.106).
 
-Andy's v1.0.105 walk: Settings showed "Remote access (Tailscale)" OFF while
+The owner's v1.0.105 walk: Settings showed "Remote access (Tailscale)" OFF while
 the installer's tailscaled was connected. The Settings toggle read the
 daemon's `tunnel.provider`, which install.sh never writes, and a daemon
 provider of "tailscale" does something else entirely: it runs
