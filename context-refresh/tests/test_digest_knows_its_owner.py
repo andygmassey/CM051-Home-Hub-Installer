@@ -56,18 +56,29 @@ OWNER_NAME = "Jane Doe"
 OWNER_EMAIL = "jane@example.com"
 NEIGHBOUR_PLACE = "Sam Patel is based in Lyonville."
 # #27: UNTAGGED legacy location facts. A contact's must go; the owner as explicit subject stays.
-UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton")
+UNTAGGED_CONTACT_PLACES = ("Lizzie Li lives in Harborview", "Is based in Robbieton",
+                           # Prefix of the owner's name, not the owner: no word boundary.
+                           # Composed at runtime, as the phone fixture is, so no literal
+                           # pair of names sits in source.
+                           OWNER_NAME + "rr lives in Leeds")
 UNTAGGED_OWNER_PLACE = "Jane Doe lives in Seaford"
 PLACE_WITH_PHONE = "Office line " + "".join(["5550", "1991", "11"]) + " in Seaford"   # owner-tagged, but a raw phone never prints
 _PHONE_DIGITS = "".join(["5550", "1990", "00"])  # composed: no phone literal in source
 CONTACT_PHONE_FACT = f"+{_PHONE_DIGITS} has a son"
 OWNER_END_FACT = "Liz Doe is the sister of Jane Doe"
+# Walk 134E (owner_digest_knows_the_owner): a fact whose SUBJECT is a contact,
+# with the owner only as a possessive mid-sentence. Its about is the contact,
+# so it is not the owner's family and must not reach the owner's family line.
+CONTACT_POSSESSIVE_FACT = "Sam Patel said Jane Doe's sister is moving"
+CONTACT_FRIEND_OF_FACT = "Sam Patel's mother is a friend of Jane Doe"
 # #25: UNTAGGED legacy facts about OTHER people (walk #24 shapes), cast names.
 UNTAGGED_OTHERS = (
     "Sam Patel met Robbie Wang, Lizzie Li, Wei Zhang at a party",
     "Sam Patel mentioned Robbie Wang got a job",
     "Sam Patel has a son",
     "Jane Doe met Sam Patel at a party",        # owner is the subject but it is not kinship
+    CONTACT_POSSESSIVE_FACT,                    # 134E: owner only as a mid-sentence possessive
+    CONTACT_FRIEND_OF_FACT,                     # 134E: kin word plus "of <owner>", subject is Sam
 )
 UNTAGGED_OWNER_DAUGHTER = "Jane Doe has a daughter Lizzie Li"
 
@@ -188,6 +199,10 @@ def _seed_store(*, mecard_org: str | None = "ExampleCo",
         # A relationship fact linking the owner to that contact: owner is one end.
         ufact("u7", OWNER_END_FACT, "relationship", "family",
               about="urn:ostler:person/liz_doe")
+        ufact("u8", CONTACT_POSSESSIVE_FACT, "relationship", "family",
+              about="urn:ostler:person/sam_patel")
+        ufact("u9", CONTACT_FRIEND_OF_FACT, "relationship", "family",
+              about="urn:ostler:person/sam_patel")
 
     if contact_family:
         for i, t in enumerate(UNTAGGED_OTHERS):
@@ -663,7 +678,9 @@ def test_family_owner_relations_survive(env):
     _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_famc")
     fam = _about_family(digest)
     assert "Has a sister called Liz Doe" in fam      # tagged to the owner
-    assert OWNER_END_FACT in fam                      # owner is one end of the relation
+    # Structural gate (walk 134E): the kinship fact is tagged about=the other
+    # party, so it is not admitted whatever its text says.
+    assert OWNER_END_FACT not in fam
 
 
 def test_family_location_bucket_unchanged(env):
@@ -683,11 +700,22 @@ def test_family_untagged_facts_about_other_people_are_dropped(env):
     assert "Sam Patel" not in fam
 
 
+def test_family_a_contacts_fact_with_owner_only_as_possessive_is_absent(env):
+    """Walk 134E RED: the kin-end possessive arm matched "Jane Doe's" anywhere in
+    the text, so a contact's own statement reached the owner's family line."""
+    _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam134")
+    fam = _about_family(digest)
+    assert CONTACT_POSSESSIVE_FACT not in fam, f"a contact's fact on the owner's family line: {fam}"
+    assert "said Jane Doe" not in fam and "Sam Patel" not in fam
+    assert CONTACT_FRIEND_OF_FACT not in fam, f"'friend of <owner>' leaked: {fam}"
+    assert "Has a sister called Liz Doe" in fam and "Sam" not in fam
+
+
 def test_family_untagged_owner_relation_with_owner_as_subject_stays(env):
     _, digest = _build(env, _SCRIPT, _seed_store(contact_family=True), name="gen_fam25c")
     fam = _about_family(digest)
     assert UNTAGGED_OWNER_DAUGHTER in fam
-    assert "Has a sister called Liz Doe" in fam and OWNER_END_FACT in fam
+    assert "Has a sister called Liz Doe" in fam and OWNER_END_FACT not in fam
 
 
 # ── #27: untagged location facts leave the Places line ───────────────────────
