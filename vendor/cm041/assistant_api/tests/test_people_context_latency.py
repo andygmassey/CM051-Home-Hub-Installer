@@ -34,6 +34,7 @@ PWG = "https://schema.ostler.ai/ontology#"
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCALE = int(os.environ.get("OSTLER_SCALE_PERSONS", "11500"))
 BAR_P95_S = float(os.environ.get("OSTLER_PEOPLE_CONTEXT_BAR_S", "0.5"))
+ROUTE_BAR_S = float(os.environ.get("OSTLER_ROUTE_BAR_S", "0.25"))
 SERVER = os.environ.get("OXIGRAPH_TEST_URL", "").rstrip("/")
 OWNER = "urn:ostler:person:owner"
 
@@ -99,6 +100,14 @@ def _quads(n=SCALE, seed=7):
         out.append("%s %s %s ." % (f, p("organization"), lit("Org %d" % k)))
         out.append("%s %s %s ." % (f, p("factText"), lit("career %d" % k)))
         out.append("%s %s %s ." % (f, p("privacyLevel"), lit("L2")))
+    # CM048 conversation facts (the timeline's conversation source)
+    for i in range(0, n, 7):
+        fct = "<urn:ostler:tfact:%d>" % i
+        conv = "<urn:ostler:conversation/c%d>" % i
+        out.append("%s <urn:ostler:about> <urn:ostler:person:%d> ." % (fct, i))
+        out.append("%s <urn:ostler:fromConversation> %s ." % (fct, conv))
+        out.append("%s <urn:ostler:privacyLevel> %s ." % (fct, lit("L1" if i % 2 else "L2")))
+        out.append("%s <urn:ostler:date> %s ." % (conv, lit("2026-10-%02d" % (1 + i % 28))))
     # CM048 signals in a user named graph (the signal read is graph-scoped)
     for k in range(5):
         out.append("<urn:ostler:signal:%d> <urn:ostler:about> <urn:ostler:person:%d> <urn:ostler:user:fixture> ."
@@ -312,3 +321,111 @@ def test_mutant_serve_on_error_is_caught(monkeypatch, capsys):
     with capsys.disabled():
         print("\n[MUTANT serve-on-error] %s" % caught)
     assert all(v == "caught" for _, v in caught), caught
+
+
+# --- the person timeline route (2026-11-19) -------------------------------
+
+DEST = "owner_own_brief"   # undeclared = unknown withholds L1/L2 (strictest)
+TIMELINE_URI = "urn:ostler:person:35"   # has meetings, conversation facts, a level
+
+
+def _time_route(fn, n):
+    times, last = [], None
+    for _ in range(n):
+        t = time.perf_counter()
+        last = fn()
+        times.append(time.perf_counter() - t)
+    times.sort()
+    p50 = statistics.median(times)
+    p95 = times[max(0, int(round(0.95 * (len(times) - 1))))]
+    return p50, p95, last
+
+
+def test_person_timeline_latency_bar(store_and_mod, capsys):
+    srv, transport = store_and_mod
+    p50, p95, (body, status) = _time_route(
+        lambda: srv.person_timeline_by_uri(TIMELINE_URI, destination=DEST), 20)
+    assert status == 200, body
+    with capsys.disabled():
+        print("\n[people/timeline %s n=20 persons=%d] p50=%.3fs P95=%.3fs bar=%.2fs events=%d"
+              % (transport, SCALE, p50, p95, BAR_P95_S, len(body.get("events", []))))
+    assert p95 < ROUTE_BAR_S, "timeline P95 %.3fs over the %.2fs bar" % (p95, ROUTE_BAR_S)
+
+
+def test_person_timeline_scoped_equals_unscoped(store_and_mod, monkeypatch):
+    """The scope changes cost, not the answer: the events are identical with
+    the scope dropped (the pre-fix call)."""
+    srv, _ = store_and_mod
+    scoped, st1 = srv.person_timeline_by_uri(TIMELINE_URI, destination=DEST)
+    real = pp.sparql_effective_level
+    monkeypatch.setattr(pp, "sparql_effective_level",
+                        lambda subject_var="s", out_var="effLevel", subjects=None:
+                        real(subject_var, out_var))
+    unscoped, st2 = srv.person_timeline_by_uri(TIMELINE_URI, destination=DEST)
+    assert st1 == st2 == 200
+    key = lambda body: json.dumps(body.get("events", []), sort_keys=True)  # noqa: E731
+    assert scoped.get("events"), "control: the timeline must have events"
+    assert key(scoped) == key(unscoped)
+
+
+def test_person_timeline_mutant_misses_the_bar(store_and_mod, monkeypatch, capsys):
+    srv, transport = store_and_mod
+    real = pp.sparql_effective_level
+    monkeypatch.setattr(pp, "sparql_effective_level",
+                        lambda subject_var="s", out_var="effLevel", subjects=None:
+                        real(subject_var, out_var))
+    p50, p95, _ = _time_route(lambda: srv.person_timeline_by_uri(TIMELINE_URI, destination=DEST), 10)
+    with capsys.disabled():
+        print("\n[MUTANT timeline unscoped %s n=10 persons=%d] p50=%.3fs P95=%.3fs bar=%.2fs"
+              % (transport, SCALE, p50, p95, ROUTE_BAR_S))
+    assert p95 > ROUTE_BAR_S, "timeline mutant did NOT miss the bar (P95 %.3fs)" % p95
+
+
+# --- the person card route: /api/v1/people/{slug}/enrichment (2026-11-19) ---
+#
+# Route bar: a route with three to four unscoped level reads costs about
+# 0.15 s each at 11,500 persons, so its mutant sits near 0.5 s. The bar for
+# the route cases is 0.25 s. Scoped: timeline 0.001 s; enrichment about 0.08 s,
+# whose cost is one slug-resolution scan of every person.
+
+ENRICH_SLUG = "fixture-person-35"
+
+
+def _enrich(srv):
+    return srv.person_enrichment(ENRICH_SLUG, destination=DEST)
+
+
+def test_person_enrichment_latency_bar(store_and_mod, capsys):
+    srv, transport = store_and_mod
+    p50, p95, (body, status) = _time_route(lambda: _enrich(srv), 20)
+    assert status == 200, body
+    with capsys.disabled():
+        print("\n[people/enrichment %s n=20 persons=%d] p50=%.3fs P95=%.3fs bar=%.2fs"
+              % (transport, SCALE, p50, p95, ROUTE_BAR_S))
+    assert p95 < ROUTE_BAR_S, "enrichment P95 %.3fs over the %.2fs bar" % (p95, ROUTE_BAR_S)
+
+
+def test_person_enrichment_scoped_equals_unscoped(store_and_mod, monkeypatch):
+    srv, _ = store_and_mod
+    scoped, st1 = _enrich(srv)
+    real = pp.sparql_effective_level
+    monkeypatch.setattr(pp, "sparql_effective_level",
+                        lambda subject_var="s", out_var="effLevel", subjects=None:
+                        real(subject_var, out_var))
+    unscoped, st2 = _enrich(srv)
+    assert st1 == st2 == 200
+    assert scoped.get("person"), "control: the card must resolve"
+    assert json.dumps(scoped, sort_keys=True) == json.dumps(unscoped, sort_keys=True)
+
+
+def test_person_enrichment_mutant_misses_the_bar(store_and_mod, monkeypatch, capsys):
+    srv, transport = store_and_mod
+    real = pp.sparql_effective_level
+    monkeypatch.setattr(pp, "sparql_effective_level",
+                        lambda subject_var="s", out_var="effLevel", subjects=None:
+                        real(subject_var, out_var))
+    p50, p95, _ = _time_route(lambda: _enrich(srv), 10)
+    with capsys.disabled():
+        print("\n[MUTANT enrichment unscoped %s n=10 persons=%d] p50=%.3fs P95=%.3fs bar=%.2fs"
+              % (transport, SCALE, p50, p95, ROUTE_BAR_S))
+    assert p95 > ROUTE_BAR_S, "enrichment mutant did NOT miss the bar (P95 %.3fs)" % p95
