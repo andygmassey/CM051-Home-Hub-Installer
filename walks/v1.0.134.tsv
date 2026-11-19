@@ -1,0 +1,79 @@
+# v1.0.134 walk record. HAND-ASSEMBLED by ORM-134 from three runs on one box, because
+# record_walk.sh never wrote a record: run 1 was killed at 08:48:50Z (rc=143) after the
+# install reached DONE, and the record step belongs to the ttywalk run that was killed.
+# Every count below names its run. Reasons are withheld (public repo); they live in the
+# operator-local logs named under evidence_local.
+#
+# Archie ruling 2026-11-19: VERDICT NOT CLEAN. In this file's vocabulary that is FAILED.
+version	v1.0.134
+artefact_sha256	12610aa5a4e6b25c2f68cb43c197ef01cefa6924c13596fb3237e5531af12ae9
+artefact_sha256_source	measured(shasum -a 256 of OstlerInstaller-1.0.134.dmg before every run; re-checked before E and H)
+tag_commit	55fe41a3e1a2099b756efeb283aed6e4f4c5e6bb
+walked_at	2026-11-19T06:20:34Z
+box_fp	f0a5e4fd0536754c
+tier	full
+walk_kind	thin
+walk_kind_source	ssh walk on Mini16; this record does NOT authorise repointing the customer download
+instrument_rev	55fe41a3e1a2099b756efeb283aed6e4f4c5e6bb
+instrument_source	runs 1+2: clone of cut/v1.0.134 at the tag. E: same plus two harness changes (below). H: same plus one (below).
+harness_change_E_1	scripts/box_walk_probes/lib/grounding_seed.sh:208 prefixes the loader with OSTLER_SEED_HTTP_TIMEOUT=60
+harness_change_E_2	probes/derived_themes_still_learning.sh:25 curl gets --max-time 60, the service-token bearer and X-Ostler-Destination: owner_own_brief, and the route is re-measured on :8090 (CB135-PROBE-THEMES-WRONG-PORT)
+harness_change_H	scripts/walk_drive.py:284 answers y at "Look up public facts about things you save?"
+stores_provenance	wiped-by-shipped-uninstaller(ttywalk --reset; colima delete --data)
+cold	PROVEN(files outside the allowlist, before->after per root: .ostler:259147->0 Documents/Ostler:0->0 Ostler:160291->0 AppSupport/Ostler:25->0 )
+install_terminal	DONE status=ok failed_steps=0 unmeasured_steps=35 errors=0 (run 1)
+corpus	REAL account (the box owner's own book), NOT the seed fixture. Every people/store reading below is real-book.
+grounding_seed	run 2: CANNOT-RUN (seed path); E: failed(rc=1): 5 asserts stored, people/context answered degraded "timed out" (30 s), so the fact was never readable
+counts_scope	run 2 (seeded rerun, phase 1, box_walk_probes only); the E overlay and phase 2 are listed separately below
+pass	49
+fail	7
+cannot_run	26
+broken	0
+advisory	3
+advisory_probe	install_log_error_lines
+advisory_probe	settling_json_refreshes
+advisory_probe	owner_knowledge_score
+measured	85 of 85 (run 2 phase 1)
+phase2	COMPLETE, 140 rows: 92 PASS 11 FAIL 1 SKIP 36 CANNOT-RUN. An attempted stop at 2026-11-19T14:17:50Z (Archie ruling) killed the post_walk_qa shells but not their verify_cut_manifest child, which kept running alongside E until 15:48:31Z.
+E_overlay	2026-11-19T14:18:15Z..15:50:07Z, same install: 3 PASS 7 FAIL 4 CANNOT-RUN of 14. Contaminated: phase 2 was still driving the box throughout.
+H	H stopped by Archie ruling, enrichment measured on 135; harness cannot reinstall over a live install (ttywalk port preflight, 6 of 6 held). The follow-on enrichment probe run was also stopped (16:20Z) after it launched the full seed set. Enrichment on the declined install: run 2 reading only (enrichment_reaches_clients CANNOT-RUN, no enrich.log).
+verdict	FAILED
+verdict_words	NOT CLEAN (Archie 2026-11-19)
+qa_exit	143
+failed_probe_names_recorded	10 of 10
+failed_probe_scope	the union of run 2 phase 1 FAILs (7) and E FAILs (7), 10 distinct; the six marked blocking_probe are Archie's blocking set
+failed_probe	assistant_answers_grounded
+failed_probe	meeting_brief_text_is_grounded
+failed_probe	hub_screens_customer_read
+failed_probe	hub_screens_render_for_a_customer
+failed_probe	owner_digest_knows_the_owner
+failed_probe	people_stores_reconcile
+failed_probe	derived_preferences_reach_digest_and_tool
+failed_probe	derived_themes_still_learning
+failed_probe	ostler_launchd_jobs_loaded_and_exit_clean
+failed_probe	people_seed_and_retrieval
+blocking_probe	assistant_answers_grounded
+blocking_probe	meeting_brief_text_is_grounded
+blocking_probe	hub_screens_customer_read
+blocking_probe	hub_screens_render_for_a_customer
+blocking_probe	owner_digest_knows_the_owner
+blocking_probe	people_stores_reconcile
+failed_cause	assistant_answers_grounded	E: 1 of 3 turns tool_error:pwg_people. Likely the people/context latency defect (below). Seeded half CANNOT-RUN: seed failed.
+failed_cause	meeting_brief_text_is_grounded	E: all 3 sent briefs say the meeting history could not be checked, so the lookup failed rather than the text being wrong. Likely the latency defect. Regression of v1.0.131 per the 132 record.
+failed_cause	hub_screens_customer_read	E: 502 on doctor /api/v1/hydration/status (upstream ReadTimeout). Latency defect.
+failed_cause	hub_screens_render_for_a_customer	E: timeline API 503, no rows within 45 s. Latency defect.
+failed_cause	owner_digest_knows_the_owner	E: 1 of 3 About-you family entries is a CM048 relationship fact whose urn:ostler:about is another party (dangling urn:ostler:other/ URI), admitted by the renderer's possessive kin-end arm. Fix: CM051 #3620 (drops exactly that fact on this store).
+failed_cause	people_stores_reconcile	E: C=347. All 347 are rows the shipped people writer skips BY DESIGN as service senders (CM051 05a5dfe4, in v1.0.132). 0 real persons without a vector. Writer/probe predicate mismatch, carried from 132.
+latency_people_context	quiet, read-only, no harness: p50 25.8 s max 53.9 s (n=5) then p50 23.0 s max 27.7 s (n=5), load ~5 from product ingest. This is the 134 baseline for 136. Run 1 read 10.9 s. E figures (before p50 35.4 s, after 11.0 s) are contaminated: the before figure includes ORM's own SPARQL, and the after was taken at load 19.6.
+other_fail	derived_preferences_reach_digest_and_tool	ADVISORY per ruling (route degraded with 0 items at probe time; 2 items served later)
+other_fail	derived_themes_still_learning	run 2 probe defect (wrong port, CB135-PROBE-THEMES-WRONG-PORT); re-measured on :8090 in E: PASS
+other_fail	ostler_launchd_jobs_loaded_and_exit_clean	context-refresh exit 3 (also acceptance gate A8). Gets an owner only if it repeats on 135.
+other_fail	people_seed_and_retrieval	run 2 LEG B empty; quiet re-read CANNOT-RUN (LEG A transport timeout). Gets an owner only if it repeats on 135.
+other_fail	data_conservation	advisory: LOST 0, INFLATED 3 (two book rows +1/+2 graph over stored, unexplained; people rows explained by growth and by-design exclusions)
+other_fail	chat_latency_baseline	recorded CANNOT-RUN, not FAIL: killed by the harness (exit -15). Measured on 135.
+other_fail	permanent-daemon-freshness	post-tag drift: oa main moved past the pinned 0.5.44 (adb69172, 5f56e7a7) after the tag; 135's daemon
+other_fail	acceptance-gate-v1013	A8 context-refresh exit 3 (the same finding as ostler_launchd_jobs); A7 needs eyes
+regression_of	meeting_brief_text_is_grounded	v1.0.131
+regression_of	people_stores_reconcile	v1.0.131
+bisect	people_stores_reconcile	05a5dfe4 (people projection: notification and organisation senders are left out before the embed)
+console_only	db_key_reaches_every_service	CONSOLE-ONLY per Archie (ssh keychain); services posture PASS 2 of 2
