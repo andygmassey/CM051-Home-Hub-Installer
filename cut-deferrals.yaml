@@ -1623,6 +1623,148 @@ pr_exemptions:
       when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
     review_by: 2026-09-24
 
+  # v1.0.134 LAUNCH cut, ORM 2026-11-19 (frozen-branch cut, cut/v1.0.134 ONLY; Archie to confirm at review of the cut-open PR): the 47 CM051 PRs over 48h at candidate 44403843436. Same shape as the v1.0.133 rows.
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3421"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3428"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3432"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3434"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3435"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3457"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3461"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3464"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3483"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3516"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3520"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3521"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3522"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3523"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3524"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3525"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3526"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3527"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3528"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3529"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3530"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3531"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3532"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3541"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3542"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3545"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3547"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3551"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3552"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3553"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3555"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3556"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3558"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3559"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3560"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3561"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3562"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3564"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3566"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3567"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3568"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3569"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3570"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3571"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3572"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3578"
+    reason: "v1.0.134 launch cut from frozen branch cut/v1.0.134 (launch directive item 4: open PRs on main do not block it); the PR drain owns these. NOT A JUDGEMENT ON MERIT."
+    review_by: 2026-11-24
 deferrals:
   - ref: "CM051:archive/people-exact-identifier-merge"
     reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: archived ref superseded by #3217; no content needed"
@@ -5825,3 +5967,70 @@ deferrals:
   - ref: "CM051:fix/1162-grounded-probe-rephrasing-pair"
     reason: "Carries tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh, 307 lines, which exists NOWHERE else: absent from origin/main and absent from open pull request CM051 #2195's head, checked with a positive control (assistant_answers_grounded.sh is present on all three, so the lookup is not answering no to everything). Had no remote until 2026-09-19; pushed rather than deleted. NOT opened as a competing pull request because it edits assistant_answers_grounded.sh and #2195 is the live lane for that file; #2195 has been told, with the measurement. It CANNOT stand alone: run against main's probe the test is FAIL, 6 of 13 arms, because it depends on the rephrasing-pair feature #2195 adds. Retires when #2195 takes the file, or when it is opened separately after #2195 merges."
     review_by: 2026-09-26
+  # v1.0.134 LAUNCH cut, ORM 2026-11-19: check-orphans at candidate 44403843436 listed 22 orphan branches. Archie ruling 2026-11-19 (ORPHANS): AFTER the DMG is built, each tip goes to graveyard/<name>, is read back and compared, and the original is deleted only on an exact match. Deferred to v1.0.135 so the cut is not held on a deletion. Tips recorded here (12 hex, git ls-remote 2026-11-19).
+  - ref: "CM051:feat/cm051-doctor-passkey-133"
+    reason: "LIVE orphan, tip 013cbadd942d. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "CM051:feat/forget-sweep-doctor-row"
+    reason: "LIVE orphan, tip 986bdafa387f. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "CM051:feat/public-lookups-withdraw-134"
+    reason: "LIVE orphan, tip ca3583811f71. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "CM051:fix/forget-writer-scrub-dir"
+    reason: "LIVE orphan, tip 49ef60f866fa. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "CM051:fix/hung-slot-test-cleanup"
+    reason: "LIVE orphan, tip 3a882e606e44. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "CM051:fix/model-size-labels-every-tier"
+    reason: "LIVE orphan, tip 9da7602383e6. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/brief-derived-prefs"
+    reason: "LIVE orphan, tip 0ebdfc053961. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/brief-v2-judgement"
+    reason: "LIVE orphan, tip ece7128acfb7. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/egress-approvals-store"
+    reason: "LIVE orphan, tip a047401923d1. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/grounded-sources-cache"
+    reason: "LIVE orphan, tip e92dc654ed2b. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/people-circles-ui"
+    reason: "LIVE orphan, tip 57f1ee42c171. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:feat/support-gate-owner-facts"
+    reason: "LIVE orphan, tip 3b4a8279d371. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/133-outbound-l1l2-hub"
+    reason: "LIVE orphan, tip acb845b7d557. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/brief-conv-event-133"
+    reason: "LIVE orphan, tip 6c2fa7f257d9. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/brief-count-per-source-133"
+    reason: "LIVE orphan, tip 9669433a3e24. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/derived-l2-l3-withhold"
+    reason: "LIVE orphan, tip 47634c4b6ac0. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/gate-class2-refusals"
+    reason: "LIVE orphan, tip 89e4565c2614. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/imessage-tapbacks-whatsapp-ack-reactions"
+    reason: "LIVE orphan, tip 82597db91406. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/knowledge-search-l1-l2-filter-134"
+    reason: "LIVE orphan, tip 9233cc65d3eb. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/pairing-token-provenance-898"
+    reason: "LIVE orphan, tip 4ba6a6fe6936. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/taste-drop-l0"
+    reason: "LIVE orphan, tip e12f87fe21a6. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
+  - ref: "daemon:fix/taste-drop-l0-hub"
+    reason: "LIVE orphan, tip 257267a13cca. v1.0.134 launch cut; graveyard per Archie ruling 2026-11-19 after the DMG is built. Not a judgement on merit."
+    until_cut: "v1.0.135"
