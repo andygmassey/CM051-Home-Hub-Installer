@@ -417,6 +417,7 @@ test_engine_supervisor_judges_the_ports_not_colima_list.sh	WIRED	.github/workflo
 test_engine_supervisor_logind_selfheal.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrich_budget.sh	WIRED	.github/workflows/enrich-budget.yml
 test_enrich_kickstart_cannot_block_ingest.sh	WIRED	.github/workflows/install-sh-cannot-wedge-the-box.yml
+test_enrich_tick_idle_while_declined.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_enrichment_has_a_recurring_invoker.sh	WIRED	.github/workflows/enrichment-invoker.yml
 test_enrichment_honours_a_decline.sh	WIRED	.github/workflows/enrichment-reaches-corpus.yml
 test_enrichment_identity_and_disclosure.sh	WIRED	.github/workflows/launchd-plist-paths.yml
@@ -554,6 +555,7 @@ test_install_creates_the_coach_db_keyed.py	WIRED	.github/workflows/coach-db-crea
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_depth_reports_a_trustworthy_number.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
+test_install_enrich_reinstall_default.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_install_error_honesty_counts_import_errors.sh	WIRED	.github/workflows/import-path-error-honesty.yml
 test_install_first_month_free.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml

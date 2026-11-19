@@ -10,8 +10,12 @@
 #   2. run one enrich batch on the seed fixture (the enrich agent's own tick)
 #   3. this probe reads the tail of ~/.ostler/logs/enrich.log
 #
-# PASS only when the last per-client line names all seven clients at 0 AND the
+# PASS when EITHER the tick stood down ("standing down, nothing sent": the wrapper's
+# consent gate ran before any enricher call; CB136 option b, the agent is installed
+# on every box) OR the last per-client line names all seven clients at 0 AND the
 # enricher's refusal line ("owner has not accepted enrichment") is on the record.
+# FAIL on any per-client look-up above zero. Counts are the enricher's own outbound
+# look-up counts; the tick's stand-down line is written before any network call.
 # Judge: scripts/box_walk_probes/lib/walk134_judges.py switch-off.
 # Emitter tests: tests/test_doctor_enrichment_switch.py (E1).
 # ============================================================================

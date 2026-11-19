@@ -303,3 +303,68 @@ def test_J3_zeros_without_the_reason_are_not_a_pass():
 def test_J4_no_per_client_line_is_cannot_run_not_pass():
     v, _, _, _ = _judge().judge_switch_off(REFUSED)
     assert v == "CANNOT"
+
+
+# -- E3/E4/W5: the declined install (option b: the job is installed and idle) ---
+
+def test_E4_declined_makes_no_socket_connection(sandbox):
+    """Off means ZERO outbound: the enricher's consent gate refuses before any client
+    is built, so no connect() is ever attempted. Counted at connect(), not at socket
+    creation: asyncio builds a socketpair for its own loop, which is not outbound."""
+    import socket
+    attempts = []
+    real = socket.socket
+
+    class RecordingSocket(real):
+        def connect(self, *a, **k):
+            attempts.append(("connect", a))
+            raise OSError("blocked by test: connect while declined")
+
+        def connect_ex(self, *a, **k):
+            attempts.append(("connect_ex", a))
+            return 111
+
+    def no_create_connection(*a, **k):
+        attempts.append(("create_connection", a))
+        raise OSError("blocked by test: create_connection while declined")
+
+    sw.set_enabled(False)
+    with mock.patch("socket.socket", RecordingSocket), \
+         mock.patch("socket.create_connection", no_create_connection):
+        counts = _per_client(_run_real_gate_batch())
+    assert all(v == 0 for v in counts.values()), counts
+    assert attempts == [], f"outbound connection attempts while declined: {attempts}"
+
+
+def test_W5_declined_install_then_toggle_on_installs_nothing_new_and_looks_up(client, sandbox, monkeypatch):
+    """A declined install leaves the job installed and idle. Toggling on needs no
+    re-install: agent_installed is already true, and the next batch looks up."""
+    home = Path(os.environ["HOME"])
+    plist = home / "Library" / "LaunchAgents" / "com.ostler.enrich.plist"
+    plist.parent.mkdir(parents=True)
+    plist.write_text("<plist/>\n")
+    _env(sandbox).parent.mkdir(parents=True)
+    _env(sandbox).write_text('OSTLER_CONSENT_ENRICHMENT_DECISION="declined"\n')
+    before = client.get("/api/v1/enrichment").json()
+    assert before["enabled"] is False and before["agent_installed"] is True, before
+    r = client.post("/api/v1/enrichment", json={"enabled": True})
+    assert r.status_code == 200 and r.json()["enabled"] is True, r.text
+    after = client.get("/api/v1/enrichment").json()
+    assert after["agent_installed"] is True and after["enabled"] is True, after
+    counts = _per_client(_run_real_gate_batch())
+    assert all(v > 0 for v in counts.values()), counts
+
+
+def test_J5_the_tick_stood_down_is_a_pass_with_no_counts_above_zero():
+    v, _, _, _ = _judge().judge_switch_off("2026-11-20 INFO [x] declined; standing down, nothing sent\n")
+    assert v == "PASS"
+
+
+def test_J6_a_stand_down_with_a_look_up_above_zero_is_a_fail():
+    v, _, _, _ = _judge().judge_switch_off("standing down, nothing sent\n" + ZERO.replace("music=0", "music=2"))
+    assert v == "FAIL"
+
+
+def test_J7_nothing_in_the_log_is_cannot_run():
+    v, _, _, _ = _judge().judge_switch_off("2026-11-20 INFO unrelated line\n")
+    assert v == "CANNOT"
