@@ -11104,15 +11104,14 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     # dropped (its sentinel has no date, so the cap used to be able to drop it).
     # The cap is per source, round-robin, so one large source (photo days) cannot
     # starve meetings and conversations. Forward pages keep ascending order.
-    degraded = []
-    kept = []
-    for it in items:
-        if it.get("kind") in _TIMELINE_SENTINEL_SOURCE:
-            degraded.append({"source": _TIMELINE_SENTINEL_SOURCE[it["kind"]],
-                             "reason": str(it.get("error") or "")[:200]})
-        else:
-            kept.append(it)
-    items = _cap_interleaved(kept, limit, newest_first=not forward)
+    # The error sentinels stay in items with their source (CM051 #2565: every item
+    # names its source; tests/test_timeline_entries_carry_source.py), and are exempt
+    # from the cap, so a failed source is never cut from the response.
+    sentinel_rows = [it for it in items if it.get("kind") in _TIMELINE_SENTINEL_SOURCE]
+    degraded = [{"source": _TIMELINE_SENTINEL_SOURCE[it["kind"]],
+                 "reason": str(it.get("error") or "")[:200]} for it in sentinel_rows]
+    kept = [it for it in items if it.get("kind") not in _TIMELINE_SENTINEL_SOURCE]
+    items = _cap_interleaved(kept, limit, newest_first=not forward) + sentinel_rows
     items.sort(key=lambda i: i.get("date") or "", reverse=True)
 
     # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
