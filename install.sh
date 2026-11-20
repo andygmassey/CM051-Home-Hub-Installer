@@ -23369,15 +23369,22 @@ _install_enrichment_agent() {
     # value the shipped enricher uses today if the source is not readable,
     # because a tick that cannot form its query is worse than one that
     # guesses the status quo.
-    local enrich_ns
-    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
-                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
-                 | sort -u | head -1)" || true
-    # `|| true`: under `set -Eeuo pipefail` a missing enricher.py makes grep exit
-    # 2, which fails this assignment and ends the install. That was latent while
-    # the call sat behind the points gate, which only a populated tree reaches.
-    # Now every accepted customer reaches it, so an absent CM019 tree must reach
-    # the empty-namespace branch described above, not abort the install.
+    #
+    # THREE OUTCOMES, KEPT APART. grep exits 0 (found), 1 (the file is readable
+    # and holds no namespace: a real answer, empty on purpose) and 2 (could not
+    # read). Folding 2 into 1 is "could not look" printed as "found nothing".
+    # An absent engine is its own state and is logged once, here, at install.
+    local enrich_ns="" _enricher="${cm019_dir}/services/enrich/src/enricher.py" _grep_rc=0
+    if [[ -r "$_enricher" ]]; then
+        enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$_enricher" 2>/dev/null \
+                     | sort -u | head -1)" || _grep_rc=$?
+        case "$_grep_rc" in
+            0|1) ;;   # 1: readable, no namespace in it. Empty on purpose.
+            *)   warn "could not read the enrichment namespace from the installed engine (grep exit ${_grep_rc}); the agent will report its readback as unreadable" ;;
+        esac
+    else
+        info "enrichment engine not present at install; namespace left default"
+    fi
     #
     # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
     # parts so the ratchet would not see it. That is laundering: the string
@@ -23494,8 +23501,13 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-if [[ ! -x "$CM019_PY" ]]; then
-    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+# ENGINE NOT INSTALLED is a named state, not "nothing to enrich". A customer
+# with no engine has not had their preferences enriched, and "nothing to
+# enrich" would say they had. Exit 0 so launchd does not record a failure every
+# interval, and say why in the log. (CB137-ENRICH-CLI-FALSE-ABSENCE is the
+# separate defect where an UNREACHABLE store reads as empty.)
+if [[ ! -x "$CM019_PY" || ! -r "${CM019_DIR}/services/enrich/src/cli.py" ]]; then
+    log "engine not installed: no enrichment service at ${CM019_DIR}; nothing run"
     exit 0
 fi
 

@@ -19,6 +19,9 @@
 #       not ENRICHMENT COMPLETE
 #   E2  declined              -> tick exits 0 before any enrichment, and logs
 #       that public look-ups are not agreed
+#   E3  unreachable store     -> XFAIL (CB137-ENRICH-CLI-FALSE-ABSENCE)
+#   E4  engine tree absent    -> exit 0, 'engine not installed', no traceback
+#   E5  enrich package absent -> the same named state
 #
 # Exit: 0 pass, 1 an assertion failed, 2 cannot-run.
 # ============================================================================
@@ -159,6 +162,29 @@ elif grep -q 'NOTHING TO ENRICH' "$LOG"; then
 else
     fail "E3: unreachable store gave rc=$rc without a NOTHING TO ENRICH line; unexpected shape"; sed 's/^/    /' "$LOG" | tail -5 >&2
 fi
+
+# ---- E4 / E5: the ENGINE is absent. The agent is installed anyway (consent is
+# all that gates it), so its first tick runs on a box with no engine. It must
+# exit 0 with the named state, and must not print a stack trace.
+engine_absent_case() {  # $1 = label, $2 = path (relative to the CM019 tree) to park
+    local label="$1" parked="$WORK/parked_$1" target="${OSTLER_HOME}/services/cm019/$2"
+    mkdir -p "$(dirname "$parked")"
+    mv "$target" "$parked" || { fail "$label: could not park $target"; return; }
+    printf 'OSTLER_CONSENT_ENRICHMENT_DECISION="accepted"\n' > "${OSTLER_HOME}/config/.env"
+    : > "$LOG"
+    store_env bash "$WRAPPER"; local rc=$?
+    mv "$parked" "$target"
+    echo "    ${label} tick log line: $(tail -n 1 "$LOG")" >&2
+    if [ "$rc" = 0 ] && grep -q 'engine not installed' "$LOG" && ! grep -q 'Traceback' "$LOG" \
+       && ! grep -q 'NOTHING TO ENRICH' "$LOG"; then
+        pass "$label: engine absent -> exit 0, named 'engine not installed', no traceback, not reported as nothing-to-enrich"
+    else
+        fail "$label: engine absent -> rc=$rc; expected exit 0 with 'engine not installed' and no traceback"
+        sed 's/^/    /' "$LOG" | tail -8 >&2
+    fi
+}
+engine_absent_case E4_engine_dir_absent ""
+engine_absent_case E5_enrich_package_absent "services/enrich"
 
 if [ "$status" = 0 ]; then echo "PASS: the tick runs clean on zero people (E1) and stands down when declined (E2)"; fi
 exit $status

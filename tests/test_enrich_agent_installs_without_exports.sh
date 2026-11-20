@@ -72,11 +72,17 @@ run_case() {
     mkdir -p "$home/bin"
     printf '#!/bin/sh\nexit 0\n' > "$home/bin/launchctl"
     chmod +x "$home/bin/launchctl"
-    if [ "$tree" = present ]; then
+    if [ "$tree" = present ] || [ "$tree" = nomatch ]; then
         # step 14 installs the CM019 tree; the agent reads its enricher for the namespace
         mkdir -p "$home/.ostler/services/cm019/services/enrich/src"
-        cp "$REPO/vendor/cm019_preferences/services/enrich/src/enricher.py" \
-           "$home/.ostler/services/cm019/services/enrich/src/enricher.py"
+        if [ "$tree" = present ]; then
+            cp "$REPO/vendor/cm019_preferences/services/enrich/src/enricher.py" \
+               "$home/.ostler/services/cm019/services/enrich/src/enricher.py"
+        else
+            # readable, but holds no namespace: grep exits 1, a real answer
+            printf '# an enricher with no ontology namespace in it\n' \
+                > "$home/.ostler/services/cm019/services/enrich/src/enricher.py"
+        fi
     fi
     PATH="$home/bin:$PATH" HOME="$home" ANSWER="$answer" \
     CONSENT="$CONSENT" TAIL="$TAIL" FUNC="$FUNC" bash -c '
@@ -129,8 +135,17 @@ if [ "$got" = installed ]; then pass "C: accepted (explicit y), 0 points, no exp
 else fail "C: accepted (explicit y) -> expected installed, got $got"; fi
 
 got="$(run_case D_accepted_no_tree "" absent)"
+if grep -q 'INFO: enrichment engine not present at install; namespace left default' "$WORK/D_accepted_no_tree/out"; then
+    pass "D: the absent engine is logged once, at install, with the namespace left default"
+else fail "D: the absent engine was not logged as 'enrichment engine not present at install'"; fi
 if [ "$got" = installed ]; then pass "D: accepted, CM019 tree absent -> still installs (no abort on the namespace read)"
 else fail "D: accepted with no CM019 tree -> expected installed, got $got (the install would have aborted)"; fi
+
+got="$(run_case F_present_no_match "" nomatch)"
+if [ "$got" = installed ] && ! grep -q 'enrichment engine not present' "$WORK/F_present_no_match/out" \
+   && ! grep -q 'could not read the enrichment namespace' "$WORK/F_present_no_match/out"; then
+    pass "F: engine present with no namespace (grep 1) -> installed, and no 'engine not present' line"
+else fail "F: engine present, no match -> expected installed with no engine-absent line, got $got"; fi
 
 if [ "$status" = 0 ]; then echo "PASS: the agent installs on consent alone (A, C, D), and not on a decline (B)"; fi
 exit $status
