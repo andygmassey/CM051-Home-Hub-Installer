@@ -1404,7 +1404,7 @@ def render_source_status() -> str:
 
     WHY THIS EXISTS. /api/v1/sources has served one honest row per canonical
     source for a long time, and a box-walk probe asserts it does. Nothing ever
-    RENDERED it. Andy, 2026-09-13: "the data sources are supposed to have a
+    RENDERED it. The owner, 2026-09-13: "the data sources are supposed to have a
     Doctor table showing that they were successfully ingested ... but I have
     never seen this." He had not, because only the supply side was ever built.
 
@@ -1469,7 +1469,7 @@ def render_source_status() -> str:
         # "last_check" (a per-run figure, the only evidence there is, and
         # labelled as one). The table prints that label and nothing else, so
         # the Doctor table and /api/v1/sources can never disagree. This cell
-        # used to take max(item_count, last_run_count), and on Andy's walk
+        # used to take max(item_count, last_run_count), and on the owner's walk
         # the Mail row printed the last tick's delta as if it were the
         # mailbox.
         #
@@ -3124,7 +3124,7 @@ def _settling_progress_total(source: str, progress_dir: Path | None = None) -> i
 
 # ── ONE HONEST TOTAL PER ROW, IN A NAMED UNIT (v1.0.107 walk #28) ────────
 #
-# Andy's console walk of candidate #28 read the Data sources rows and found
+# The owner's console walk of candidate #28 read the Data sources rows and found
 # five of them saying something other than what their label claims:
 #
 #     Mail       the last tick's delta (email-ingest's per-run "emitted"),
@@ -3637,7 +3637,7 @@ def read_source_status(hydrate_dir: Path | None = None,
                 and row["status"] in ("no_data", "not_run", "unreadable")):
             row["status"] = "ok"
             row["detail"] = "the store holds %d" % total
-        # Mail also says how much there is to read (Andy, walk #28): the
+        # Mail also says how much there is to read (the owner, walk #28): the
         # Mac's Mail store size, recorded at extract time.
         if row["source"] == "email":
             row["item_of"] = _mail_available_total()

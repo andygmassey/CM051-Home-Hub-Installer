@@ -75,7 +75,7 @@ class DockerContainerInfo:
 
 # Container-name prefixes Ostler accepts. The canonical productised prefix
 # is `ostler-` (per CM051 install.sh). `pwg-` is from the dev / single-mac
-# compose files in CM019 / CM043, retained so an Andy-style dev deployment
+# compose files in CM019 / CM043, retained so an the owner-style dev deployment
 # is recognised by the doctor.
 OSTLER_CONTAINER_PREFIXES = ("ostler-", "pwg-")
 EXPECTED_OSTLER_SERVICES = ("qdrant", "oxigraph", "redis")

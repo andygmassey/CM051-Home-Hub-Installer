@@ -13,7 +13,7 @@ from pathlib import Path
 
 # ── ROUTINES: every recurring ingest job, measured live (v1.0.106) ─────
 #
-# Andy, 2026-09-28, second time of asking: a Doctor tab showing which data
+# The owner, 2026-09-28, second time of asking: a Doctor tab showing which data
 # sources are in, which run on a routine, when each last ran and whether it
 # is working. /api/v1/sources answers "did it land at install" and merges
 # only the fda-rerun activity record, so on the v1.0.105 walk box it said
