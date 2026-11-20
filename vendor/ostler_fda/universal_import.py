@@ -967,7 +967,11 @@ def _persist_conversations(payloads: List[dict], *, source: str) -> dict:
 # Written 0600. Counts only in the result (``staging_kept``,
 # ``staging_l3_withheld``); never a name or a body.
 
-_STAGING_KEEP_STATUSES = frozenset({"no_pipeline", "partial", "error"})
+# WHITELIST success, not a blacklist of failures (Archie, #1171 follow-up):
+# the staging copy is removed ONLY on a persist status known to mean "the
+# hand-off finished". Any other value, including one a future change adds,
+# keeps the copy so a re-run still has it.
+_STAGING_REMOVE_STATUSES = frozenset({"ok", "no_graph"})
 
 
 def _payload_is_l3(payload: dict) -> bool:
@@ -998,7 +1002,7 @@ def _stage_then_persist(
     if stageable:
         _write_private_json(staged, stageable)
     persist = _persist_conversations(payloads, source=source)
-    keep = persist.get("persist_status") in _STAGING_KEEP_STATUSES and bool(stageable)
+    keep = persist.get("persist_status") not in _STAGING_REMOVE_STATUSES and bool(stageable)
     if not keep and staged.exists():
         staged.unlink()
     return {**persist, "staging_kept": keep, "staging_l3_withheld": withheld}
@@ -2234,7 +2238,32 @@ def import_path(
         detection = detect_format(inspect_root)
         result = _dispatch(detection, dry_run=dry_run, output_dir=output_dir)
 
+    # Offer (never perform) deleting the export the owner dropped in
+    # Downloads, once it really imported: it holds another plain copy of the
+    # messages and, for Instagram/Telegram, voice-note audio.
+    if not dry_run:
+        from . import export_cleanup
+
+        offer = export_cleanup.cleanup_offer(
+            path, result, _EXPORT_LABELS.get(result.get("format", ""), "data"))
+        if offer:
+            result["cleanup_offer"] = offer
+
     return {"input": str(path), "dry_run": dry_run, "result": result}
+
+
+# Owner-facing names for the cleanup offer. Unknown formats say "data".
+_EXPORT_LABELS = {
+    "facebook_messenger": "Messenger",
+    "instagram_dms": "Instagram",
+    "telegram_export": "Telegram",
+    "whatsapp_sqlite": "WhatsApp",
+    "imessage_chatdb": "Messages",
+    "google_takeout": "Google",
+    "mbox": "mail",
+    "apple_mail_emlx": "mail",
+    "notion_export": "Notion",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -2266,6 +2295,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Detect and report only; do not ingest.",
     )
     parser.add_argument(
+        "--delete-export-after",
+        action="store_true",
+        help=(
+            "After a successful import, delete the export if it sits in "
+            "~/Downloads (the owner's choice; off by default)."
+        ),
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit the machine-readable summary as JSON to stdout.",
@@ -2281,6 +2318,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     result = summary["result"]
+    if args.delete_export_after and result.get("cleanup_offer"):
+        from . import export_cleanup
+
+        result["export_deleted"] = export_cleanup.delete_export(
+            Path(result["cleanup_offer"]["path"]))
     if args.json:
         print(json.dumps(summary, default=str))
     else:
