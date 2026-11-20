@@ -572,7 +572,11 @@ def _sparql(q, hdr):
 
 
 def collect_oxigraph(facts, meta, hdr):
-    rows = _sparql("SELECT ?t (COUNT(*) AS ?n) WHERE { ?s a ?t } GROUP BY ?t", hdr)
+    # COUNT(DISTINCT ?s): nodes, the unit the Qdrant point count is in. COUNT(*) counts
+    # solution rows, and a node with more than one rdf:type or pwg:subject value is one
+    # row per value, so it reads as an item the store does not hold (CB136 walk 135:
+    # amazon/books 35 rows over 34 nodes, kindle/book 80 over 78; the graph is 34 and 78).
+    rows = _sparql("SELECT ?t (COUNT(DISTINCT ?s) AS ?n) WHERE { ?s a ?t } GROUP BY ?t", hdr)
     if rows is None:
         meta["oxigraph"] = "unreadable"
         return
@@ -587,10 +591,10 @@ def collect_oxigraph(facts, meta, hdr):
     facts["x.class.total"] = total
     # PREFERENCES, raw vs distinct. Every like/dislike is held twice (pwg:pref_<id>
     # from the CM019 writer and urn:ostler:preference:<sha256> from the CM059
-    # projection), so raw is what a tile that counts nodes reads and distinct is
+    # projection), so raw (distinct NODES, not rows) is the graph stage and distinct
     # what the customer actually has. Both are facts; the row decides.
     P = "https://schema.ostler.ai/ontology#"
-    pr = _sparql("SELECT ?src ?cat (COUNT(?s) AS ?raw) (COUNT(DISTINCT CONCAT(STR(?subj), '|', STR(?t))) AS ?dist) WHERE { "
+    pr = _sparql("SELECT ?src ?cat (COUNT(DISTINCT ?s) AS ?raw) (COUNT(DISTINCT CONCAT(STR(?subj), '|', STR(?t))) AS ?dist) WHERE { "
                  "?s a ?t . ?s <%ssubject> ?subj . OPTIONAL { ?s <%sdataSource> ?src } OPTIONAL { ?s <%scategory> ?cat } "
                  "FILTER(?t IN (<%sLikePreference>, <%sDislikePreference>, <%sNeutralPreference>)) } GROUP BY ?src ?cat" % (P, P, P, P, P, P), hdr)
     if pr is not None:
@@ -1098,10 +1102,55 @@ def selftest():
     if overall(r11, c11)[1] != 78:
         fails.append("all IN zero (and stored zero) did not CANNOT-RUN")
 
+    # 11. NODES, NOT ROWS (CB136-DATA-CONSERVATION-BOOKS-INFLATION). The Oxigraph stage
+    #     must count distinct nodes. A node with two pwg:subject values is ONE item:
+    #     34 nodes in the store must read 34, not 35 solution rows. Run the REAL
+    #     collect_oxigraph query text through rdflib (a SPARQL engine that is not
+    #     the box's). rdflib missing is CANNOT-RUN, never a pass.
+    try:
+        import rdflib  # noqa: F401
+    except ImportError:
+        print("SELFTEST CANNOT-RUN: rdflib is not installed, so the node-count arm was not measured")
+        return 78
+    from rdflib import Graph, Literal, Namespace, RDF
+    PW = Namespace("https://schema.ostler.ai/ontology#")
+    g = Graph()
+    for i in range(34):
+        n = PW["pref_%d" % i]
+        g.add((n, RDF.type, PW.LikePreference))
+        g.add((n, PW.subject, Literal("item %d" % i)))
+        g.add((n, PW.dataSource, Literal("amazon")))
+        g.add((n, PW.category, Literal("books")))
+    g.add((PW["pref_0"], PW.subject, Literal("item 0, second subject value")))  # one node, two values
+
+    def _rows_from(res):
+        out = []
+        for row in res:
+            d = {}
+            for var in res.vars:
+                if row[var] is not None:
+                    d[str(var)] = {"value": str(row[var])}
+            out.append(d)
+        return out
+
+    global _sparql
+    _real_sparql = _sparql
+    _sparql = lambda q, hdr: _rows_from(g.query(q))
+    try:
+        cf = {}
+        collect_oxigraph(cf, {}, {})
+    finally:
+        _sparql = _real_sparql
+    raw = cf.get("x.pref.raw.source=amazon|category=books")
+    if raw != 34:
+        fails.append("graph stage counted %r for 34 amazon/books nodes (one with two subject values); must be 34 nodes, not rows" % raw)
+    if cf.get("x.class.LikePreference") != 34:
+        fails.append("class count read %r for 34 LikePreference nodes; must be 34 nodes" % cf.get("x.class.LikePreference"))
+
     for f_ in fails:
         print("SELFTEST FAIL: " + f_)
     if not fails:
-        print("SELFTEST OK: control clean; 4 mutations LOST; mirrored nodes INFLATED; denial counts EXPLAIN exactly; known gap visible; absent fact NOT-MEASURED; empty set CANNOT-RUN; "
+        print("SELFTEST OK: control clean; 4 mutations LOST; mirrored nodes INFLATED; graph stage counts nodes not rows (rdflib); denial counts EXPLAIN exactly; known gap visible; absent fact NOT-MEASURED; empty set CANNOT-RUN; "
               "real wiki reader saw the allow-list drop (apple %d -> %d)" % (good["apple"], bad["apple"]))
     return 0 if not fails else 1
 
