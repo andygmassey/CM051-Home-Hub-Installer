@@ -256,6 +256,10 @@ def home(tmp_path, stores):
     secrets = h / ".ostler" / "secrets"
     secrets.mkdir(parents=True)
     (secrets / "store-curl.conf").write_text('header = "Authorization: Bearer testtoken"\n')
+    # THE SHIPPED WRITER, WHERE THE INSTALL PUTS IT (install.sh: cp ostler_fda -> FDA_DIR).
+    # people_stores_reconcile reads its service rule from here, so the box layout must hold.
+    (h / ".ostler" / "fda-module").mkdir(parents=True)
+    (h / ".ostler" / "fda-module" / "ostler_fda").symlink_to(ROOT / "vendor" / "ostler_fda")
     env = ("export OXIGRAPH_URL=%s QDRANT_URL=%s EMBED_OLLAMA_URL=%s DEFAULT_COUNTRY_CODE=44 "
            "USER_ID=walkowner STATE_FILE=%s NO_PROXY=127.0.0.1,localhost PYTHONDONTWRITEBYTECODE=1 "
            "PYTHONUSERBASE=%s\n"
@@ -416,7 +420,7 @@ def test_probe_still_fails_when_a_duplicate_card_is_forced(stores, home):
 def test_people_stores_reconcile_passes_with_the_seed(stores, home):
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
+                    seed_knobs(home))
     assert v.startswith("PASS"), text
 
 
@@ -527,7 +531,7 @@ def test_shipped_order_seeds_clean_and_the_reconcile_probe_passes(stores, home, 
     assert run_seed(home, stores)[0] == "seeded"
     assert len(stores.points) == len(fx.CARDS)
     v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
+                    seed_knobs(home))
     assert v.startswith("PASS"), text
 
 
@@ -535,7 +539,7 @@ def test_the_survivor_order_the_probes_pass_on_today_all_three_probes_pass(store
     monkeypatch.setenv("CCS_CARD_ID", "low")
     assert run_seed(home, stores)[0] == "seeded"
     v, text = probe("people_stores_reconcile", home, stores,
-                    {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0"})
+                    seed_knobs(home))
     assert v.startswith("PASS"), text
     knobs = {"OSTLER_PEOPLE_STABILITY_STEP_S": "1", "OSTLER_PEOPLE_STABILITY_WAIT_S": "10",
              "OSTLER_PEOPLE_CONVERGE_WAIT_S": "0", "OSTLER_PROBE_STATE_DIR": str(home / "pstate")}
@@ -674,3 +678,103 @@ def test_the_name_check_goes_red_on_the_v1_0_116_cast():
     old = [(1, "Jane", "Doe", [], [], ""), (4, "Raj", "Patel", [], [], "")]
     hit = _card_names(old) & (_persona_names() | {GROUNDING_SEED_PERSON.lower()})
     assert hit == {"jane doe", "raj patel"}
+
+
+# ── CB135: the writer's exclusion, judged by people_stores_reconcile ──────────
+LOOKALIKE = "help@example.com"        # card 9: role mailbox AND a phone
+LOOKALIKE_NOPHONE = "info@example.com"  # card 10: role mailbox, NO phone
+SEED_BASELINE_ROW = "measured_on\twalk\tcorpus\tgraph\texcluded\tnote\n2026-01-01\tseed-fixture\tseed\t11577\t347\tfixture\n"
+
+
+def seed_knobs(home):
+    """The probe is told it is reading the SEED corpus and gets a seed-only baseline."""
+    base = home / "seed_baseline.tsv"
+    base.write_text(SEED_BASELINE_ROW, encoding="utf-8")
+    return {"OSTLER_PROBE_RECONCILE_GAP_S": "0", "OSTLER_PROBE_TILE_GAP_S": "0",
+            "OSTLER_PROBE_CORPUS": "seed", "OSTLER_PROBE_EXCL_BASELINE": str(base)}
+
+
+def run_writer(home, stores):
+    """The SHIPPED people writer (ingest_people_to_qdrant), run from the install's fda-module
+    directory against the stand-in stores: it embeds what the service rule keeps and prunes
+    what it excludes, which is the only thing that can move a look-alike out of the vectors."""
+    env = dict(_box_env(home, stores), PYTHONPATH=str(home / ".ostler" / "fda-module"),
+               EMBED_OLLAMA_URL=stores.embed, DEFAULT_COUNTRY_CODE="44", USER_ID="walkowner",
+               STATE_FILE=str(home / "state.json"))
+    code = ("import json; from ostler_fda import pwg_ingest as p; "
+            "print('WRITER ' + json.dumps(p.ingest_people_to_qdrant()))")
+    r = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr[-2000:]
+    return json.loads(r.stdout.split("WRITER ", 1)[1].splitlines()[0])
+
+
+def uri_of(stores, email):
+    rows = list(stores.g.query(
+        "PREFIX pwg: <https://schema.ostler.ai/ontology#> "
+        "SELECT ?u WHERE { ?u a pwg:Person ; pwg:hasIdentifier ?i . "
+        "?i pwg:identifierType \"email\" ; pwg:identifierValue \"%s\" . }" % email))
+    assert len(rows) == 1, "%s must be exactly one graph Person, found %d" % (email, len(rows))
+    return str(rows[0][0])
+
+
+def embedded_uris(stores):
+    return {p["payload"].get("person_uri") for p in stores.points.values()}
+
+
+
+def test_seed_reports_what_the_shipped_writer_does_with_both_lookalikes(stores, home, monkeypatch):
+    """Measured. Both look-alikes are searchable: the phone one by the writer, the PHONELESS one
+    by contact_syncer (source icloud_contacts, which the writer never prunes). The shipped
+    selection rule would drop the phoneless one, so the probe prints the advisory CB136 line,
+    and it PASSes because the customer CAN find that person."""
+    monkeypatch.setenv("CCS_CARD_ID", "high")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert run_writer(home, stores).get("status") == "ok"
+    assert uri_of(stores, LOOKALIKE) in embedded_uris(stores), "phone look-alike must be embedded"
+    assert uri_of(stores, LOOKALIKE_NOPHONE) in embedded_uris(stores), "phoneless look-alike must be searchable"
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- SEED WRITER, both look-alikes: probe output ---\n" + text)
+    assert "look-alike control, phone        : 1/1" in text, text
+    assert "NO phone     : 1/1 seeded real persons (role mailbox, no phone) are embedded (customer-visible)" in text, text
+    assert "ADVISORY CB136-WRITER-DROPS-PHONELESS-ROLE-MAILBOX-PERSON" in text, text
+    assert v.startswith("PASS"), text
+
+
+def test_mutant_a_deleted_vector_of_a_real_person_is_red(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "high")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert run_writer(home, stores).get("status") == "ok"
+    uri = uri_of(stores, LOOKALIKE)
+    gone = [i for i, p in stores.points.items() if p["payload"].get("person_uri") == uri]
+    assert len(gone) == 1
+    for i in gone:
+        del stores.points[i]
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- MUTANT a (delete the phone look-alike's vector): probe output ---\n" + text)
+    assert v.startswith("FAIL"), text
+    assert "C=1 named persons unsearchable" in text, text
+    assert "LOOK-ALIKE CONTROL (phone): 1 of 1" in text, text
+
+
+def test_mutant_b_widened_exclusion_swallows_the_lookalike_and_is_red(stores, home, monkeypatch):
+    monkeypatch.setenv("CCS_CARD_ID", "high")
+    # The mutant: the phone exemption is removed, so a role-style mailbox alone drops a real person.
+    fda = home / ".ostler" / "fda-module"
+    (fda / "ostler_fda").unlink()
+    import shutil
+    shutil.copytree(ROOT / "vendor" / "ostler_fda", fda / "ostler_fda")
+    src = (fda / "ostler_fda" / "pwg_ingest.py").read_text(encoding="utf-8")
+    needle = "    if [p for p in (phones or []) if p]:\n        return None\n"
+    assert src.count(needle) == 1, "mutant anchor not found in the shipped writer"
+    (fda / "ostler_fda" / "pwg_ingest.py").write_text(src.replace(needle, "    if False:\n        return None\n"),
+                                                     encoding="utf-8")
+    assert run_seed(home, stores)[0] == "seeded"
+    assert run_writer(home, stores).get("status") in ("ok", "partial_landing", "no_data")
+    assert uri_of(stores, LOOKALIKE) not in embedded_uris(stores), \
+        "the widened writer must have pruned the phone look-alike before the probe can judge it"
+    v, text = probe("people_stores_reconcile", home, stores, seed_knobs(home))
+    print("\n--- MUTANT b (phone exemption removed): probe output ---\n" + text)
+    assert v.startswith("FAIL"), text
+    assert "EXCLUDED SHARE JUMPED" in text, text
+    assert "LOOK-ALIKE CONTROL (phone): 1 of 1" in text, text
+    assert re.search(r"service_mailbox\s*: 1\b", text), text
