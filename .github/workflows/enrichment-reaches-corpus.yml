@@ -77,11 +77,6 @@ jobs:
         # what went uncovered rather than passing quietly.
         run: python3 -m pip install --quiet -r vendor/cm019_preferences/requirements.txt
 
-      # The standing tick, run for real against an EMPTY store (zero people,
-      # the common day-one customer). It must exit 0 and say NOTHING TO ENRICH.
-      - name: The enrichment tick runs clean on zero people
-        run: bash tests/test_enrich_tick_empty_store_exits_clean.sh
-
       - name: Enrichment reaches the corpus, and only sends what it should
         run: bash tests/test_enrichment_reaches_the_corpus.sh
 
@@ -203,3 +198,10 @@ jobs:
         # Exit 2 is CANNOT-RUN and fails the step. if: always().
         if: always()
         run: python3 tests/test_cm019_enrich_privacy_gate_vendored.py
+
+      # The standing tick, run for real against an EMPTY store (zero people,
+      # the common day-one customer). It must exit 0 and say NOTHING TO ENRICH.
+      # Last, with if: always(): a red step here must not skip a later test step.
+      - name: The enrichment tick runs clean on zero people
+        if: always()
+        run: bash tests/test_enrich_tick_empty_store_exits_clean.sh

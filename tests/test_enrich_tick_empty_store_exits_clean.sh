@@ -41,11 +41,15 @@ fail() { echo "FAIL: $*"; status=1; }
 
 [ -r "$SRC" ] || cannot "cannot read $SRC"
 [ -d "$CM019_SRC/services/enrich/src" ] || cannot "vendored CM019 enrich tree not found at $CM019_SRC"
-"$PY" -s -c 'import click, httpx, pydantic_settings, aiolimiter, yaml' 2>/dev/null \
+"$PY" -c 'import click, httpx, pydantic_settings, aiolimiter, yaml' 2>/dev/null \
     || cannot "$PY lacks the enrich CLI's dependencies (click httpx pydantic-settings aiolimiter pyyaml); set ENRICH_PY or install vendor/cm019_preferences/requirements.txt"
 
 # ---- (1) the real tick wrapper, verbatim ----------------------------------
 HOME_DIR="$WORK/home"
+# The tick runs with the REAL HOME, so the interpreter sees the same site
+# packages as the dependency check above (a per-user site under a temp HOME
+# would be invisible to one and not the other).
+REAL_HOME="$HOME"
 OSTLER_HOME="${HOME_DIR}/.ostler"
 mkdir -p "${OSTLER_HOME}/bin" "${OSTLER_HOME}/config" "${OSTLER_HOME}/logs" "${OSTLER_HOME}/state"
 WRAPPER="${OSTLER_HOME}/bin/ostler-enrich-tick"
@@ -104,7 +108,7 @@ done
 curl -s -m 2 -o /dev/null "http://127.0.0.1:${PORT}/collections" || cannot "the stub store did not start on port $PORT"
 
 store_env() {
-    env -i PATH="$PATH" HOME="$HOME_DIR" OSTLER_DIR="$OSTLER_HOME" PYTHONNOUSERSITE=1 \
+    env -i PATH="$PATH" HOME="$REAL_HOME" OSTLER_DIR="$OSTLER_HOME" \
         OSTLER_ENRICH_NS="$ENRICH_NS" OSTLER_ENRICH_BUDGET_SECONDS=60 \
         OSTLER_ENRICH_USER=ostler QDRANT_COLLECTION=preferences \
         QDRANT_HOST=127.0.0.1 QDRANT_PORT="$PORT" \
