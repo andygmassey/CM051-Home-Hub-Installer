@@ -153,6 +153,7 @@
 		C8BFDCF647D2ADF8F9558B82 /* ViewCopy.zh-Hans.json in Resources */ = {isa = PBXBuildFile; fileRef = F33D126445F0617A320859D3 /* ViewCopy.zh-Hans.json */; };
 		C908A1DE69D9BD72C722E1DA /* LinkifyHelpTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9855DEC9F015F75BDDF2379A /* LinkifyHelpTextTests.swift */; };
 		C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */; };
+		2078914AF3BF3772FA88532D /* OwnerSecretHeaderTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E0FC848EEA528A8586EBC3 /* OwnerSecretHeaderTest.swift */; };
 		CA7A91E32A1ED5C800BB23A9 /* CaffeinateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FF342212E569C1E337355B /* CaffeinateManager.swift */; };
 		CAD0030D48D31C7DE5577FA2 /* HintCopy.ja.json in Resources */ = {isa = PBXBuildFile; fileRef = 386810217CAAA4B617C71153 /* HintCopy.ja.json */; };
 		CB2293C379460603FCB46E99 /* InstallerLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5A81C0EB59268D7E2395E5 /* InstallerLanguage.swift */; };
@@ -335,6 +336,7 @@
 		B80328BFAF8BCE4ABBC78465 /* TerminationExitCodeReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationExitCodeReconcileTests.swift; sourceTree = "<group>"; };
 		B966DE514AC5ABAC7A82AD4E /* SystemRequirements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemRequirements.swift; sourceTree = "<group>"; };
 		BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingQRAutoShowTest.swift; sourceTree = "<group>"; };
+		51E0FC848EEA528A8586EBC3 /* OwnerSecretHeaderTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnerSecretHeaderTest.swift; sourceTree = "<group>"; };
 		BB6E0C82EBC47A0879ABDF6F /* SelfRelocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfRelocator.swift; sourceTree = "<group>"; };
 		BC0E7514B707DAC348288C34 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		BDCF222C464C949D55F156A1 /* ViewCopy.ar.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ViewCopy.ar.json; sourceTree = "<group>"; };
@@ -507,6 +509,7 @@
 				254380055987D9C3C6678384 /* OpenWikiDeepLinkTests.swift */,
 				4D1158F4DDBC561F57EAD9A3 /* PairingFailureMessageTests.swift */,
 				BA31ACDDF7922BE7D3E5B44D /* PairingQRAutoShowTest.swift */,
+				51E0FC848EEA528A8586EBC3 /* OwnerSecretHeaderTest.swift */,
 				9C18346C952C441C63AC38B8 /* PassphraseMismatchUXTests.swift */,
 				0554AF9354860CD204FC3F51 /* PermissionsIntroCatalogueKeysTest.swift */,
 				41FB5F2EB882E0395B4E1E95 /* PermissionsPrewarmCodeShapeTest.swift */,
@@ -1697,6 +1700,7 @@
 				0DC6DCED71D464D233EF5727 /* OpenWikiDeepLinkTests.swift in Sources */,
 				1F3FC2CBBA0242E83D80B679 /* PairingFailureMessageTests.swift in Sources */,
 				C973E9E0EEBA6E800B3EB80B /* PairingQRAutoShowTest.swift in Sources */,
+				2078914AF3BF3772FA88532D /* OwnerSecretHeaderTest.swift in Sources */,
 				42B4B7E6BB21F1B46D49D459 /* PassphraseMismatchUXTests.swift in Sources */,
 				7D0EA7F4FBAC12C193ECD443 /* PermissionsIntroCatalogueKeysTest.swift in Sources */,
 				5A0CDE4242E182B01897F1D2 /* PermissionsPrewarmCodeShapeTest.swift in Sources */,

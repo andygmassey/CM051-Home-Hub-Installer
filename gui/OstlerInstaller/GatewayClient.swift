@@ -47,6 +47,8 @@ enum GatewayClientError: Error {
     case emptyBody
     case invalidUTF8
     case malformedEnvelope(reason: String)
+    /// CB137: the owner secret could not be read, so the mint is not sent.
+    case ownerSecretUnavailable(reason: String)
 }
 
 /// Lightweight gateway client. Stateless: each call builds a fresh
@@ -101,6 +103,28 @@ struct GatewayClient {
         return try await pairCodeEnvelope(fresh: true)
     }
 
+    /// ~/.ostler/secrets/owner_token. Created by the installer (CB137).
+    /// Distinct from service_token.
+    var ownerSecretURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ostler/secrets/owner_token")
+    }
+
+    /// Reads the owner secret, trimmed. Missing, empty or unreadable throws.
+    static func readOwnerSecret(from url: URL) throws -> String {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw GatewayClientError.ownerSecretUnavailable(reason: "owner_secret_missing")
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            throw GatewayClientError.ownerSecretUnavailable(reason: "owner_secret_unreadable")
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GatewayClientError.ownerSecretUnavailable(reason: "owner_secret_empty")
+        }
+        return trimmed
+    }
+
     /// Shared GET-current / POST-mint implementation. `fresh = true`
     /// POSTs /admin/paircode/new (mints + rotates); `fresh = false`
     /// GETs /admin/paircode (current code only). Both return the
@@ -112,6 +136,21 @@ struct GatewayClient {
         req.httpMethod = fresh ? "POST" : "GET"
         req.timeoutInterval = requestTimeout
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        // CB137: minting is owner-only. Read the owner secret at call time
+        // and send it as X-Ostler-Owner. Fail closed: if it cannot be read,
+        // do not send the mint at all. The secret is never logged.
+        if fresh {
+            let owner: String
+            do {
+                owner = try Self.readOwnerSecret(from: ownerSecretURL)
+            } catch let err as GatewayClientError {
+                throw err
+            } catch {
+                throw GatewayClientError.ownerSecretUnavailable(reason: "owner_secret_unreadable")
+            }
+            req.setValue(owner, forHTTPHeaderField: "X-Ostler-Owner")
+        }
 
         let data: Data
         let response: URLResponse
