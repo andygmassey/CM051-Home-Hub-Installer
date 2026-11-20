@@ -33681,7 +33681,7 @@ fi  # end Apple Silicon guard
 
 progress "Setting up Ostler RemoteCapture (call + meeting transcripts)" "ostler_remotecapture"
 
-OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.11}"
+OSTLER_REMOTECAPTURE_VERSION="${OSTLER_REMOTECAPTURE_VERSION:-0.1.12}"
 OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-releases}"
 # ── RemoteCapture integrity pin (cross-origin) ──────────────────
 # The .sha256 sidecar is fetched from the SAME release URL as the tarball, so
@@ -33693,10 +33693,10 @@ OSTLER_REMOTECAPTURE_REPO="${OSTLER_REMOTECAPTURE_REPO:-ostler-ai/ostler-release
 # Bump OSTLER_REMOTECAPTURE_VERSION above and add its row here in the SAME
 # commit. A version with no row is REFUSED (fail closed), and
 # tests/test_remotecapture_pin_is_enforced.sh fails if the default version has
-# no row or the row does not match the published asset. Read the digest from
-# the published asset, never type it by hand.
+# no row or the row does not match the published asset. Read the digest from the published asset, never type it by hand.
 _ostler_remotecapture_pinned_sha() {
     case "$1" in
+        0.1.12) echo "b8cdcb55ba6fa5b1374b6506513514ab24a7140433614d578d3786be128e7c2c" ;;
         0.1.11) echo "390940a83c19500ca24e9658e2923123ae7eaa918d786f55e2f74d3162da9105" ;;
         0.1.10) echo "6910cfb0f3acd3833cdbbc0087dfbfcc8f046c06b321721748a0bcea60b28c89" ;; 0.1.9) echo "ecdf349b352999805a0e3a73bbec3e5e086d210cb64701f6becfe851adaac0bb" ;;
         0.1.8) echo "f183b9731832293bc1a1ed3b24a6675af416804ea2a9b915d942c168f8d6dec4" ;;
