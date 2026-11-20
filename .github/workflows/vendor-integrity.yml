@@ -71,6 +71,7 @@ on:
       - 'tests/test_import_kicks_digest_after_frontpage_compile.sh'
       - 'tests/test_vendor_symbol_resolution.py'
       - 'tests/test_doctor_web_ui_strings_complete.py'
+      - 'tests/test_install_enrich_reinstall_default.sh'
       # The two behavioural gates added with the credential-route refusal and
       # the Front Page add verb. Both BOOT the shipped Doctor over real HTTP,
       # so both are watched here as well as run below: a path entry alone only
@@ -406,6 +407,12 @@ jobs:
       # catalogue (web_ui.py bumped, web_ui_copy.py left behind) sailed
       # through and crash-looped Doctor on the .154 walk -> Hub
       # People/Timeline LOAD FAILED. This closes that gap.
+      # CB136-WALK-UPGRADE-PATH: a re-install keeps the recorded public-look-ups answer
+      # (the REAL question line from install.sh, Enter = the offered default). The cold
+      # default stays "y". DELIVERED, not PROVEN: the 136 walk cannot drive a re-install.
+      - name: Re-install keeps a recorded public-look-ups answer (CB136)
+        if: always()
+        run: bash tests/test_install_enrich_reinstall_default.sh
       - name: Doctor web_ui string-catalogue completeness guard
         if: always()
         run: python3 -m unittest tests.test_doctor_web_ui_strings_complete -v

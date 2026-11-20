@@ -130,7 +130,7 @@ class Store(object):
         return {"result": {"points": pts, "next_page_offset": None}}
 
 
-def run_payload(payload, store):
+def run_payload(payload, store, shipped=None):
     """Execute the real payload against the fake store; return its printed line."""
     urlreq = types.ModuleType("urllib.request")
     urlerr = types.ModuleType("urllib.error")
@@ -169,7 +169,10 @@ def run_payload(payload, store):
     sys.modules["urllib.request"] = urlreq
     sys.modules["urllib.error"] = urlerr
     old_argv, old_out = sys.argv, sys.stdout
-    sys.argv = ["-", "http://oxi", "http://qd", "people", ""]
+    # the fifth argument is the shipped writer the probe reads its exclusion from (CB135)
+    if shipped is None:
+        shipped = os.path.join(REPO, "vendor", "ostler_fda", "pwg_ingest.py")
+    sys.argv = ["-", "http://oxi", "http://qd", "people", "", shipped]
     sys.stdout = io.StringIO()
     try:
         g = {"__name__": "__main__"}
@@ -258,6 +261,16 @@ def main():
     else:
         bad("an empty graph refused with no work evidence: %r -- a fresh box and "
             "a box that ingested and produced nothing print identically" % line)
+    total_calls += store.calls
+
+    # NO SHIPPED WRITER PATH: the probe must refuse, never grade an unmeasured
+    # exclusion. Fail-closed CANNOTRUN is the probe's own behaviour, unchanged.
+    store = Store([P1], [(P1, False), (THEIRS, False)])
+    line = run_payload(payload, store, shipped="")
+    if line.startswith("CANNOTRUN shipped-writer") and "no path was provided" in line:
+        ok("no shipped-writer path -> CANNOTRUN, the exclusion is never graded unmeasured")
+    else:
+        bad("no shipped-writer path did not refuse: %r" % line[:120])
     total_calls += store.calls
 
     # ANTI-VACUITY. Every assertion above could be satisfied by a payload that
