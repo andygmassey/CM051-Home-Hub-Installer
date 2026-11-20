@@ -443,3 +443,14 @@ def test_control_a_carded_person_with_a_given_name_stays_for_the_same_names():
     for name in ("jane doe bank", "jane doe team", "jane doe club"):
         pt = _pt("cp", name, given_name="jane", family_name="doe", icloud_uid="card-cp", contact_type="person")
         assert [r["name"] for r in _list([pt])["people"]] == [name], name
+
+
+def test_a_named_row_from_a_noreply_address_with_no_card_is_excluded():
+    # CB137 (Archie 2026-11-20): a named row with no person card is excluded on
+    # POSITIVE service evidence (a role or no-reply mailbox), never on name shape.
+    named_service = _pt("n1", "Ben Carl", given_name="Jane", family_name="Ng",
+                        emails=["noreply" + AT + "example.co.uk"])
+    out = _list(KEEP[:3] + [named_service])
+    names = [r["name"] for r in out["people"]]
+    assert "Ben Carl" not in names
+    assert "Jane Doe" in names or "BOB DOE" in names or "jane ag" in names

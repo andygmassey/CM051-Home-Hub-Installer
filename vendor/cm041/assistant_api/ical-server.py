@@ -9094,21 +9094,38 @@ def _displayable_phone(value):
         return False
 
 
-def people_row_hidden_as_service(name, *, has_card, contact_type):
-    """True when the People list hides this row as a service or organisation.
+def _named_row_has_service_evidence(name, addresses=()):
+    """True when a NAMED row with no person card carries POSITIVE service evidence:
+    an address whose local part is a role or no-reply mailbox, or a service phrase
+    from the existing list. Name shape alone is never evidence (Archie 2026-11-20:
+    "JANE DOE" and "Alex Doe - Plumber" stay people)."""
+    for a in [name or ""] + list(addresses or []):
+        a = (a or "").strip().lower()
+        if "@" in a and _SERVICE_MAILBOX_LOCAL_RE.match(a.split("@", 1)[0]):
+            return True
+    return bool(_SERVICE_NAME_PHRASE_RE.search(name or ""))
 
-    CB137 (Archie 2026-11-20). A business card is always hidden. A strong
-    organisation name is hidden (Cut #15). Only a PERSON card exempts a row from
-    the service-shape checks. A name-only row, or a named row with no person
-    card, gets them. Same rule as CM041 people_row_hidden_as_service.
+
+def people_row_hidden_as_service(name, *, has_card, contact_type, named=False, addresses=()):
+    """True when the People list must hide this row as a service or organisation.
+
+    CB137, Archie 2026-11-20 (final): a business card is always hidden. A person
+    card the owner made always shows. A row with a given or family name and no
+    person card is hidden only on positive service evidence (a role or no-reply
+    mailbox, or a service phrase); name shape never excludes it. An unnamed row
+    keeps the organisation and service-shape checks.
     """
     if contact_type == "business":
         return True
-    if _is_organisation_name(name):
-        return True
     if has_card and contact_type == "person":
         return False
-    return bool(_is_automated_or_service_name(name) or _is_service_mailbox_name(name))
+    if named:
+        return _named_row_has_service_evidence(name, addresses)
+    if _is_organisation_name(name):
+        return True
+    return bool(_is_automated_or_service_name(name)
+                or _is_service_mailbox_name(name))
+
 
 
 def people_list(sort=None, ceiling=10000):
@@ -9341,7 +9358,10 @@ def people_list(sort=None, ceiling=10000):
         # service checks. A named row with no person card is checked too.
         if people_row_hidden_as_service(
                 name, has_card=has_contacts_card,
-                contact_type=p.get("contact_type")):
+                contact_type=p.get("contact_type"),
+                named=bool(given or family),
+                addresses=list(p.get("emails") or [])
+                + list(ident_by_uri.get(uri, {}).get("email", []))):
             continue
 
         # Round 4 (Archie's second screen-read): a bare-email-shaped name

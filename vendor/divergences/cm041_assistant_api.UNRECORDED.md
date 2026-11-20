@@ -2444,14 +2444,14 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
 
-## CB137 (ORM, 2026-11-20): People list service gate, a PERSON card only (graft of CM041 #314)
+## CB137 (ORM, 2026-11-20): People list service gate, positive evidence only (graft of CM041 #314)
 
-Where: vendor/cm041/assistant_api/ical-server.py. A new function people_row_hidden_as_service sits next to people_list. The gate in people_list calls it in place of the old block that exempted every named row (`_has_person_name`) and every carded row from the service-shape checks.
+Where: vendor/cm041/assistant_api/ical-server.py. people_row_hidden_as_service (and its helper _named_row_has_service_evidence) sits next to people_list. The text is byte-identical to CM041 main's copy in CM041 #314.
 
-Shape, in order: a contact_type "business" row is hidden; a strong organisation name (_is_organisation_name) is hidden; a row with a card AND contact_type "person" is exempt; otherwise _is_automated_or_service_name or _is_service_mailbox_name hides it.
+Shape, in order: a business card is hidden. A person card always shows. A row with a given or family name and no person card is hidden only on positive service evidence: a role or no-reply mailbox (_SERVICE_MAILBOX_LOCAL_RE on an address), or a service phrase (_SERVICE_NAME_PHRASE_RE). Name shape alone never hides it. An unnamed row keeps the organisation and service-shape checks.
 
-Why: Archie ruling 2026-11-20 (CB137): only a PERSON card exempts a row from the service checks. The 135 walk listed a notification sender that was named and had no person card.
+Why: Archie's final ruling 2026-11-20 (CB137). Name shape alone must not exclude a named person (F7 fixture: JANE DOE, Alex Doe - Plumber). The blanket exemption for named rows is removed; positive evidence is the only exclusion for them.
 
-Not regenerated: this tree's DB-key and divergence notes say not to override a sync refusal here. The description is this entry.
+Not regenerated: this tree's notes say not to override a sync refusal here. The description is this entry.
 
-OPEN, NOT DECIDED: the F7 named-person fixture (tests/test_people_have_human_evidence.py) expects named real people with no card to stay listed (for example a name with a role after a dash, and all-caps names). Under this rule the service-shape checks now apply to them and hide them. Archie to rule before this graft can be ready. Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; mutant red).
+Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; a name-shape mutant goes red). F7: tests/test_people_have_human_evidence.py passes (21, including one new case: a named no-card row from a noreply address is excluded; the name-shape mutant turns 2 of them red).
