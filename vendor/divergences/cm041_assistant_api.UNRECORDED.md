@@ -2443,3 +2443,15 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - `person_enrichment`: the person row's level, the facts level, the meetings level, and the signal level are two-phase and subject-scoped. The person row survives an empty core row (`rows = [{}]`). Hand-ported because the vendored signal query is the `+ (` form.
 - The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
+
+## CB137 (ORM, 2026-11-20): People list service gate, a PERSON card only (graft of CM041 #314)
+
+Where: vendor/cm041/assistant_api/ical-server.py. A new function people_row_hidden_as_service sits next to people_list. The gate in people_list calls it in place of the old block that exempted every named row (`_has_person_name`) and every carded row from the service-shape checks.
+
+Shape, in order: a contact_type "business" row is hidden; a strong organisation name (_is_organisation_name) is hidden; a row with a card AND contact_type "person" is exempt; otherwise _is_automated_or_service_name or _is_service_mailbox_name hides it.
+
+Why: Archie ruling 2026-11-20 (CB137): only a PERSON card exempts a row from the service checks. The 135 walk listed a notification sender that was named and had no person card.
+
+Not regenerated: this tree's DB-key and divergence notes say not to override a sync refusal here. The description is this entry.
+
+OPEN, NOT DECIDED: the F7 named-person fixture (tests/test_people_have_human_evidence.py) expects named real people with no card to stay listed (for example a name with a role after a dash, and all-caps names). Under this rule the service-shape checks now apply to them and hide them. Archie to rule before this graft can be ready. Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; mutant red).
