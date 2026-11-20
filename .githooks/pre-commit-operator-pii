@@ -70,9 +70,21 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 # it removed for PRs -- it just never reached this path, because the hook
 # hands the scanner PATH ARGUMENTS and that takes the whole-file branch.
 #
-# The sed below is copied from the scanner's BASE_REF branch deliberately,
-# character for character, so the two instruments cannot drift into
-# disagreeing about what "an added line" means.
+# WHAT "AN ADDED LINE" MEANS, AND THE SED THAT GOT IT WRONG.
+#
+# This used to be `sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p'`, copied from the
+# shape scanner's BASE_REF branch so the two could not drift. The `[^+]` was
+# there to skip the `+++ b/<path>` file header, and it also skipped every added
+# line whose CONTENT starts with '+'. In a staged vendor/divergences/*.patch
+# that is every line the patch adds to the vendored side (`++<content>` in the
+# diff of the patch), so operator PII on a patch's '+' side reached the commit
+# unscanned (PATCH-WRITER-PII-REFUSAL, 2026-11-17).
+#
+# For a single-file `git diff -U0` the file header lines all come before the
+# first `@@` hunk header, and every `+` line after it is added content. So:
+# skip until the first hunk, then take every `+` line, minus its marker.
+# .github/scripts/ci-pii-shape-scan.sh still carries the old sed (same blind
+# spot for '++' lines); fixing that CI gate is tracked separately.
 COUNT=0
 while IFS= read -r path; do
     [ -z "$path" ] && continue
@@ -90,7 +102,7 @@ while IFS= read -r path; do
     # Added / copied / renamed keep the full blob written above.
     if git diff --cached --name-only --diff-filter=M -- "$path" | grep -qx -- "$path"; then
         added="$(git diff --cached -U0 -- "$path" \
-                 | sed -n 's/^+\([^+].*\)$/\1/p; s/^+$//p')"
+                 | awk 'h && /^\+/ { print substr($0, 2); next } /^@@/ { h = 1 }')"
         if [ -n "$added" ]; then
             printf '%s\n' "$added" > "$dest"
         else

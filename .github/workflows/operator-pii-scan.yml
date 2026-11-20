@@ -162,6 +162,13 @@ jobs:
         if: always()
         run: bash tests/test_the_pii_hook_asks_cis_question.sh
 
+      # The hook narrowed a modified file with a sed whose `[^+]` dropped every
+      # added line starting with '+', i.e. every '+' line of a staged
+      # vendor/divergences/*.patch. Synthetic inventory, term composed at runtime.
+      - name: Prove the pre-commit hook scans added lines that start with '+'
+        if: always()
+        run: bash tests/test_pii_hook_scans_plus_plus_lines.sh
+
       # Prove the DENYLIST scanner can SEE the file it is pointed at, before
       # trusting any clean verdict from it. Measured: 1514 tracked files, 1227
       # visible to the old extension list, so 287 text files were invisible by
