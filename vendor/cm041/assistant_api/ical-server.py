@@ -9094,6 +9094,23 @@ def _displayable_phone(value):
         return False
 
 
+def people_row_hidden_as_service(name, *, has_card, contact_type):
+    """True when the People list hides this row as a service or organisation.
+
+    CB137 (Archie 2026-11-20). A business card is always hidden. A strong
+    organisation name is hidden (Cut #15). Only a PERSON card exempts a row from
+    the service-shape checks. A name-only row, or a named row with no person
+    card, gets them. Same rule as CM041 people_row_hidden_as_service.
+    """
+    if contact_type == "business":
+        return True
+    if _is_organisation_name(name):
+        return True
+    if has_card and contact_type == "person":
+        return False
+    return bool(_is_automated_or_service_name(name) or _is_service_mailbox_name(name))
+
+
 def people_list(sort=None, ceiling=10000):
     """List every person in the Qdrant `people` collection for the Hub.
 
@@ -9320,14 +9337,11 @@ def people_list(sort=None, ceiling=10000):
         # 4 other named records. Those rules now apply to records with no
         # given/family name only; a legal-form suffix on a named record is
         # still caught by _is_non_human_person (F7), which is evidence-based.
-        _has_person_name = bool(given or family)
-        # Cut #15: a STRONG organisation word outranks even a card.
-        if not _has_person_name and _is_organisation_name(name):
-            continue
-        if not has_contacts_card and not _has_person_name and (
-            _is_automated_or_service_name(name)
-            or _is_service_mailbox_name(name)
-        ):
+        # CB137 (Archie 2026-11-20): only a PERSON card exempts a row from the
+        # service checks. A named row with no person card is checked too.
+        if people_row_hidden_as_service(
+                name, has_card=has_contacts_card,
+                contact_type=p.get("contact_type")):
             continue
 
         # Round 4 (Archie's second screen-read): a bare-email-shaped name
