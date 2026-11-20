@@ -111,9 +111,9 @@ store_env() {
     env -i PATH="$PATH" HOME="$REAL_HOME" OSTLER_DIR="$OSTLER_HOME" \
         OSTLER_ENRICH_NS="$ENRICH_NS" OSTLER_ENRICH_BUDGET_SECONDS=60 \
         OSTLER_ENRICH_USER=ostler QDRANT_COLLECTION=preferences \
-        QDRANT_HOST=127.0.0.1 QDRANT_PORT="$PORT" \
-        OXIGRAPH_HOST=127.0.0.1 OXIGRAPH_PORT="$PORT" \
-        OXIGRAPH_URL="http://127.0.0.1:${PORT}" \
+        QDRANT_HOST=127.0.0.1 QDRANT_PORT="${TICK_PORT:-$PORT}" \
+        OXIGRAPH_HOST=127.0.0.1 OXIGRAPH_PORT="${TICK_PORT:-$PORT}" \
+        OXIGRAPH_URL="http://127.0.0.1:${TICK_PORT:-$PORT}" \
         "$@"
 }
 
@@ -125,6 +125,10 @@ LOG="${OSTLER_HOME}/logs/enrich.log"
 [ "$rc" = 0 ] && pass "E1: the tick exits 0 on an empty store" || fail "E1: the tick exited $rc on an empty store"
 if grep -q 'NOTHING TO ENRICH' "$LOG"; then pass "E1: the log says NOTHING TO ENRICH"
 else fail "E1: the log does not say NOTHING TO ENRICH"; sed 's/^/    /' "$LOG" | tail -25 >&2; fi
+# Empty, not unreachable: the store answered, so no connection error may appear.
+if grep -q 'All connection attempts failed\|Error querying Qdrant' "$LOG"; then
+    fail "E1: the log shows a connection error; this was not an empty read"
+else pass "E1: the store answered (no connection error in the log), so the zero is a real empty read"; fi
 if grep -q 'ENRICHMENT COMPLETE' "$LOG"; then fail "E1: the log claims ENRICHMENT COMPLETE over zero people"
 else pass "E1: the log does not claim ENRICHMENT COMPLETE over zero people"; fi
 if grep -q 'tick finished rc=0:' "$LOG"; then pass "E1: the wrapper recorded its own finish with rc=0"
@@ -138,6 +142,23 @@ store_env bash "$WRAPPER"; rc=$?
 if grep -q 'public look-ups not agreed' "$LOG" && ! grep -q 'NOTHING TO ENRICH\|ENRICHMENT COMPLETE' "$LOG"; then
     pass "E2: declined stands down before any enrichment runs"
 else fail "E2: declined did not stand down cleanly"; sed 's/^/    /' "$LOG" | tail -10 >&2; fi
+
+# ---- E3: UNREACHABLE store (nothing listening). Must NOT read as empty. --------
+# Known defect, CB137-ENRICH-CLI-FALSE-ABSENCE: today the CLI logs NOTHING TO ENRICH
+# and exits 0 here. That is an expected failure, reported as XFAIL and not counted
+# red, so CI stays honest about it. When the CLI exits non-zero with a named reason,
+# this case passes and reports XPASS, and the note here should be removed.
+DEAD_PORT=$(( 40000 + (RANDOM % 20000) ))
+printf 'OSTLER_CONSENT_ENRICHMENT_DECISION="accepted"\n' > "${OSTLER_HOME}/config/.env"
+: > "$LOG"
+TICK_PORT="$DEAD_PORT" store_env bash "$WRAPPER"; rc=$?
+if [ "$rc" != 0 ] && ! grep -q 'NOTHING TO ENRICH' "$LOG"; then
+    pass "E3: an unreachable store exits $rc and is not reported as empty (XPASS of CB137-ENRICH-CLI-FALSE-ABSENCE: delete its expected-fail note)"
+elif grep -q 'NOTHING TO ENRICH' "$LOG"; then
+    echo "XFAIL: E3 an unreachable store (rc=$rc) is reported as NOTHING TO ENRICH. Known defect CB137-ENRICH-CLI-FALSE-ABSENCE (vendor/cm019_preferences/services/enrich/src/enricher.py:616-618 swallows the connect error). Not counted red."
+else
+    fail "E3: unreachable store gave rc=$rc without a NOTHING TO ENRICH line; unexpected shape"; sed 's/^/    /' "$LOG" | tail -5 >&2
+fi
 
 if [ "$status" = 0 ]; then echo "PASS: the tick runs clean on zero people (E1) and stands down when declined (E2)"; fi
 exit $status
