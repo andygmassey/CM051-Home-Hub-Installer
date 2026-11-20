@@ -658,3 +658,109 @@ vlib_refuse_if_regenerate_forbidden() {   # $1 = tree name
     echo "  points refuse: regenerate_divergence_patch.sh and sync_vendor.sh." >&2
     return 1
 }
+
+# ---------------------------------------------------------------------------
+# vlib_operator_pii_patch_check <patch-file> <tool-name>
+#
+# THE OPERATOR-INVENTORY SCAN OF A PATCH ABOUT TO BE WRITTEN, '-' LINES INCLUDED.
+#
+# WHY. The 2026-08-12 scrub (aaddd392, #592) removed operator-PII values from
+# vendored trees, and the next patch regeneration wrote every removed value
+# back into vendor/divergences/*.patch on the MINUS side: a divergence patch's
+# '-' lines are the SOURCE content, and a scrub is exactly a divergence whose
+# source side still holds the value. This repo is PUBLIC, so writing that patch
+# republishes what the scrub removed. The writers scanned numeric SHAPES only
+# (.githooks/pii_patterns.sh), which cannot see a name, and never consulted the
+# operator inventory at all.
+#
+# WHAT. The WHOLE candidate patch (headers, context, '+' and '-' lines) is
+# handed to .github/scripts/operator-pii-scan.sh, which reads the operator
+# inventory at $HOME/.ostler-operator-pii.toml. The scanner prints matching
+# LINES; that output goes to a private temp file and is never echoed. Only
+# counts leave this function.
+#
+# RETURNS
+#   0  scanned, at least one file examined, no hit
+#   1  HIT: the caller must refuse to write (counts printed to stderr)
+#   2  CANNOT-RUN: no inventory, no scanner, no rg, scanner error, or the
+#      scanner examined zero files. Never a pass: the caller must not write.
+#
+# There is deliberately no environment switch that skips this. Without a local
+# inventory a writer cannot prove it is not republishing operator PII, so it
+# does not write. CI supplies a SYNTHETIC inventory through a temporary HOME.
+vlib_operator_pii_patch_check() {   # $1 = patch file, $2 = tool name for messages
+    local _patch="$1" _who="${2:-vendor}"
+    local _scanner="$VLIB_REPO_ROOT/.github/scripts/operator-pii-scan.sh"
+    local _inv="${HOME:-}/.ostler-operator-pii.toml"
+    local _d _rc _ex _hits _minus _plus _other
+
+    if [ ! -r "$_scanner" ]; then
+        echo "$_who: CANNOT RUN -- the operator-PII scanner is missing (.github/scripts/operator-pii-scan.sh)." >&2
+        echo "  Nothing is written: a patch that was not scanned is not a clean patch." >&2
+        return 2
+    fi
+    if [ ! -r "$_inv" ]; then
+        echo "$_who: CANNOT RUN -- no operator inventory at \$HOME/.ostler-operator-pii.toml." >&2
+        echo "  A divergence patch's '-' lines republish whatever the vendored side scrubbed," >&2
+        echo "  and without the inventory this run cannot prove it carries none. Nothing is" >&2
+        echo "  written. Run it on a machine that holds the inventory." >&2
+        return 2
+    fi
+    if ! command -v rg >/dev/null 2>&1; then
+        echo "$_who: CANNOT RUN -- ripgrep (rg) is not installed; the operator-PII scan cannot run." >&2
+        return 2
+    fi
+    [ -f "$_patch" ] || { echo "$_who: CANNOT RUN -- no candidate patch to scan." >&2; return 2; }
+
+    _d="$(mktemp -d)" || { echo "$_who: CANNOT RUN -- mktemp failed." >&2; return 2; }
+    chmod 700 "$_d" 2>/dev/null
+    mkdir -p "$_d/in"
+    cp "$_patch" "$_d/in/candidate.patch" || { rm -rf "$_d"; echo "$_who: CANNOT RUN -- could not stage the patch." >&2; return 2; }
+    _rc=0
+    bash "$_scanner" "$_d/in" > "$_d/out" 2>&1 || _rc=$?
+    _ex="$(sed -n 's/^operator-pii-scan: examined \([0-9][0-9]*\) file.*/\1/p' "$_d/out" | head -1)"
+
+    if [ "$_rc" -ne 0 ] && [ "$_rc" -ne 1 ]; then
+        rm -rf "$_d"
+        echo "$_who: CANNOT RUN -- the operator-PII scanner exited $_rc (not clean, not a hit). Nothing is written." >&2
+        return 2
+    fi
+    if [ "${_ex:-0}" -lt 1 ]; then
+        rm -rf "$_d"
+        echo "$_who: CANNOT RUN -- the operator-PII scanner examined 0 files, so its silence means nothing. Nothing is written." >&2
+        return 2
+    fi
+    if [ "$_rc" -eq 0 ]; then
+        rm -rf "$_d"
+        echo "operator-PII  : patch scanned against the operator inventory, every line incl. '-', 0 hits"
+        return 0
+    fi
+
+    # HIT. Count by the sign of the PATCH line, never print the line itself.
+    _hits=0; _minus=0; _plus=0; _other=0
+    local _ln _c
+    while IFS= read -r _ln; do
+        case "$_ln" in ''|*[!0-9]*) continue ;; esac
+        _hits=$((_hits + 1))
+        _c="$(sed -n "${_ln}p" "$_d/in/candidate.patch" | cut -c1)"
+        case "$_c" in
+            -) _minus=$((_minus + 1)) ;;
+            +) _plus=$((_plus + 1)) ;;
+            *) _other=$((_other + 1)) ;;
+        esac
+    done < <(grep -v '^operator-pii-scan:' "$_d/out" | sed -n 's#^[^:]*candidate\.patch:\([0-9][0-9]*\):.*#\1#p' | sort -un)
+    rm -rf "$_d"
+    echo "" >&2
+    echo "REFUSED: the patch $_who would write carries operator PII from the local inventory." >&2
+    if [ "$_hits" -gt 0 ]; then
+        echo "  hit lines: ${_hits} (on '-' lines: ${_minus}, on '+' lines: ${_plus}, other: ${_other})" >&2
+    else
+        echo "  hit lines: at least 1 (the scanner reported a hit; line numbers could not be parsed)" >&2
+    fi
+    echo "  Counts only -- the values are deliberately NOT printed." >&2
+    echo "  '-' lines are the SOURCE side: upstream still carries what the vendored tree" >&2
+    echo "  scrubbed, and writing this patch republishes it into a public repo. Remove the" >&2
+    echo "  value from the SOURCE and re-pin, or keep the divergence unrecorded. Nothing" >&2
+    echo "  was written." >&2
+    return 1
+}
