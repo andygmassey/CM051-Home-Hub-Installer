@@ -234,3 +234,16 @@ card UID, other handle types), except an identifier a differently-named person a
 fixed landline, by design (so a shared family line never excludes a relative). Test arms: a
 conversation on the second and third handle is blocked. NOT covered: a handle joined after flag
 time (live join resolution, CB135-MINORS-ONE-STORE).
+
+## CB136 (ORM, 2026-11-20): reply debt person-only, a whole-file graft
+
+Measured refusal, same day: `CM048=$HOME/Developer/CM048 scripts/regenerate_divergence_patch.sh cm048_pipeline` (dry run) printed "REFUSED: this is a RE-PIN, not a graft to record." The source has advanced past the pin, so a patch regenerated now would record upstream commits as local edits. The re-pin is a separate operation (sync_vendor.sh) and is not part of this change.
+
+The edit: vendor/cm048_pipeline/src/reply_debt.py, byte-identical to CM048 @ ee9c4bb (the source file is identical at 6e7f6e8; ee9c4bb amended only a test fixture name). Shape, by function:
+- detect_thread: the person is the counterpart the directory named. The raw sender fallback (`or last.sender or "Unknown"`) is removed. A non-person is never a debt.
+- identify_threads: a name-keyed newsletter, receipt or service sender is dropped (excluded["not_a_person"]). A real person keeps the name.
+- owed_verdict: a receipt or order confirmation is automated (rule `receipt_or_automated`).
+- new: _RECEIPT_RE, _NON_PERSON_NAME_RE, _NON_PERSON_LOCAL_RE, is_non_person_sender, is_non_person_address.
+
+Test: tests/cm048_vendored_sweep/test_reply_debt_person_only.py (7 pass; mutant red), wired in .github/workflows/cm048-participants-as-strings.yml.
+Retire this entry when the pin moves to a CM048 SHA that contains ee9c4bb, and sync_vendor.sh re-applies the tree.
