@@ -92,17 +92,32 @@ PAT='(Documents|Dokumente|Documentos|Documenti|Documenten)/Ostler|"Documents" *(
 # lines. no_l3_box.py (a walk probe) SWEEPS the legacy root for leaked L3 output,
 # since a pre-migration install may hold it: its two path names are reads, excluded
 # by content (not by file) so the rest of the file stays under the gate.
+# walks/*.tsv (reason): a walk record's cold-proof line ("Documents/Ostler:0->0")
+# MEASURES that the legacy root is empty on the walked box; it is evidence that the
+# root is gone, not a reference that keeps it alive. Excluded by a post-filter
+# (not a pathspec) so the control below can drive the same filter.
+skip_walk_records() { $GREP -v -E '^walks/[^/]+\.tsv:[0-9]+:'; }
 hits="$(git grep -n -E "$PAT" -- . \
     ':!cuts' ':!cut-manifests' ':!vendor/divergences/*.patch' ':!tests/test_user_root_is_home_ostler_not_documents.sh' \
     ':!tests/test_uninstall_legacy_documents_root.sh' ':!vendor/divergences/*.UNRECORDED.md' \
     ':!scripts/walk_cold_wipe_state.sh' ':!tests/test_ttywalk_reset_is_cold_or_refuses.sh' \
     | $GREP -v -E '^scripts/(ttywalk|post_walk_qa)\.sh:[0-9]+:[[:space:]]*#' \
     | $GREP -v -E '^scripts/box_walk_probes/lib/no_l3_box\.py:[0-9]+:.*"~/Documents/Ostler[/"]' \
-    | $GREP -v -E '^install\.sh:[0-9]+:.*(local old=|# Older installs wrote the root under|ensure legacy|# ── Legacy root: |LEGACY_ROOT="\$\{HOME\}/Documents/Ostler")' )"
+    | $GREP -v -E '^install\.sh:[0-9]+:.*(local old=|# Older installs wrote the root under|ensure legacy|# ── Legacy root: |LEGACY_ROOT="\$\{HOME\}/Documents/Ostler")'  \
+    | skip_walk_records )"
 rc=$?
 if [ -z "$hits" ]; then ok "no tracked file outside the allowlist names Documents/Ostler"
 else bad "files still name the old root:"; echo "$hits" | cut -c1-200 >&2; fi
 # control: the same pattern DOES see the legacy path where it must exist (the migration source)
 git grep -q -E "$PAT" -- install.sh && ok "gate control: pattern still matches install.sh's migration source (predicate can fire)" || bad "gate control: pattern matched nothing in install.sh; the predicate is blind"
+
+# control: the walk-record exclusion is not a blanket pass. A walk record line is
+# dropped; the same text in a non-walks file, and in a walks file that is not a
+# .tsv, still reaches the gate.
+ctl_in="$(printf '%s\n' 'walks/v9.9.99.tsv:23:cold PROVEN Documents/Ostler:0->0' 'scripts/x.sh:4:ROOT=~/Documents/Ostler' 'walks/notes.md:1:Documents/Ostler')"
+ctl_out="$(printf '%s\n' "$ctl_in" | skip_walk_records)"
+[ "$(printf '%s\n' "$ctl_out" | $GREP -c .)" = 2 ] && ! printf '%s\n' "$ctl_out" | $GREP -q '^walks/v9' && printf '%s\n' "$ctl_out" | $GREP -q '^scripts/x.sh' \
+    && ok "walk-record exclusion control: the .tsv line is dropped, a non-walks file and a walks .md naming the old root still hit" \
+    || bad "walk-record exclusion control failed: got [$ctl_out]"
 
 [ "$fail" -eq 0 ] && { echo "PASS"; exit 0; } || { echo "RESULT: FAIL" >&2; exit 1; }

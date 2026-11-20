@@ -61,6 +61,16 @@ CARDS = [
     (6, "Alex", "Ross", ["+447700900106"], ["alex.ross@example.com"], ""),
     (7, "Bob", "Smith", [HOUSEHOLD_PHONE], ["bob.smith@example.com"], ""),
     (8, "", "", [NAMELESS_PHONE], [], "Plumber"),
+    # 9  a REAL person whose only mailbox looks like a service one (a role-style
+    #    local part, "help@"). They carry a phone, which the shipped writer keeps
+    #    (service_sender_reason: a phone-carrying row is a contact card). The
+    #    people_stores_reconcile probe counts them as a look-alike control: the
+    #    writer must embed them, and an exclusion that swallows them is a FAIL.
+    (9, "Dana", "Whitfield", ["+447700900109"], ["help@example.com"], ""),
+    # 10 a REAL person whose only mailbox is a role mailbox and who has NO phone. The
+    #    phone exemption cannot shield them: only the name rule decides. Whatever the
+    #    shipped writer does with them is REPORTED, never bent into a pass.
+    (10, "Sam", "Okafor", [], ["info@example.com"], ""),
 ]
 
 

@@ -531,6 +531,7 @@ test_hydrate_people_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_reminders_wired.sh	WIRED	.github/workflows/zero-payload-is-not-ok.yml
 test_hydrate_sentinel_change_fields.sh	WIRED	.github/workflows/hydrate-sentinel.yml
 test_hydrate_sentinel_not_on_error.sh	WIRED	.github/workflows/hydrate-sentinel.yml
+test_hydration_upstream_timeout_covers_the_measured_latency.py	WIRED	.github/workflows/catchup-machinery.yml
 test_i22_timeline_keeps_meeting_time.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_i22b_allday_backfill.py	WIRED	.github/workflows/timeline-dates-with-offset.yml
 test_ical_server_vendor_wired.sh	WIRED	.github/workflows/vendor-integrity.yml
@@ -553,6 +554,7 @@ test_install_creates_the_coach_db_keyed.py	WIRED	.github/workflows/coach-db-crea
 test_install_daily_briefs.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_depth_reports_a_trustworthy_number.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_install_diagnostics_survive_the_run.sh	WIRED	.github/workflows/install-diagnostics-durable.yml
+test_install_enrich_reinstall_default.sh	WIRED	.github/workflows/vendor-integrity.yml
 test_install_error_honesty_counts_import_errors.sh	WIRED	.github/workflows/import-path-error-honesty.yml
 test_install_first_month_free.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_install_gui_contract.py	WIRED	.github/workflows/install-gui-contract.yml
