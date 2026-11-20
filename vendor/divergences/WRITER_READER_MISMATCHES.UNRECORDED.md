@@ -1930,3 +1930,8 @@ Nine vendored files under `agent/` changed in comments and docstrings only. Tree
 Why: the operator name must not ship in a customer Hub. Source-side fix is tracked as CB137-VENDOR-OPERATOR-NAME-AT-SOURCE (`~/walkdriver/v1.0.134/CUT_BLOCKERS.md`). The same scrub for the other shipped trees is in that blocker and is not in this change.
 
 What a future sync must preserve: these nine files' comment and docstring lines, so the name does not return from upstream. Retire when the doctor source at HR015 carries the same role wording natively.
+
+## CB136-REPLY-DEBT-INVENTS-PERSON (ORM, 2026-11-20): reply-debt person-only graft
+
+vendor/cm048_pipeline/src/reply_debt.py: byte-identical to CM048 @ 6e7f6e8 (branch orm/cb136-reply-debt-person-only, CM048 #161). Before the graft it was byte-identical to CM048 main 1c06b8c. The change: no raw-sender fallback for the debt's person name (detect_thread); a newsletter, service or organisation sender is dropped (identify_threads, not_a_person); a receipt or order confirmation is not owed (owed_verdict, receipt_or_automated).
+Why: the 135 walk reply-debt list named a newsletter digest sender and a store receipt as people the owner owed a reply to. Tests: tests/cm048_vendored_sweep/test_reply_debt_person_only.py (7; mutant red). Retire this entry when the vendored pin moves to a CM048 SHA that contains 6e7f6e8 (or its merge commit), and the freshness gate is measured against it.
