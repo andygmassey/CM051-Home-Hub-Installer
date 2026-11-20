@@ -354,6 +354,49 @@ _OWNER_PROMISE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A receipt, invoice or order confirmation: automated, nothing is asked of the
+# owner (CB136: a store receipt was listed as a person owed a reply).
+_RECEIPT_RE = re.compile(
+    r"\border (?:number|no\.?|id|confirmation)\b|\bordered on\b|\breceipt\b|"
+    r"\binvoice (?:number|no\.?)\b|\bthank you for your (?:order|purchase|payment)\b|"
+    r"\byour (?:receipt|invoice)\b|\bpayment (?:received|confirmation)\b",
+    re.IGNORECASE,
+)
+
+# CB136 (Archie 2026-11-20): a debt is owed by a PERSON. A display name or a
+# mailbox that reads as a newsletter, a receipt, a service or an organisation is
+# never a debt, and its raw name is never used as the person's name.
+_NON_PERSON_NAME_RE = re.compile(
+    r"\b(?:digest|newsletter|newsletters|weekly|daily|receipts?|invoices?|orders?|"
+    r"notifications?|alerts?|updates?|no[- ]?reply|do[- ]not[- ]reply|donotreply|"
+    r"support|team|services?|store|shop|marketplace|billing|security|official|"
+    r"mailer|rewards|bank|inc|ltd|llc|gmbh|limited|bot|system)\b",
+    re.IGNORECASE,
+)
+_NON_PERSON_LOCAL_RE = re.compile(
+    r"^(?:no-?reply|donotreply|do-?not-?reply|newsletter|digest|news|info|hello|"
+    r"support|team|orders?|receipts?|billing|notifications?|alerts?|updates?|"
+    r"marketing|mailer|mail|bounce|postmaster|services?|store|shop|security|"
+    r"system|bot)$",
+    re.IGNORECASE,
+)
+
+
+def is_non_person_sender(display_name: str = "") -> bool:
+    """True when a sender name reads as a newsletter, receipt, service or
+    organisation, or is missing. A missing name is not a person we can name."""
+    name = (display_name or "").strip()
+    if not name:
+        return True
+    if "@" in name:
+        return True  # a display name that is a mailbox is not a person's name
+    return bool(_NON_PERSON_NAME_RE.search(name))
+
+
+def is_non_person_address(address: str) -> bool:
+    """True for a mailbox whose local part reads as automated or a service."""
+    local = (address or "").strip().lower().partition("@")[0]
+    return bool(_NON_PERSON_LOCAL_RE.match(local))
 _TIME_SENSITIVE_RE = re.compile(
     r"\b(?:today|tonight|tomorrow|this (?:morning|afternoon|evening)|asap|"
     r"urgent(?:ly)?|by (?:monday|tuesday|wednesday|thursday|friday|saturday|"
@@ -415,6 +458,8 @@ def owed_verdict(thread: "Thread") -> tuple[str, str]:
         return "no", "closer"
     if is_marketing(text):
         return "no", "marketing"
+    if _RECEIPT_RE.search(text):
+        return "no", "receipt_or_automated"
     if _REQUEST_RE.search(text):
         return "yes", "ask"
     # The owner's most recent message before the trailing inbound run.
@@ -551,7 +596,11 @@ def detect_thread(
         is_group=thread.is_group and not thread.addresses_owner,
     )
 
-    person = thread.counterpart_name or last.sender or "Unknown"
+    # CB136: the person is the counterpart the directory named, never the raw
+    # sender string. A non-person sender is never a debt.
+    person = thread.counterpart_name or ""
+    if not person or is_non_person_sender(person):
+        return None
     return ReplyDebt(
         thread_id=thread.thread_id,
         channel=thread.channel,
@@ -672,8 +721,13 @@ def identify_threads(threads: Iterable[Thread], directory) -> tuple[list[Thread]
         named = t.counterpart_name if hi.is_real_name(t.counterpart_name) else ""
         if t.channel not in _HANDLE_CHANNELS and hi.is_real_name(handle):
             # A name-keyed channel (email transcripts): the counterpart is
-            # already a name, not a handle to look up.
-            kept.append(replace(t, counterpart_resolved=True, counterpart_kind=""))
+            # already a name, not a handle to look up. CB136: a newsletter or
+            # service name is dropped here, never carried forward as a person.
+            if is_non_person_sender(handle):
+                excluded["not_a_person"] += 1
+                continue
+            kept.append(replace(t, counterpart_name=handle,
+                                counterpart_resolved=True, counterpart_kind=""))
             continue
         if res.kind not in hi.PERSON_KINDS:
             excluded["not_a_person"] += 1
