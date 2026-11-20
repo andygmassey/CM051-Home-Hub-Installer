@@ -184,6 +184,15 @@ jobs:
         # outcomes, with the pre-fix block as a mutant that must SEND.
         run: /bin/bash tests/test_the_brief_guard_can_tell_its_own_failure_from_a_clean_result.sh
 
+      - name: No shipped writer points under ~/Documents or ~/Desktop (RemoteCapture transcripts pin)
+        # iCloud Desktop & Documents uploads both folders. Renders the
+        # RemoteCapture plist and checks its OSTLER_TRANSCRIPTS_DIR, then scans
+        # install.sh, tracked plists and compose files, with fire/silent controls.
+        # if: always() -- shares the job with the loop above; without it a red
+        # in an earlier m..z test would skip this one and mask it.
+        if: always()
+        run: /bin/bash tests/test_no_shipped_writer_under_documents_or_desktop.sh
+
       - name: B2 -- a removed Transcripts folder is reported as removed
         # `if: always()` because this step shares a job with the loop above. Without
         # it, a failure in ANY earlier m..z test skips this one, and a test that
