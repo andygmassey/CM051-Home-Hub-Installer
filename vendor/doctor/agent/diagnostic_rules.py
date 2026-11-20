@@ -811,7 +811,7 @@ def _engine_supervisor_is_scheduled() -> bool | None:
 
 # ── the companion listener watchdog ──────────────────────────────────
 #
-# Andy's box, 2026-10-17: the daemon was alive at 0% CPU for 4 h with its
+# The owner's box, 2026-10-17: the daemon was alive at 0% CPU for 4 h with its
 # :8443 listener dead, so the iPhone app showed "Hub unreachable" and nothing
 # on this page said so. ostler-listener-watchdog (install.sh LISTENERWDEOF)
 # probes :8443 every minute, restarts the daemon after 3 silent probes (max 3
@@ -1617,7 +1617,7 @@ def check_backfill_progress(snapshot: Any) -> list[dict]:
 
     Customer-facing copy follows the Apple-Restraint voice per
     PRODUCTISATION_CHECKLIST.md Rule 0.8: observational, not
-    punitive, no exclamation marks. Customer copy needs Andy sign-off
+    punitive, no exclamation marks. Customer copy needs the owner sign-off
     pre-merge.
     """
     findings: list[dict] = []
