@@ -23369,7 +23369,12 @@ _install_enrichment_agent() {
     local enrich_ns
     enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
                      "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
-                 | sort -u | head -1)"
+                 | sort -u | head -1)" || true
+    # `|| true`: under `set -Eeuo pipefail` a missing enricher.py makes grep exit
+    # 2, which fails this assignment and ends the install. That was latent while
+    # the call sat behind the points gate, which only a populated tree reaches.
+    # Now every accepted customer reaches it, so an absent CM019 tree must reach
+    # the empty-namespace branch described above, not abort the install.
     #
     # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
     # parts so the ratchet would not see it. That is laundering: the string
@@ -26037,11 +26042,7 @@ except Exception:
         # The one-shot enrichment pass earlier in this step is unaffected and
         # still runs, and the #410 provenance gate covers what it may send.
         # The customer-facing question that turns this on lives in #397.
-        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
-            _install_enrichment_agent
-        else
-            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
-        fi
+        # The agent's install call is NOT in this block. See below the import gate.
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
@@ -26112,6 +26113,26 @@ elif [[ -n "${EXPORTS_DIR:-}" ]]; then
     info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
 fi
 unset _PREFS_DROPZONE _IMPORT_DIRS
+
+# ── Recurring enrichment agent: installed on the consent answer alone ────
+#
+# THIS USED TO SIT INSIDE TWO GATES, and both were wrong for a customer with no
+# exports at install. The agent call was inside `if [[ _PREFS_POINTS -gt 0 ]]`,
+# which sits inside `if [[ ${#_IMPORT_DIRS[@]} -gt 0 ]]`, so with no export
+# folder the whole block was skipped and the agent never installed. Most new
+# customers have no exports on day one, so default-on enrichment was off for
+# them, while the consent screen had just said yes.
+#
+# The consent answer is the only input that decides this: yes installs the
+# agent, no does not. Preference points and export folders do not. With zero
+# people the tick runs, finds nothing, and logs NOTHING TO ENRICH. It does not
+# fail. (tests/test_enrich_agent_installs_without_exports.sh and
+# tests/test_enrich_tick_empty_store_exits_clean.sh.)
+if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+    _install_enrichment_agent
+else
+    info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
+fi
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
