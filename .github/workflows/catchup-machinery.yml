@@ -112,3 +112,6 @@ jobs:
       - name: the iMessage catch-up adapter can import ostler_fda
         if: always()
         run: /bin/bash tests/test_imessage_catchup_can_import_ostler_fda.sh
+      - name: the Doctor hydration passthrough budget covers the measured composite (CB136)
+        if: always()
+        run: python -m pytest tests/test_hydration_upstream_timeout_covers_the_measured_latency.py -v -rs
