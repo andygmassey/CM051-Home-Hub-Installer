@@ -2,7 +2,7 @@
 
 WHY THIS MODULE EXISTS
 
-Andy ruled WhatsApp non-negotiable for v1. Two defects had to fall before a
+The owner ruled WhatsApp non-negotiable for v1. Two defects had to fall before a
 customer could link their account, and both were fixed elsewhere:
 
   * the shipped daemon carried no ``whatsapp-web`` feature at all
