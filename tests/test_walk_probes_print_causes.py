@@ -286,6 +286,13 @@ def make_env(tmp, port):
     home = os.path.join(tmp, "home")
     for d in (".ostler/state/source_activity", ".ostler/state/hydrate", ".ostler/logs"):
         os.makedirs(os.path.join(home, d))
+    # THE SHIPPED WRITER, WHERE A REAL BOX HAS IT (install.sh:9840 FDA_DIR =
+    # $OSTLER_DIR/fda-module, install.sh:9844 cp -R ostler_fda). The probe reads its
+    # exclusion rule from here (CB135); without it the probe CANNOT-RUNs.
+    import shutil as _shutil
+    _shutil.copytree(os.path.join(REPO, "vendor", "ostler_fda"),
+                     os.path.join(home, ".ostler", "fda-module", "ostler_fda"),
+                     ignore=_shutil.ignore_patterns("__pycache__", "*.pyc"))
     with open(os.path.join(home, ".ostler/state/source_activity/people_index.tsv"), "w") as fh:
         fh.write("last_success_at=%s\n" % IDX_AT)
     with open(os.path.join(home, ".ostler/state/hydrate/people.done"), "w") as fh:
