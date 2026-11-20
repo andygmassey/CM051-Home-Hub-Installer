@@ -485,3 +485,6 @@ jobs:
           [ "${n:-0}" -ge 4 ] || { echo "REFUSING: expected at least 4 check lines, got ${n:-0}" >&2; exit 1; }
           printf '%s\n' "$out" | grep -qF 'All window-rule drift checks passed.' \
             || { echo "REFUSING: the drift script did not report its success line" >&2; exit 1; }
+      - name: reply debt names a person, never a sender (CB136)
+        if: always()
+        run: python -m pytest tests/cm048_vendored_sweep/test_reply_debt_person_only.py -v
