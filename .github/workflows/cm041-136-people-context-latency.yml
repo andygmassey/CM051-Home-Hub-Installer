@@ -15,6 +15,7 @@ on:
       - 'vendor/cm041/pwg_privacy_readers.py'
       - 'vendor/cm041/assistant_api/tests/test_people_context_latency.py'
       - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py'
       - '.github/workflows/cm041-136-people-context-latency.yml'
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - 'vendor/cm041/pwg_privacy_readers.py'
       - 'vendor/cm041/assistant_api/tests/test_people_context_latency.py'
       - 'vendor/cm041/assistant_api/tests/conftest.py'
+      - 'vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py'
       - '.github/workflows/cm041-136-people-context-latency.yml'
 
 concurrency:
@@ -56,3 +58,8 @@ jobs:
           fi
           cd vendor/cm041/assistant_api
           PYTHONPATH=../..:.. python -m pytest tests/test_people_context_latency.py -v -s
+      - name: a failed timeline source is a named notice; the cap is per source (CB136)
+        if: always()
+        run: |
+          cd vendor/cm041/assistant_api
+          python -m pytest tests/test_timeline_degraded_and_per_source_cap.py -v

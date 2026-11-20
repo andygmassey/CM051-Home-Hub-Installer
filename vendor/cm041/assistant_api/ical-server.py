@@ -10934,6 +10934,48 @@ def _timeline_photos(past_days=730, limit=200, destination=None):
 
 
 
+_TIMELINE_SENTINEL_SOURCE = {
+    "calendar_error": "calendar",
+    "meeting_error": "meetings",
+    "conversation_error": "conversations",
+    "photos_error": "photos",
+}
+_TIMELINE_DEGRADED_COPY = {
+    "meetings": "Meetings could not be loaded just now, so they are missing from this list.",
+    "conversations": "Conversations could not be loaded just now, so they are missing from this list.",
+    "photos": "Photos could not be loaded just now, so they are missing from this list.",
+    "calendar": "Calendar events could not be loaded just now.",
+}
+
+
+def _cap_interleaved(items, limit, newest_first=True):
+    """Rows capped at ``limit``, round-robin across sources (CB136).
+
+    With a plain sort-then-slice, one large source (a photo day per day for years)
+    fills the whole cap and meetings or conversations never appear. Each source keeps
+    its own order; the sources take turns until the cap is full. ``newest_first``
+    False gives the ascending order a forward page needs.
+    """
+    ordered = sorted(items, key=lambda i: i.get("date") or "", reverse=newest_first)
+    if not limit:
+        return ordered
+    buckets = {}
+    order = []
+    for it in ordered:
+        fam = it.get("kind") or "other"
+        if fam not in buckets:
+            buckets[fam] = []
+            order.append(fam)
+        buckets[fam].append(it)
+    out = []
+    while len(out) < limit and any(buckets.values()):
+        for fam in order:
+            if buckets[fam] and len(out) < limit:
+                out.append(buckets[fam].pop(0))
+    out.sort(key=lambda i: i.get("date") or "", reverse=newest_first)
+    return out
+
+
 def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
                  outbound=False, destination=None):
     """Mainly-historic life timeline: past meetings/events + a short forward look.
@@ -11058,9 +11100,19 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
     # request must not re-emit it (duplicates) or leak outside its window.
     if before or after:
         items = [i for i in items if i.get("kind") != "calendar"]
-    items.sort(key=lambda i: i.get("date") or "", reverse=not forward)
-    if limit:
-        items = items[:limit]
+    # CB136: a source that failed is a NAMED degraded state, never silently
+    # dropped (its sentinel has no date, so the cap used to be able to drop it).
+    # The cap is per source, round-robin, so one large source (photo days) cannot
+    # starve meetings and conversations. Forward pages keep ascending order.
+    degraded = []
+    kept = []
+    for it in items:
+        if it.get("kind") in _TIMELINE_SENTINEL_SOURCE:
+            degraded.append({"source": _TIMELINE_SENTINEL_SOURCE[it["kind"]],
+                             "reason": str(it.get("error") or "")[:200]})
+        else:
+            kept.append(it)
+    items = _cap_interleaved(kept, limit, newest_first=not forward)
     items.sort(key=lambda i: i.get("date") or "", reverse=True)
 
     # CM031 PWG Companion decodes `entries: [{type, timestamp, title,
@@ -11123,8 +11175,15 @@ def api_timeline(days=7, past_days=730, limit=200, before=None, after=None,
             "title_verbatim": source == TIMELINE_SOURCE_CALENDAR,
         })
 
+    # CB136: a named degraded state per failed source, beside the events. Notices
+    # are not entries: an entry is an event with a source (test_timeline_entries_carry_source).
+    degraded_notices = [{"source": d["source"],
+                         "title": _TIMELINE_DEGRADED_COPY.get(d["source"], "Part of the timeline is unavailable right now")}
+                        for d in degraded]
+
     return {
         "items": items,
+        "degraded": degraded_notices,
         "photos_error": photo_err,
         "entries": entries,
         "days": days,

@@ -2443,3 +2443,11 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - `person_enrichment`: the person row's level, the facts level, the meetings level, and the signal level are two-phase and subject-scoped. The person row survives an empty core row (`rows = [{}]`). Hand-ported because the vendored signal query is the `+ (` form.
 - The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
+
+## CB136 timeline (ORM, 2026-11-20): a failed source is a named notice; the cap is per source (graft of CM041 #315)
+
+Where: vendor/cm041/assistant_api/ical-server.py. New module-level _TIMELINE_SENTINEL_SOURCE, _TIMELINE_DEGRADED_COPY and _cap_interleaved sit before api_timeline. In api_timeline: error sentinels are removed before the cap and recorded as degraded; the cap is _cap_interleaved(kept, limit, newest_first=not forward) (round-robin per source; a forward page keeps ascending order); one notice entry (type "notice", degraded_source) is inserted per degraded source before the return.
+
+Not byte-identical to CM041 #315: the vendored api_timeline takes before/after paging arguments that CM041 main does not, so the cap call carries newest_first=not forward. The three helper functions are identical text.
+
+Why: the 135 walk showed an empty timeline when the meeting query timed out. Its error had no date and the cap dropped it; photo days also filled the cap. Test: vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py (6 pass; plain-slice mutant red).
