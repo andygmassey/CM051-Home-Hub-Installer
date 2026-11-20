@@ -225,7 +225,7 @@ def _build_upsert(
 
 # --- Automated and organisation senders are not people (CM051 v1.0.106) ---
 #
-# Andy's v1.0.105 walk: the People list was full of card issuers, trade
+# The owner's v1.0.105 walk: the People list was full of card issuers, trade
 # bodies, shops and promotions, because every inbound sender became a
 # pwg:Person. The domain filter above only knows a curated list. These are
 # the signals a mail client itself uses to tell bulk and machine mail from a
@@ -309,7 +309,7 @@ def automated_address_reason(addr: Optional[str]) -> Optional[str]:
 
 # An organisation writing from a personal-looking address still names itself
 # as one: "... support team", "<shop> customer service", "<name> ltd".
-# Andy's v1.0.106 walk: 42 email-only Persons survived the header rules
+# The owner's v1.0.106 walk: 42 email-only Persons survived the header rules
 # because their mail carried no list or bulk header. The display name is the
 # last signal left, so read it. Deliberately conservative: an org WORD, an
 # all-caps brand token, or a long CJK-only company name. An address is never
@@ -401,7 +401,7 @@ def automated_sender_reason(email: FastEmail) -> Optional[str]:
 
 # --- A From-header display name is not necessarily a name (CM051 #2544) ---
 #
-# The v1.0.106 walk: People rows named after marketing subject lines (an
+# The owner's v1.0.106 walk: People rows named after marketing subject lines (an
 # offer from an insurer, a voucher notice, a points claim) and
 # "Jane Doe via ExampleSign". parseaddr correctly extracts the RFC 5322
 # display-name slot of the From header; the bug is that nothing downstream
@@ -420,7 +420,7 @@ _VIA_RE = re.compile(r"\bvia\b")
 # header was quoted badly: a leading/trailing run of tildes, straight or smart
 # quotes, and backslashes. A clean human display name never carries these, so
 # both their PRESENCE (a refusal signal) and their removal (for a clean write)
-# are handled here. Andy's #30 console walk: a People node named
+# are handled here. The owner's #30 console walk: a People node named
 # ``~~\"Unusual sign-in on your iCloud.`` -- an Apple security-notification
 # SUBJECT, with ``~~`` and a backslash-quote leaked into the display name --
 # defeated the sentence-opener arm below because the junk sat before the first
@@ -456,7 +456,7 @@ def _has_escaping_artefact(name: str) -> bool:
 def _is_gibberish_name(name: str) -> bool:
     """True when a name carries a token that is a letter+digit MASH inside one
     word (``Qzr5531tb``, ``07alex``, ``Pvo2217sd``, ``Kjv3``, ``Wq7b``) --
-    an extraction artefact, never a human-name token. Anchored on Andy's #30
+    an extraction artefact, never a human-name token. Anchored on the owner's #30
     walk-shaped examples ("07alex Qzr5531tb", "58mxtb Pvo2217sd", ...). The length>=4
     floor keeps real alphanumerics that are not names off the hook of a false
     positive the other way ("O2", "3M", "B2B" are short and not person names
@@ -524,7 +524,7 @@ def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> b
     n = (name or "").strip()
     if not n:
         return False
-    # (Andy #30) Escaping artefacts a clean human name never carries are
+    # (the owner's #30) Escaping artefacts a clean human name never carries are
     # themselves a refusal signal -- and they can sit BEFORE the first word and
     # shield a sentence-opener from the match below (``~~"Unusual sign-in...``).
     # Refuse on the artefact, and evaluate the remaining arms against the
@@ -535,7 +535,7 @@ def looks_like_subject_or_sender_id(name: str, email: Optional[str] = None) -> b
     lowered = probe.lower()
     if any(lowered.startswith(opener) for opener in _SUBJECT_LINE_OPENERS):
         return True
-    # (Andy #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
+    # (the owner's #30) Gibberish: a letter+digit mash token ("Qzr5531tb", "07alex")
     # is an extraction artefact, not a human name. Multi-word, so it slips past
     # the single-token sender-id arm below; caught here.
     if _is_gibberish_name(probe):
@@ -931,7 +931,7 @@ def cmd_mbox(args: argparse.Namespace) -> int:
                 else:
                     # Write a CLEAN name: strip any stray quoting/escaping
                     # artefact a badly-quoted From header leaked in, so a kept
-                    # name never carries `~~` / `\"` into the wiki (Andy #30).
+                    # name never carries `~~` / `\"` into the wiki (the owner's #30).
                     raw_name = clean_display_name(raw_name)
                 query = _build_upsert(
                     person_iri=_live_person_iri(args.graph_endpoint, _safe_person_iri(addr)),
