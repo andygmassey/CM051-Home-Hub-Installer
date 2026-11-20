@@ -74,6 +74,22 @@ other_fail	chat_latency_baseline	recorded CANNOT-RUN, not FAIL: killed by the ha
 other_fail	permanent-daemon-freshness	post-tag drift: oa main moved past the pinned 0.5.44 (adb69172, 5f56e7a7) after the tag; 135's daemon
 other_fail	acceptance-gate-v1013	A8 context-refresh exit 3 (the same finding as ostler_launchd_jobs); A7 needs eyes
 regression_of	meeting_brief_text_is_grounded	v1.0.131
+regression_of	assistant_answers_grounded	v1.0.132
+regression_of	hub_screens_customer_read	NEVER-PASSED
+regression_of	hub_screens_render_for_a_customer	v1.0.120
+regression_of	owner_digest_knows_the_owner	NEVER-PASSED
+regression_of	derived_preferences_reach_digest_and_tool	v1.0.132
+regression_of	derived_themes_still_learning	NEVER-PASSED
+regression_of	ostler_launchd_jobs_loaded_and_exit_clean	v1.0.132
+regression_of	people_seed_and_retrieval	v1.0.132
+regression_note	assistant_answers_grounded	CB135-PEOPLE-CONTEXT-LATENCY (fix CM041 #308, #309; graft CM051 #3622)
+regression_note	hub_screens_customer_read	every committed walk where the probe existed (v1.0.111..v1.0.132) records FAIL or NOT-MEASURED; triage's 'last passed v1.0.106' is pass-by-absence (probe added after v1.0.106). Cause: CB135-PEOPLE-CONTEXT-LATENCY
+regression_note	hub_screens_render_for_a_customer	CB135-PEOPLE-CONTEXT-LATENCY (timeline 503)
+regression_note	owner_digest_knows_the_owner	every committed walk where the probe existed (v1.0.111..v1.0.132) records FAIL or NOT-MEASURED; triage's 'last passed v1.0.106' is pass-by-absence. Cause: renderer kin-end arm, fix CM051 #3620; CB136-CM048-DANGLING-ABOUT
+regression_note	derived_preferences_reach_digest_and_tool	ADVISORY per ruling; route degraded under load
+regression_note	derived_themes_still_learning	harness: probe new in v1.0.134 (CM051 #3610) and on the wrong port, CB135-PROBE-THEMES-WRONG-PORT (fix CM051 #3623); PASS when re-measured on :8090
+regression_note	ostler_launchd_jobs_loaded_and_exit_clean	context-refresh exit 3; owner only if it repeats on 135
+regression_note	people_seed_and_retrieval	LEG B; owner only if it repeats on 135
 regression_of	people_stores_reconcile	v1.0.131
 bisect	people_stores_reconcile	05a5dfe4 (people projection: notification and organisation senders are left out before the embed)
 console_only	db_key_reaches_every_service	CONSOLE-ONLY per Archie (ssh keychain); services posture PASS 2 of 2
