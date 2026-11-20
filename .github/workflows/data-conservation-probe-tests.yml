@@ -54,6 +54,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: install rdflib (the node-count arm runs the real Oxigraph query text through it)
+        run: python3 -m pip install --quiet rdflib
       - name: adjudicator mutation self-test (python3 as shipped to the box)
         run: python3 scripts/box_walk_probes/lib/data_conservation.py selftest
       - name: probe contract, scope row and exit codes
