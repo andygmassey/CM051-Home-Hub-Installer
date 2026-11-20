@@ -263,7 +263,7 @@ _EXTENSION_WRITE_PATHS = (_EXTENSION_ONLY_PATH, "/api/safari/save")
 def _is_extension_credential(request, client_bearer: str, upstream_path: str) -> bool:
     """May this request proceed on the browser-extension credential alone?
 
-    THE DEFECT THIS CLOSES (Andy, 2026-09-02: *"no, it's a fucking BUG"*).
+    THE DEFECT THIS CLOSES (the owner, 2026-09-02: *"no, it's a fucking BUG"*).
     The macOS Safari extension posts the customer's own browsing, captured on
     the customer's own Mac, to a loopback service on that same Mac -- and was
     authenticated against the gateway's PAIRED-TOKEN STORE, which is populated

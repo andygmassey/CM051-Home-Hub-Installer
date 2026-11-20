@@ -1917,3 +1917,16 @@ Its request URL is also in installer Q11 (`install.sh`), which the drift test ch
 Why (CM041 #296, Archie 2026-11-17): the ical-server serves `owner_local` (L3 and untagged, labelled private) only to a loopback peer. Port 8089 is tailscale-served as raw TCP, so tailnet devices reach this proxy, and through it the ical-server, as 127.0.0.1. Without this a tailnet caller could claim `owner_local` with one header or one query parameter. Until the owner-scoped bearer lands every proxied request is the owner's own brief.
 
 Tests: `tests/test_doctor_proxy_pins_the_privacy_destination.py` drives the real `proxy_request` against an httpx MockTransport upstream (5 tests, including a planted pass-through mutant that must fail). No upstream patch: the Doctor source has no destination handling yet.
+
+## doctor: operator-name comments and docstrings replaced with a role (CM051 #3632, 2026-11-20)
+
+Nine vendored files under `agent/` changed in comments and docstrings only. Tree is regenerate-forbidden, so recorded here. Location and shape only, never content.
+
+- `agent/config_panel.py`, `agent/diagnostic_copy.py`, `agent/diagnostic_rules.py`, `agent/proxy.py`, `agent/remote_access.py`, `agent/routine_status.py`, `agent/status_collector.py`, `agent/web_ui.py`, `agent/whatsapp_pair.py`: each has one or more comment or docstring lines where the owner's first name was replaced with the role "the owner" (or "The owner" at sentence start). 14 occurrences in total.
+- No code, string literal, or data changed. No customer-visible string changed.
+- AST-equal: each changed Python file is `ast.dump`-equal to origin/main `ad3059006` with docstring nodes stripped (9 of 9). Control: a module-level statement appended to a Doctor file is detected as a difference.
+- Doctor agent pytest: 18 passed, same as baseline.
+
+Why: the operator name must not ship in a customer Hub. Source-side fix is tracked as CB137-VENDOR-OPERATOR-NAME-AT-SOURCE (`~/walkdriver/v1.0.134/CUT_BLOCKERS.md`). The same scrub for the other shipped trees is in that blocker and is not in this change.
+
+What a future sync must preserve: these nine files' comment and docstring lines, so the name does not return from upstream. Retire when the doctor source at HR015 carries the same role wording natively.
