@@ -1,3 +1,6 @@
+# REDACTION: 2 lines redacted (operator PII, Andy 2026-11-17); this patch does not
+# reconstruct against pin 90fb07b at those lines; cleared by the post-133 re-pin
+# to the HR015 #1553 SHA (BACKLOG OSTLER_FDA-REPIN-POST-133).
 --- a/apple_mail_mbox.py
 +++ b/apple_mail_mbox.py
 @@ -500,7 +500,9 @@
@@ -4654,7 +4657,7 @@
      ["timothy", "timmy"],
      ["victoria", "vicky", "tori"],
      ["william", "billy", "willie"],
--    ["alison", "ali"],
+-    ["samplechild", "ali"],
 +    # ONE VARIANT PAIR REMOVED HERE, and it is a real (small) functional loss.
 +    #
 +    # This is a generic English given-name dictionary: the neighbouring rows are
@@ -4677,7 +4680,7 @@
          if not group:
              continue
          # The FIRST entry is the full name and the canon -- not the longest,
--        # which used to make "alison" canonicalise to "allison".
+-        # which used to make "samplechild" canonicalise to "allison".
 +        # which used to make a short name canonicalise to a longer, unrelated
 +        # one (e.g. picking "allison" as the canon for a name that merely
 +        # shares a prefix).
