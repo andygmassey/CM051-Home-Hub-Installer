@@ -260,6 +260,36 @@ def judge(f):
             h.get("not_me_gone_after_reload"),
             "card {} came back".format(h.get("not_me_card", "")[:40]))
 
+    hs = f.get("home_setup") or {}
+    # Only held to the card when the walk says this build carries it
+    # (OSTLER_SETUP_CARD_EXPECTED=1). Older builds get no card rows at all.
+    # NOT COVERED here: the done-but-history-still-filling line. No hub-v0.5.37
+    # box-status field carries the history state, so it cannot be judged.
+    if hs.get("checked") and hs.get("card_expected"):
+        st = hs.get("settling")
+        if st is None:
+            add("home setup card: box-status carries a settling block", None,
+                "NOT MEASURED: box-status returned no settling block")
+        else:
+            incomplete = not st.get("complete")
+            visible = hs.get("visible") is True
+            add("home setup card: shows while settling, hidden when complete",
+                visible == incomplete,
+                "settling.complete={} card_visible={}".format(st.get("complete"), visible))
+            if incomplete and visible:
+                prog = st.get("progress")
+                if prog is None:
+                    add("home setup card: unmeasured progress shows no bar and no number",
+                        hs.get("unmeasured") is True and hs.get("aria_now") is None,
+                        "bar={} unmeasured_text={}".format(hs.get("aria_now"), hs.get("unmeasured")))
+                else:
+                    want = max(0, min(100, int(float(prog) * 100 + 0.5)))
+                    add("home setup card: bar equals the aggregate percent",
+                        hs.get("aria_now") == want,
+                        "bar={} box-status={}".format(hs.get("aria_now"), want))
+                add("home setup card: See details links to the wiki",
+                    hs.get("link_href") == "/wiki", "href={}".format(hs.get("link_href")))
+
     s = f.get("settings") or {}
     ts_ui, ts_real = s.get("tailscale_toggle"), f.get("tailscale_running")
     if ts_real in ("yes", "no") and ts_ui is not None:
@@ -896,8 +926,55 @@ def collect(base, token, out_dir, allow_write=False, tailscale_running="unknown"
                 hm["error"] = _err(exc)
         facts["home"] = hm
 
+        # -- home: the setup card (aggregate only; hub-v0.5.38) ----------
+        # The card shows while box-status says settling is incomplete, is hidden
+        # when complete, and its bar equals the aggregate percent. The judge
+        # compares the page to box-status; it never reads a number from the page
+        # and trusts it on its own.
+        hs = {"checked": False,
+              "card_expected": os.environ.get("OSTLER_SETUP_CARD_EXPECTED") == "1"}
+        try:
+            hs["settling"] = _box_settling(base, token)
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=45000)
+            time.sleep(3)
+            hs.update(page.evaluate("""() => {
+                const card = document.querySelector('[data-testid="setup-aggregate-card"]');
+                if (!card) return {visible: false};
+                const bar = card.querySelector('[role="progressbar"]');
+                const link = Array.from(card.querySelectorAll('a'))
+                    .find(a => a.textContent.trim() === 'See details');
+                return {visible: true,
+                        aria_now: bar ? Number(bar.getAttribute('aria-valuenow')) : null,
+                        unmeasured: /being measured/i.test(card.textContent),
+                        link_href: link ? link.getAttribute('href') : null};
+            }"""))
+            page.screenshot(path=os.path.join(out_dir, "home-setup-card.png"))
+            hs["checked"] = True
+        except Exception as exc:
+            hs["error"] = _err(exc)
+        facts["home_setup"] = hs
+
         browser.close()
     return facts
+
+
+def _box_settling(base, token):
+    """The settling block of GET /api/v1/box-status, read with the box's token.
+
+    Proxies are bypassed (a local proxy answers for every host on this Mac).
+    Returns the dict, or None when the route answers without a settling block.
+    """
+    import urllib.request
+    req = urllib.request.Request(base + "/api/v1/box-status",
+                                 headers={"Authorization": "Bearer " + token})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=20) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+    settling = body.get("settling")
+    if not isinstance(settling, dict):
+        return None
+    return {"complete": settling.get("complete") is True,
+            "progress": settling.get("progress")}
 
 
 # ---------------------------------------------------------------------------
@@ -932,6 +1009,9 @@ def _good():
         "home": {"not_me_checked": True, "not_me_card": "X", "not_me_gone_after_reload": True},
         "settings": {"tailscale_toggle": True},
         "cost": {"loaded": True},
+        "home_setup": {"checked": True, "card_expected": True, "visible": True,
+                       "aria_now": 42, "unmeasured": False, "link_href": "/wiki",
+                       "settling": {"complete": False, "progress": 0.42}},
     }
 
 
@@ -989,6 +1069,16 @@ MUTANTS = [
     ("not me came back", lambda f: f["home"].update(not_me_gone_after_reload=False)),
     ("tailscale switch disagrees", lambda f: f["settings"].update(tailscale_toggle=False)),
     ("bursar did not render", lambda f: f["cost"].update(loaded=False)),
+    ("setup card missing while the box is still settling",
+     lambda f: f["home_setup"].update(visible=False)),
+    ("setup card still shown after settling is complete",
+     lambda f: f["home_setup"].update(settling={"complete": True, "progress": 1.0})),
+    ("setup card bar disagrees with box-status",
+     lambda f: f["home_setup"].update(aria_now=57)),
+    ("setup card shows a bar while progress is unmeasured",
+     lambda f: f["home_setup"].update(settling={"complete": False, "progress": None}, aria_now=30)),
+    ("setup card See details goes elsewhere",
+     lambda f: f["home_setup"].update(link_href="/settings")),
 ]
 
 
