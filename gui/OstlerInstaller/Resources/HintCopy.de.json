@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "Kalender-/Gmail-Anbindung",
-    "subtitle": "Google Workspace CLI + iCloud-Wrapper",
-    "why": "Ostler kommuniziert mit deinem Gmail und Google Kalender über die eigene Workspace CLI (gws) von Google, die lokal auf diesem Mac läuft, und mit iCloud über CalDAV mit einem app-spezifischen Passwort. Nichts verlässt den Mac; OAuth läuft zwischen der CLI und Google.",
+    "title": "iCloud-Kalender-Anbindung",
+    "subtitle": "iCloud-Kalender über CalDAV",
+    "why": "Ostler liest deinen iCloud-Kalender über CalDAV mit einem app-spezifischen Passwort, das du auf appleid.apple.com erstellst.",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

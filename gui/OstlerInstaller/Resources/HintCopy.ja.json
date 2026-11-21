@@ -155,9 +155,9 @@
   },
   "gws_install": {
     "id": "gws_install",
-    "title": "カレンダー / Gmail ブリッジ",
-    "subtitle": "Google Workspace CLI + iCloud ラッパー",
-    "why": "Ostler は、この Mac 上でローカルに動作する Google 純正の Workspace CLI(gws)を通じて Gmail と Google カレンダーに接続し、App 用パスワードを使って CalDAV 経由で iCloud に接続します。データが Mac の外に出ることはありません。OAuth は CLI と Google の間で行われます。",
+    "title": "iCloud カレンダーブリッジ",
+    "subtitle": "CalDAV 経由の iCloud カレンダー",
+    "why": "Ostler は、appleid.apple.com で作成する App 用パスワードを使い、CalDAV 経由で iCloud カレンダーを読み取ります。",
     "duration_estimate_s": 15,
     "long_running_threshold_s": 60,
     "illustration": null,

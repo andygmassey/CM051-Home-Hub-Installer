@@ -18,3 +18,7 @@ jobs:
         run: bash scripts/tests/test_hint_coverage.sh
       - name: every announced step must have copy behind it
         run: bash scripts/verify_hint_coverage.sh
+      - name: no customer hint names gws (self-test first)
+        run: |
+          python3 tests/test_no_customer_string_mentions_gws.py --self-test
+          python3 tests/test_no_customer_string_mentions_gws.py
