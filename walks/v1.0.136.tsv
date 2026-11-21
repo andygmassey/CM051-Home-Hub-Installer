@@ -1,0 +1,131 @@
+# Ostler walk record -- HAND-ASSEMBLED 2026-11-22 by ORM per KAesop ruling (05:4xZ),
+# following the #3633 (v1.0.135) precedent. The harness run (~/walkdriver/logs/
+# orm-136-walk2.log) wedged at [people_count_agreement] after ~2.5h of probes and
+# record_walk.sh was SIGTERMd; the harness writes the record only on completion,
+# so this file assembles the measured evidence by hand. Schema fields mirror the
+# harness-written records; every value is quoted from the run log or a live,
+# read-only box measurement taken before the harness was stopped. Nothing here
+# is a re-rolled verdict: verdict FAILED follows from the six measured deep FAILs.
+# Read by scripts/verify_walk_record.sh, which gates the customer download.
+#
+version	v1.0.136
+version_source	measured(harness walk identity: installed_version=1.0.136)
+artefact_sha256	effdbbbdb32bd78ec9dfbb8e357f2d377addebabb1464aa08d24756cd4cf4df9
+artefact_sha256_source	measured(driver shasum -a 256 of the staged DMG; equals candidate run 44924704265 SHA256SUMS and the published prerelease hash; stapler validate OK; spctl source=Notarized Developer ID; the on-box re-hash was NOT captured because the walk wedged before teardown)
+walked_at	2026-11-21T21:26:00Z
+box_fp	c1aa7de4b023a1cc
+tier	full
+tier_note	full: everything; required before any console walk and any public tag
+walk_kind	thin
+walk_kind_source	default (no OSTLER_CONSOLE_WALK declared) -- an ssh walk; this record does NOT authorise repointing the customer download
+wait_changes	converge at 8900/8859 held stable across 5 of 5 readings (245s wait, TIMING wait=converge seconds=245) before people_count_agreement; no other wait changes
+walk_notes	HAND-ASSEMBLED record (wedge): install OK (43 steps, licence accepted); hydration panel GET PROVEN live on the running box: GET http://127.0.0.1:8089/api/v1/hydration/status returned HTTP 200 in 1.44s (the #3634 15s passthrough budget; the 135 walk failed this path on a 502); derived_themes_still_learning PASS (88859 interests); iMessage Automation probe SHIMMED to check-failed (ssh cannot click TCC); WALK-TOOLING FINDING: the probe transport died silently at [people_count_agreement] (no probe process on the box, harness alive= heartbeats froze, converge frozen at 245s; record_walk.sh SIGTERM 2026-11-21T21:26Z by ORM after 25+ min of silence) -- future walks need a box-side nohup probe runner or transport hardening; qa_exit asserted 1 to match verdict FAILED because the harness was stopped before qa ran; driver-side DMG cleanup verified (0 mounts, no temp dirs)
+instrument_rev	a783007a25195d37c167f5946c98eac2d97bd7d8
+instrument_source	measured(git rev-parse HEAD of the harness worktree, a dedicated origin/main checkout in the ORM scratch area named CM051-walk136, clean tree)
+stores_provenance	wiped-by-shipped-uninstaller(~/.ostler/bin/ostler-uninstall;colimadelete--data,datadiskabsent)
+cold	PROVEN(partial record: narration echoed into the walk pty destroyed the harness cold-proof lines for three roots and the AFTER counts; surviving measured lines: .ostler 916 and Documents/Ostler 0 BEFORE teardown; the reset then completed (uninstaller ran, VM and data disk deleted, port check passed) because the harness proceeded to stage and install; independent operator readings: zero ollama/ostler processes, no 11434 listener, free 35,217,564 KB post-reset)
+grounding_seed	not-recorded(no ~/.walk-grounding-seed-run on the box; this walk predates the marker or the read failed)
+counts_scope	deep-pass verdicts only; the machine-readable phase-1 summary never printed before the wedge; pass+fail+cannot_run+advisory describe ONLY probes with an explicit deep verdict; not_measured_probe covers every other suite probe
+pass	1
+fail	6
+cannot_run	1
+broken	0
+advisory	1
+advisory_probe	install_log_error_lines
+measured	9 of 85 (pass+fail+cannot_run+advisory; a broken probe is SKIPPED in phase 2 and measures nothing) -- the remaining 76 suite probes were unreached at the wedge and are listed as not_measured_probe
+timing_phase2_probe	data_conservation	1401
+timing_phase2_probe	derived_themes_still_learning	4
+timing_phase2_probe	converge_wait	245
+verdict	FAILED
+qa_exit	1
+failed_probe_names_recorded	6 of 6
+failed_probe	data_conservation
+failed_probe	derived_preferences_reach_digest_and_tool
+failed_probe	meeting_brief_text_is_grounded
+failed_probe	ostler_launchd_jobs_loaded_and_exit_clean
+failed_probe	people_seed_and_retrieval
+failed_probe	reply_debt_is_answered
+failed_probe_reasons	withheld(public repo); measured causes: data_conservation 1 of 143 rows LOST or INFLATED between IN, STORED and SHOWN with no declared reason (profile chain); derived_preferences_reach_digest_and_tool do not reach the digest or the assistant tool; meeting_brief_text_is_grounded the text the sender posts is not grounded; ostler_launchd_jobs_loaded_and_exit_clean 1 of 27 Ostler launchd job(s) not loaded or last exited non-zero: com.creativemachines.ostler.context-refresh (EXIT 3); people_seed_and_retrieval LEG B retrieval EMPTY (zero results for a person seeded moments ago; controls=6 seeded=2/2 retrieved=1/2); reply_debt_is_answered see the FAIL lines in the run log
+not_measured_reasons	withheld(public repo); cause for ALL rows: harness transport wedge at [people_count_agreement] after a stable converge at 8900/8859; record_walk.sh SIGTERM 2026-11-21T21:26Z; the harness writes the record only on completion. NEVER PASS, never silently dropped.
+not_measured_probe	app_signature_survives_first_run
+not_measured_probe	apple_music_library_reaches_preferences
+not_measured_probe	apple_music_refresh_runs_under_the_grant
+not_measured_probe	assistant_answers_grounded
+not_measured_probe	assistant_prompt_names_every_pwg_tool
+not_measured_probe	assistant_self_description_is_clean
+not_measured_probe	assistant_sends_over_whatsapp_and_email
+not_measured_probe	call_audio_never_retained
+not_measured_probe	care_rules_present_in_workspace_agents_md
+not_measured_probe	chat_latency_baseline
+not_measured_probe	chat_reminder_routes_to_home
+not_measured_probe	companion_listener_refuses_unauthenticated
+not_measured_probe	converge_kill_is_recorded
+not_measured_probe	conversation_capture_end_to_end
+not_measured_probe	core_memory_holds_no_prefetch_block
+not_measured_probe	cron_run_makes_no_sends
+not_measured_probe	daemon_is_listening
+not_measured_probe	db_key_reaches_every_service
+not_measured_probe	derived_preferences_breadth
+not_measured_probe	derived_preferences_dislike
+not_measured_probe	derived_preferences_not_others
+not_measured_probe	derived_preferences_runs
+not_measured_probe	dislike_respected_in_brief
+not_measured_probe	doctor_page_renders_for_a_customer
+not_measured_probe	email_channel_round_trip
+not_measured_probe	enrichment_decline_survives_upgrade
+not_measured_probe	enrichment_reaches_clients
+not_measured_probe	fda_rerun_second_tick_lands_a_new_row
+not_measured_probe	fda_tick_can_import
+not_measured_probe	followup_keys_match_chat_threads
+not_measured_probe	freshness_panel_has_dates
+not_measured_probe	front_page_not_me_is_saved
+not_measured_probe	gateway_never_serves_a_stored_secret
+not_measured_probe	gateway_not_exposed_on_lan
+not_measured_probe	hub_screens_customer_read
+not_measured_probe	hub_screens_render_for_a_customer
+not_measured_probe	identity_layer_is_importable
+not_measured_probe	image_pulls_match_pins
+not_measured_probe	ingest_coverage
+not_measured_probe	install_error_honesty
+not_measured_probe	install_manifest_complete
+not_measured_probe	installed_bundle_seal_intact
+not_measured_probe	l3_not_prefetched
+not_measured_probe	launchagents_resolve_their_tools
+not_measured_probe	launchd_no_ephemeral_paths
+not_measured_probe	listener_watchdog_recovers_a_wedged_listener
+not_measured_probe	morning_brief_catches_me_up
+not_measured_probe	needs_you_now_birthdays_survive_fallback
+not_measured_probe	no_l3_in_tool_results
+not_measured_probe	no_person_holds_two_contact_cards
+not_measured_probe	no_python_is_tcc_responsible
+not_measured_probe	no_store_port_is_tcp_reachable
+not_measured_probe	no_unexpected_egress
+not_measured_probe	ostler_unlock_reachable_by_name
+not_measured_probe	owner_digest_knows_the_owner
+not_measured_probe	owner_knowledge_score
+not_measured_probe	pair_endpoints_refuse_off_window
+not_measured_probe	pair_state_agreement
+not_measured_probe	pairing_recovers_without_a_repair_storm
+not_measured_probe	people_count_agreement
+not_measured_probe	people_stores_reconcile
+not_measured_probe	proxy_reads_are_owner_own_brief
+not_measured_probe	qdrant_has_fd_headroom_and_writes_land
+not_measured_probe	running_config_matches_disk
+not_measured_probe	scheduled_brief_reaches_messages
+not_measured_probe	settling_json_refreshes
+not_measured_probe	setup_progress_advancing
+not_measured_probe	source_status_artefact_is_served
+not_measured_probe	status_api_dates_are_sane
+not_measured_probe	stranger_cannot_trigger_send
+not_measured_probe	tainted_owner_send_needs_exact_approval
+not_measured_probe	the_recovery_key_reached_the_customer
+not_measured_probe	third_party_telemetry_off
+not_measured_probe	todos_reach_reminders
+not_measured_probe	usage_journal_producers
+not_measured_probe	wiki_maps_links_carry_no_join_secret
+regression_of	data_conservation	v1.0.134
+regression_of	derived_preferences_reach_digest_and_tool	v1.0.132
+regression_of	meeting_brief_text_is_grounded	v1.0.131
+regression_of	ostler_launchd_jobs_loaded_and_exit_clean	v1.0.132
+regression_of	people_seed_and_retrieval	v1.0.132
+regression_of	reply_debt_is_answered	v1.0.134
