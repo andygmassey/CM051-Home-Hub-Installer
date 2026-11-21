@@ -300,12 +300,16 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
         # would false-pass a bare presence test; by whole-line grep (grep -x)
         # it is 0 at the parent and 1 at the pin, i.e. the PR introduced the
         # assignment line itself. Whole-line both ways is the fingerprint;
-        # substring either way is how a key lies.
+        # substring either way is how a key lies. The parent blob is fetched
+        # ONCE into a variable and every candidate test is a herestring grep:
+        # no pipe, so no SIGPIPE under pipefail
+        # (tests/test_pipefail_shortcircuit_inversion.sh).
+        _parent="$(git -C "$HERE" show "$ref^:install.sh" 2>/dev/null || true)"
         _surv=""
         while IFS= read -r _cand; do
             [ -n "$_cand" ] || continue
             if grep -qxF -- "$_cand" "$PINNED" \
-                && ! git -C "$HERE" show "$ref^:install.sh" 2>/dev/null | grep -qxF -- "$_cand"; then
+                && ! grep -qxF -- "$_cand" <<< "$_parent"; then
                 _surv="${_cand}"
                 break
             fi
@@ -330,7 +334,7 @@ KEYS
             while IFS= read -r _cand; do
                 [ -n "$_cand" ] || continue
                 if ! grep -qxF -- "$_cand" "$PINNED" \
-                    && git -C "$HERE" show "$ref^:install.sh" 2>/dev/null | grep -qxF -- "$_cand"; then
+                    && grep -qxF -- "$_cand" <<< "$_parent"; then
                     _gone="${_cand}"
                     break
                 fi
