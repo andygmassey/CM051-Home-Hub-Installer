@@ -32,7 +32,828 @@
 # ============================================================================
 
 pr_exemptions:
-  # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie re-review ruling via KAesop 14:2xZ,
+  # recorded to_coordinator.md 14:04:27Z): thirteen individual rows, owner KAesop,
+  # disposition merge-or-close. Held/advisory/draft work (6) review_by 2026-11-28;
+  # the ready seven review_by 2026-11-24. FIRST so verify_pr_age takes these rows.
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3624"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: feat(doctor) owner switch for public look-ups, R02, 137 queue; disposition: merge or close by expiry (an actual merge or close may replace this row); no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3625"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: explain_cites_only_used_facts probe, R05 advisory; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1584"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; DRAFT work: ledger pr_open row for CM051 #3434 (R01 reply debt); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#312"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; DRAFT work (CM041); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#762"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held work: dbkey migration of a plaintext store (137 held); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#763"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held work: 137 held; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3628"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; owner_token seed + GatewayClient owner header (CB137); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3629"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; owner_mint_refuses_unauthenticated probe (CB137); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1583"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1585"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1586"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1587"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1588"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie disposition 2026-11-21T03:55:37Z). 97 FINAL TRIAGE rows (expired)
+  # + 160 never-exempted rows, each individual, owner KAesop. No wildcard,
+  # no repository-wide exemption. #3619 closed unmerged: no row (the ruling).
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3347"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3327"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3325"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3233"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3177"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3172"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3163"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3152"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3149"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3141"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3136"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3110"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3109"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3107"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3104"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3103"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3099"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3096"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3094"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3093"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3092"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3084"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3083"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3077"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3068"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3067"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3064"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3058"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3057"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3031"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3030"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3029"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3028"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3027"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3025"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3022"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3001"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2989"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2988"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2980"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2939"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2781"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2779"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2758"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2757"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2756"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2753"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#2674"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#392"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#380"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#378"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#367"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#238"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#236"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#230"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#229"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#226"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#224"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#223"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#222"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#213"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#212"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#211"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#199"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#313"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#312"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#301"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#292"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#268"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#232"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1178"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1177"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1170"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1168"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1166"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1165"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1163"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1149"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1148"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1126"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1017"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#637"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#629"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#619"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#613"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#604"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#600"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#590"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#589"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#581"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#550"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#485"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#477"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#473"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#465"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#464"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#433"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: FINAL TRIAGE. EXEMPTION EXPIRED at the live gate; owner KAesop; merge or close by expiry; no further renewal without fresh active-work proof. Title: "
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3571"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: tests: clear proxy env for the vendored assistant_api suite (harness, draft)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3564"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: gate: refuse a vendor/cm019 re-pin while upstream writes Apple Health as compartment 5 (DRAFT)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3561"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: receipts (134): vendor core and extractor, flag-off tick step, probe"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3560"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT harness: meeting_brief probe refuses before seeding on a fixture-slug collision; rename scale neighbour"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3559"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: switch on the assistant derived-preferences reader (walk 132, dislike_respected_in_brief) [DRAFT, box"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3545"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: People Circles env on the assistant daemon (held for 134)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3542"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: eval(I4): made-up-answer measurement on the shipped /ws/chat path (held)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3541"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: refuse in preflight when Homebrew belongs to another account (O3, held for 133)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3532"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor doctor: the owner gate covers the proxied routes (HOLD, stacked on #3531, mirrors HR015 #1499)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3531"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor doctor: owner email row and owner-email setter (HOLD until after 132 tag)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3530"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: owner addresses: derive every owner mail address at install, store 0600 (stacked on #3528, HELD)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3529"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor ostler_fda: Person only for two-way mail correspondents (HOLD until after 132 tag)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3528"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: installer records the owner's mail domains, not addresses (stacked on #3527)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3527"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: producer emits related names for every card (G1 stack on #3522)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3525"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: whatsapp_source: per-person windowed aggregates (HELD until after the 132 tag)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3523"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: email_source: per-person windowed aggregates (HELD until after the 132 tag)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3522"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: abcddb producer emits the owner's card and its relations (G1)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3461"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [DRAFT] Walk probe: judge the Hub Home setup card"
+    review_by: 2026-11-28
+  - ref: "CM044-PWG-Personal-Wiki#450"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT (unwired): wiki meeting pages leave out a muted calendar (T2)"
+    review_by: 2026-11-28
+  - ref: "CM044-PWG-Personal-Wiki#437"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: WITHHOLD: wiki compiler does not render a forgotten conversation's summary (HELD for 133)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#299"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: privacy scale PR 2 (134): owner identity node L2 + scale stamp, never a second label (HELD for readers)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#287"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [DRAFT] 134 UNTAGGED-FAIL-CLOSED: commitments and people search say whether the row was tagged"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#277"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: privacy scale PR 2: CM041 level_for writes canonical scale (HELD for readers)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#275"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [BLOCKED on namespace ruling] fix(privacy): withhold L3 and unknown-provenance on moat and preference readers"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#270"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: owner corrections: People Circles writes owner-set relations beside card relations (HELD for 134)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#269"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: WITHHOLD: CM041 readers honour withheld; retry loop drains the forget queue (HELD for 133)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#268"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [DRAFT, held] commitments: pass guess through (kept promises I3)"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#267"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD (draft, stacked on #259): I2 family and interest person facts with validTo; Last time line in the pre-mee"
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#266"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: fix(calendar): owner calendar rules hold on the calendar, today, meeting-upcoming and timeline surfaces, match"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#412"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT: prune CoreML's compiled-model cache at launch (e5bundlecache grew to 83 GB)"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#406"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT 134 owner screens: held-action approvals and school items (flag off)"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#405"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: feat(calendars): flag-off Settings screen to mute calendars (CM041 #266)"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#402"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT: IOS-WHISPER-NO-OOM: tier from free memory, CPU text decoder (leak), footprint gate (supersedes #293 in "
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#396"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: App Intents: Ask Ostler, Who is, Today, Note (held: first after launch)"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#394"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HOLD: receipt capture and Share extension (CM031)"
+    review_by: 2026-11-28
+  - ref: "CM031-PWG-Companion#382"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: Spike: read-only Siri person and commitment lookups"
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1529"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: ledger: receipts (134) CM051 flag-off vendor and tick step (draft)"
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1511"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: ostler_fda: opt-in PersonalizationPortrait reader, fail closed (backlog D4)"
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1501"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [HOLD] doctor: passkey mint proxy, bearer admission on chat-token, re-pair row (task 133)"
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1499"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: doctor: the owner gate covers the proxied write routes (memory correct and assert, safari ingest) (HOLD)"
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1497"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: doctor: 'Ostler doesn't know which email address is yours' row and owner-email setter (HELD)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#748"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: feat(134): owner-chat owner_l3_recall tool, flag-off (owner-only gate)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#746"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: 134 UNTAGGED-FAIL-CLOSED: outbound readers withhold untagged (draft, green on a36e0a728)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#742"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT feat(ladder): owner-local pending store, notify-only channel line, brief-gated expiry (flag off, UNWIRED"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#741"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT feat(ladder): reply gate (L3, untagged manual; minors quote nothing) + calm PingBudget; flag off, UNWIRE"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#740"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: 134 household lens: school triage on the judgement loop (flag off, UNWIRED)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#738"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT feat(ladder): O2 autonomy ladder, draft/approve/own per action and contact class (dark, UNWIRED)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#718"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: feat(context): flag-off relevance scoping of owner-data tool output"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#708"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: feat(people): People Circles wired: gateway routes, provider, owner relations, ask once (HELD for 134)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#706"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: I5 device side: signed content packs (draft, held for 133)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#702"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [DRAFT, held] brief: label a guessed promise 'Guess:' (kept promises I3)"
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#701"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: agent: support gate v2, values not words (NOT READY: held-out set 2 regressed; draft)"
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3578"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy: remove a family member's name from a recorded vendor patch"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3572"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: people: declare the service-sender exclusion; probes re-apply the shipped rule (133)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3570"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk record: the VM's cpus, memory, disk and vm_stat free pages at walk start and end"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3569"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk probe + Doctor text: the VM keeps its installed size after a forced daemon restart"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3568"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(owner-outbound): per-person owner-sent record, 134 people rule, SQLCipher store (fail-closed)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3567"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: test-only hook for the residue-marker proof (forget Qdrant URL)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3566"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: the owner-knowledge guard prints its count at phase 2 start"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3562"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness O7: a refused residue marker write prints RESIDUE NOT RECORDED"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3558"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(intel-eval): decline forms graded ABSTAINED, not FABRICATED"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3556"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: chore(pii): owner's given name replaced by a role in prose (rebased from #3176)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3555"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk: data_conservation people rows read the product counts file, with mutants"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3553"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: owner digest, knowledge score, pair state causes from walk 132"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3552"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: five CANNOT-RUN causes from walk 132 (no product change)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3551"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: upgrade: one-shot repair of two-subject preference nodes + vendor PWG #477/#478"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3547"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: kickstart fda-rerun and settling-refresh instead of waiting on ticks"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3526"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: eval: owner-knowledge mode on the box, counts only (I4 stacked on #3524)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3524"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: eval: brief usefulness and owner-knowledge harness, one command, no cut (I4)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3521"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(calendar): iCloud events name their calendar; pre-meeting sender honours an owner's calendar rule"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3520"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: install: one-shot repair for -180 photo sentinels already in the graph"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3516"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: VM size: record the installed size, persist it to colima.yaml, Doctor background-engine row"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3483"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: install: 48GB+ tier runs qwen3.6:35b-a3b again (v1.0.131; 64GB evidence pending)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3464"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: scripts: intelligence scorecard (27 scored scenarios, stub-validated, not run on a box)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3457"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ostler_fda email: backward sweep steps to the next older message present"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3435"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: vendor: re-vendor cm048_pipeline to 0151aea8 (CM048 #116, #119 reply debt)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3434"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(reply-debt): owner addresses from Sent folders (owner_wrote was False on every row)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3432"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: vault phase 1 (off by default): encrypted bundle + fail-closed mount"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3428"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: FDA gate: hand the customer the app to drag (macOS 27.3)"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3421"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(export-watcher): hand ChatGPT export zips to the CM052 drop folder"
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3374"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk harness: VM control waits for VM DNS; sampler refuses without its host list; freshness reads the walked t"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#458"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy: the privacyScale stamp reaches the person decision (stacked on #455; merges with CM041 #298)"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#457"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: 134: compiler parses on 3.11"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#455"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(privacy): readers honour both privacy predicates, strictest wins"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#454"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: non-person slugs: topics, places, orgs, headings use the canonical wiki_slug (stacked on #453)"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#453"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: person slugs: canonical wiki_slug (CM041 pwg_slug), sha256-pinned vendored copy"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#435"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: wiki: record each person's assigned slug (pwg:wikiSlug) for readers to link through"
+    review_by: 2026-11-24
+  - ref: "CM044-PWG-Personal-Wiki#434"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(suppression): a slug shared by two people hides neither by name"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#304"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy: owner instructions are written with privacy_level L2 (stacks on #301)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#303"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy (134): reply debt and derived prefs say withheld, not caught up or absent"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#298"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy scale PR 2 (134): level_for health/finance -> L3, level_for writers stamp the scale (stacked on #297)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#294"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(forget): erase AI conversations and the person's handles (134, RT134-06-R/07-R)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#293"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: pwg_slug: fallback_prefix parameter (stacked on #292)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#292"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: wiki slug: one canonical pwg_slug.wiki_slug for Hub server and brief"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#286"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(134): owner-local L3 recall route in ical-server (owner-only)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#285"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy (134): health_import fixed L3, payload cannot lower it"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#284"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy (134): photo-link writer stamps from [source_default]"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#283"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy (134): calendar_ingest and people_identity stamp from vendored [source_default]"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#282"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(preferences): read the CM059 nested shape; 133 gate; Art. 9 withheld (134)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#272"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ci: run each pytest directory in its own process (the combined run aborts)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#265"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Forget reaches every store: PersonFact and person forget, every Qdrant collection"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#264"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Person reads find conversation facts written against the person's URI"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#263"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: /people/context: exact name matches first; URI lookups bypass the limit"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#262"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Memory tab serves CM048 conversation facts; forget removes them from every graph"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#261"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Warmth reader matches the subject exactly, not as a substring"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#259"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Person reads serve CM048 conversation facts, not only PersonFact"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#258"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: card relations for every card (G1 stack on #256)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#257"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(brief): the pre-meeting brief names each meeting's calendar (stacked on #250)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#256"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(people): owner-card relationship labels become owner-set relations (G1)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#254"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: people: link and look up through the slug CM044 assigned, not a name fold (stacked on #252)"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#252"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(people): a slug shared by two people refuses (409); forget accepts person_uri"
+    review_by: 2026-11-24
+  - ref: "CM041-People-Graph#241"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(people): Verification and Order service senders are not People (walk 121)"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#411"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: privacy: every Hub request declares X-Ostler-Destination: owner_own_brief"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#409"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(cm031): restore six failing tests; Transcribing bar with Stop"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#408"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(chat): push-to-talk in the Chat composer, behind a flag (OFF)"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#393"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Forget copy: state what is removed, keep the conversation; 13 locales retranslated"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#392"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: iOS: passkey-minted Hub bearer for away-from-home chat (task 133)"
+    review_by: 2026-11-24
+  - ref: "CM031-PWG-Companion#391"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: people: identity is person_uri, and links go through the Hub's wiki_url (slug step 2)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1564"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(doctor): proxy never forwards a caller-chosen destination (CB134)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1562"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: doctor: lift the source-status panel from CM051 (CB134-DOCTOR-PANEL)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1558"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ostler_fda: re-pin subscription_gate to CM052 563284 (merge with CM051 #3579)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1552"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(fda): pending (never examined) vs unclassified (examined, unsure) + count-only migration"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1551"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(fda): contactType vocabulary + calendar events (rebuild of #353 on main)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1517"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: photos: re-land #1489 with unknown-model handling (never zero photos)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1506"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ostler_fda: app-focus sessions, opt-in gate, privacy levels, exclusion (D2, stacked on #1485)"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1494"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ostler_fda: Person only for two-way mail correspondents"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1487"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ostler_fda: PhotoKit source (Swift), read-only, not wired"
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1423"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: walk_qa: remove a real name from committed mask list, load private tokens out of repo"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#761"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(dbkey): open_keyed for daemon stores; rusqlite bundled-sqlcipher"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#760"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(dbkey): resolve the database key in Rust, same order as CM051 db_key.py"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#756"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(gateway): PWG proxy never forwards a caller-chosen destination (CB134)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#754"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: ci: run Evals (unit) and Apply path labels on self-hosted gamingrig-oa"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#752"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: egress check: floor + local classifier over the final outbound text, L3 lines withheld"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#751"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(weather): loopback base URL never routes through the runtime proxy (OA-643-LIB-FAILURES)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#749"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: agent: one tool_call log line per tool call (name, outcome, duration_ms only)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#747"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(derived): pwg_derived_preferences on by default, and dislike-exclusion tests for the brief (134)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#745"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: l10n: ostler_l10n keeps existing keys, refuses a zero-write run, reports every skip"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#744"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(cache): the response cache serves only non-owner-data turns"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#739"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(explain): explain_answers flag (default off), answer-shape rule, Settings toggle, L3-never test"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#736"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(brief): judgement path for the morning brief, dark behind OSTLER_BRIEF_JUDGEMENT (replaces #697)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#734"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(gate): support gate for owner-data fact answers, judged on the answer's claims (clean successor of #700)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#725"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(bursar): Expenses over the receipts core, rebased on the money rewrite (replaces #703 base)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#722"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: web: Settings > Privacy connected sites, list and revoke (slice 2 PR B, DO NOT MERGE until copy is worded)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#719"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(routing): to-do questions route to pwg_commitments"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#714"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(grounding): the gate applies to a question that names a person"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#711"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(subscription): money from statements, assistant side (rewrite of #504, no outbound calls)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#709"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(citations): Apple Mail and Gmail sources, same gates as M365 (stacked on #705)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#705"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(citations): email and conversation sources, released only when grounded and used"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#699"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: doctor/daemon: passkey mint for away-from-home chat (task 133)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#698"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(brief): the pre-meeting composer leaves out a calendar the owner asked to ignore (stacked on #686)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#691"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: fix(brief): one event on two calendars is one line; count-only titles are two facts"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#690"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Grounded answers: citation strip has no accent rule, route-less chips type-match, grounding contract"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#689"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: daemon colima restart uses the installed VM size, not a hard-coded 2 CPU / 4 GiB"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#680"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: test fixtures: replace a real-person name with synthetic names"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#679"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: noticing: first slice, nightly One-thing dry run (flag default OFF)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#678"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: chore(deps): remove channel-matrix, bump rusqlite 0.41 (RUSTSEC-2026-0459)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#677"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: Hub Settings: spoken transcription on/off with recorded consent"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#676"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: feat(brief): Coming up block for birthdays in the next week"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#661"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: followup status: report chat_keyed_rows (the honest denominator for followup_keys)"
+    review_by: 2026-11-24
+  - ref: "ostler-assistant#654"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; ready title; merge or close by expiry. Title: people: Not the same person? Split on a merged person's row"
+    review_by: 2026-11-24  # v1.0.127 prep, ORM 2026-11-08 on Archie's approval (#3388 follow-up): check-pr-age RED on these three at the 127 cut
   # (run 42410565590). FIRST so verify_pr_age.sh takes these rows. #3354 is CLOSED, no row. Each expires after v1.0.128.
   - ref: "CM051-Home-Hub-Installer#3347"
     reason: "frozen-branch cut: not on cut/v1.0.127, cannot change a DMG byte. Brief feature (weather-home-location). Owner: the 11 Nov brief job. Expires after v1.0.128."
@@ -1623,49 +2444,100 @@ pr_exemptions:
       when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
     review_by: 2026-09-24
 
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM-136 2026-11-21 (cut/v1.0.136 ONLY). CARRIED UNCHANGED from
+  # the v1.0.135 cut (Archie ruling 2026-11-19, review_by 2026-11-24): all 13 are
+  # still OPEN, measured 2026-11-21. The gate now also reds ~96 further CM051 PRs
+  # and ~156 other-repo PRs aged past 48h since the 135 tag; ORM writes NO new
+  # rows for those: they are listed in the cut PR body for KArchie to rule on
+  # (exempt with expiry and owner, or close). The 7 expired oa rows (#550 #485
+  # #477 #473 #465 #464 #433) are likewise KArchie's re-decision, not ORM's.
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3583"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3584"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3586"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3590"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3591"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3592"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3594"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3595"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3596"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3597"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3599"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3600"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3602"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+
+
 deferrals:
   - ref: "CM051:archive/people-exact-identifier-merge"
     reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: archived ref superseded by #3217; no content needed"
     until_cut: "v1.0.122"
   - ref: "CM051:fix/brief-reads-local-stores"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, brief birthdays dedupe by person URI (7 lines in vendor/cm041/assistant_api/ical-server.py not on main; tip 1c7900c6, a commit of merged #2927). Pushed from local-only. Owner: CM051 brief; tracker row v1.0.121. The v1.0.119 walk's brief probe is the check: duplicate birthdays on the walk make this a v1.0.119 fix. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible duplicate birthdays in the brief; 7 lines absent from main"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, brief birthdays dedupe by person URI (7 lines in vendor/cm041/assistant_api/ical-server.py not on main; tip 1c7900c6, a commit of merged #2927). Pushed from local-only. Owner: CM051 brief; tracker row v1.0.121. The v1.0.119 walk's brief probe is the check: duplicate birthdays on the walk make this a v1.0.119 fix. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible duplicate birthdays in the brief; 7 lines absent from main || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 1c7900c6 still NOT on CM051 main (re-measured 2026-11-21); the 7 vendored lines are still absent from main. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM031:fix/quick-note-copy-local-only"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS copy only ('Saved on this iPhone'), no DMG impact (tip 590d7468, 17 of 1191 lines not on main). Owner: CM031; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible iOS copy; iOS only, no DMG impact (Archie may rule it out of this cut)"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS copy only ('Saved on this iPhone'), no DMG impact (tip 590d7468, 17 of 1191 lines not on main). Owner: CM031; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible iOS copy; iOS only, no DMG impact (Archie may rule it out of this cut) || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM031 clone (held locally per the record below); the 2026-10-29 measurement (590d7468, 17 of 1191 lines not on main) still stands. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM031:fix/ios-transcribe-free-aggressively"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS OOM fix (sequential model load, distil-large-v3 on 8 GB), tied to open drafts CM031 #293 #294 #301; iOS ships separately, no DMG impact. Owner: CM031 capture; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible iOS OOM crash fix, unlanded; iOS only, no DMG impact (Archie may rule it out of this cut)"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, iOS OOM fix (sequential model load, distil-large-v3 on 8 GB), tied to open drafts CM031 #293 #294 #301; iOS ships separately, no DMG impact. Owner: CM031 capture; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible iOS OOM crash fix, unlanded; iOS only, no DMG impact (Archie may rule it out of this cut) || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM031 clone (held locally per the record below); the 2026-10-29 measurement (tied to open drafts CM031 #293 #294 #301) still stands. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM041:fix/people-correctness-v1.0.107-cm041"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, repair_phone_identifiers tool not on main (tip 6ea5b9cd; absent from CM041 main and the CM051 vendored cm041). Owner: CM041; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. people data correctness is customer-visible and unmeasured"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL, repair_phone_identifiers tool not on main (tip 6ea5b9cd; absent from CM041 main and the CM051 vendored cm041). Owner: CM041; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. people data correctness is customer-visible and unmeasured || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM041 clone (held locally per the record below); the 2026-10-29 measurement (6ea5b9cd, repair_phone_identifiers absent from CM041 main and the vendored tree) still stands. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM051:feat/vendor-stated-preferences-r2"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue (tip 2cf6d8f7, 72 lines not on main). MEASURED not a blocker at 4fc61eb1: the shipped fact path (vendored stated.py) skips minor mentions (stated.py:532) and the node inherits L2 (stated.py:529,566); scratch test 7/7 green, mutants (minor skip removed; L2 forced to L1) red. Owner: CM051 smart-prefs; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. smart-prefs is still failing on the walk; the 'not a blocker' measurement predates it"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue (tip 2cf6d8f7, 72 lines not on main). MEASURED not a blocker at 4fc61eb1: the shipped fact path (vendored stated.py) skips minor mentions (stated.py:532) and the node inherits L2 (stated.py:529,566); scratch test 7/7 green, mutants (minor skip removed; L2 forced to L1) red. Owner: CM051 smart-prefs; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. smart-prefs is still failing on the walk; the 'not a blocker' measurement predates it || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 2cf6d8f7 still NOT on CM051 main (re-measured 2026-11-21 in the canonical clone); the 2026-10-29 not-a-blocker measurement and its scratch-test controls still stand. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM051:hotfix/v1.0.117-base"
     reason: "release base, kept. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: the v1.0.117 tag plus CM051 #3173 squash 4f56f104, the base of a released artefact. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: base ref of a released artefact, kept"
     until_cut: "v1.0.122"
   - ref: "CM051:fix/q32b-calendar-classify-118"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, paused Q32b calendar-classify work (tip d6dc44ba 'Q32b paused, what is done and what is left'; content test 561 of 610 added lines absent from main; no PR). On the remote. Owner: the Q32b calendar agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible calendar classification; 561 of 610 lines unlanded, no PR"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, paused Q32b calendar-classify work (tip d6dc44ba 'Q32b paused, what is done and what is left'; content test 561 of 610 added lines absent from main; no PR). On the remote. Owner: the Q32b calendar agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible calendar classification; 561 of 610 lines unlanded, no PR || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip d6dc44ba still NOT on CM051 main (re-measured 2026-11-21); 561 of 610 added lines still absent, no PR. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM051:fix/qr-scan-size"
     reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, local-only in another agent's worktree ~/Developer/orm/CM051-qr (tip 9f4300ec, pairing QR scan size; 256 of 264 added lines absent from main; no PR). Worktree not touched, branch not pushed by ORM (owner pushes after a PII check, CM051 is public). Owner: the agent of that worktree; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible pairing QR size; 256 of 264 lines unlanded"
     until_cut: "v1.0.121"
   - ref: "CM051:mr/3092"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED residue, local-only in another agent's worktree ~/Developer/cm051-mr-wt (tip 5759425a). #3092 content landed in the l10n squash 9be9e49d; 1457 of 67194 added lines still absent from main and #3092 is still OPEN. Worktree not touched, not pushed by ORM (public repo, reviewer-name history risk). Owner: the l10n agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible translations: 1457 lines absent, #3092 still OPEN"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED residue, local-only in another agent's worktree ~/Developer/cm051-mr-wt (tip 5759425a). #3092 content landed in the l10n squash 9be9e49d; 1457 of 67194 added lines still absent from main and #3092 is still OPEN. Worktree not touched, not pushed by ORM (public repo, reviewer-name history risk). Owner: the l10n agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible translations: 1457 lines absent, #3092 still OPEN || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 5759425a still NOT on CM051 main (re-measured 2026-11-21); #3092 still open with 1457 lines absent; the worktree holding it is not touched by this cut. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM051:shrink/3130"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 09acd85d is a commit of merged PR #3130), held by another agent's worktree ~/Developer/shrink_3130; tip recorded, removal left for session hygiene. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope."
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: SPENT (tip 09acd85d is a commit of merged PR #3130), held by another agent's worktree ~/Developer/shrink_3130; tip recorded, removal left for session hygiene. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 09acd85d is a commit of merged PR #3130, still held by another agent's worktree (re-measured 2026-11-21: branch still not on main as a branch ref); removal left for session hygiene, deletion not authorized in this task. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM044:feat/chats-with-ostler-label"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, WIP 'Chats with Ostler' AI-chats label (tip ea6272f0, 107 of 107 added lines absent from main, no PR, 'tests not yet run'). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: unshipped WIP ('tests not yet run'); its absence changes nothing a customer sees"
-    until_cut: "v1.0.122"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, WIP 'Chats with Ostler' AI-chats label (tip ea6272f0, 107 of 107 added lines absent from main, no PR, 'tests not yet run'). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: unshipped WIP ('tests not yet run'); its absence changes nothing a customer sees || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM044 clone (held locally per the record below); the 2026-10-29 measurement (ea6272f0, 107 of 107 added lines absent, no PR, tests not yet run) still stands. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM044:fix/v107-needs-you-now-shared-source"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue: PR #296 closed as superseded by #295, but its close note says the every-qualifying-birthday fix still has value on the SPARQL fallback path (50 of 80 added lines absent). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible birthdays on the fallback path; 50 of 80 lines absent"
-    until_cut: "v1.0.121"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL residue: PR #296 closed as superseded by #295, but its close note says the every-qualifying-birthday fix still has value on the SPARQL fallback path (50 of 80 added lines absent). Owner: the CM044 wiki agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): BLOCKING at v1.0.122, NOT re-exempted (Archie 2026-11-02). The 122 walk measures it: pass = RETIRE, fail = FAIL. customer-visible birthdays on the fallback path; 50 of 80 lines absent || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM044 clone (held locally per the record below); the 2026-10-29 measurement (PR #296 closed superseded by #295, 50 of 80 added lines absent, fallback-path value) still stands. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM031:feat/ios-demo-mode"
-    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, iOS demo-mode generator + dataset from the synthetic demo life, 'data only, not yet wired' (tip 859369e4, 3448 of 3448 lines absent, no PR). Not in the DMG either way (iOS). Owner: the CM031 demo-mode agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: unshipped 'data only, not yet wired'; iOS, no DMG impact"
-    until_cut: "v1.0.122"
+    reason: "ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: REAL UNLANDED, iOS demo-mode generator + dataset from the synthetic demo life, 'data only, not yet wired' (tip 859369e4, 3448 of 3448 lines absent, no PR). Not in the DMG either way (iOS). Owner: the CM031 demo-mode agent; tracker row v1.0.121. RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: unshipped 'data only, not yet wired'; iOS, no DMG impact || 2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical CM031 clone (held in another agent's worktree per the record below); the 2026-10-29 measurement quoted below (859369e4, 3448 of 3448 lines absent, no PR) still stands and no PR has been opened since. No renewal without named active-work proof."
+    until_cut: "v1.0.137"
   - ref: "CM051:#1437"
     reason: >-
       The decline arm must not claim "nothing was written to your Mac" when a
@@ -1852,7 +2724,8 @@ deferrals:
       CONFIRMS and re-scopes: #842 says the auth failure leaves the gate green;
       it actually marks the branch RED, which is worse -- it fabricates a
       finding). Retire this row the moment CI can read the daemon repo.
-    until_cut: "v1.0.47"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip not in the canonical ostler-assistant clone (held locally per the record below); the original measurement quoted below still stands. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
   - ref: "CM051:#997"
     reason: "Engine provenance and install-time disclosure. DEFERRED BECAUSE IT IS NOT A FIX: the four defects v1.0.43 exists for are all merged and nothing in the cut waits on it. It is RED on two counts, both located and both four lines -- install.sh.strings.en-GB.sh:1488 char 235 uses a spaced double hyphen where the em-dash rule requires a spaced en-dash, and tests/test_engine_provenance_never_claims_what_it_did_not_install.sh:232 and :266 pipe into grep -q under pipefail, which the SIGPIPE ratchet correctly refuses. AND IT CARRIES TWO SUBSTANTIVE REVIEW FINDINGS THAT SHOULD NOT BE FIXED AT SPEED. First, the before_seen guard checks a snapshot EXISTENCE and not its VALIDITY, so a zero-byte or truncated .engine-before makes the module claim it installed EVERY engine on the box; reachable because the redirect truncates before it writes, which is exactly what a jetsam-killed installer produces, and that is what happened on 2026-08-23. Second, owner=customer is emitted alongside installed_by_ostler=[colima] whenever both hold, so the two fields contradict each other. Shipping the module with either open would put a wrong provenance claim in front of a customer, which is worse than shipping no claim."
     until_cut: v1.0.46
@@ -5025,14 +5898,16 @@ deferrals:
       adjudicated with it. 203 behind / 11 ahead, 2026-07-24. Deliberately
       named archive/ by a human; deferring is recording that decision, not
       making a new one.
-    until_cut: "v1.0.46"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip da6e23ea still NOT on ostler-assistant main; an archived literal git stash ('WIP on' + 'index on'), unmergeable by construction. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
 
   - ref: daemon:archive/stash-1-hub-v0433-rc
     reason: >-
       The second archived stash off the same candidate tip, same shape as
       stash-0 above ('WIP on' + 'index on' over the identical nine commits).
       203 behind / 11 ahead, 2026-07-23. Same adjudication.
-    until_cut: "v1.0.46"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip b06fcc8c still NOT on ostler-assistant main; the second archived stash off the same candidate tip, same shape. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
 
   - ref: daemon:archive/wt-wt-oa-computer-use
     reason: >-
@@ -5045,7 +5920,8 @@ deferrals:
       while the actors did not. It is a whole feature family beyond v1.0 --
       not a walk fix, never shipped, and nothing in v1.0.45 depends on it.
       267 behind / 3 ahead, 2026-07-15. Pushed, so it is safe to leave parked.
-    until_cut: "v1.0.46"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 343ad469 still NOT on ostler-assistant main; the ActionBroker base IS on main, the CM061 computer-use scaffold and safety fixes are not; a whole feature family beyond v1.0, never shipped, nothing in this cut depends on it. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
 
   - ref: daemon:archive/wt-wt-oa-voice-agent
     reason: >-
@@ -5056,7 +5932,8 @@ deferrals:
       Register-and-block means the actor deliberately refuses to act, so
       shipping it would add no customer-reachable behaviour even if it landed.
       Beyond v1.0 scope. 267 behind / 3 ahead, 2026-07-15.
-    until_cut: "v1.0.46"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 456abbee still NOT on ostler-assistant main; the sibling voice-agent branch, register-and-block scaffold; shipping it would add no customer-reachable behaviour; beyond v1.0 scope. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
 
   # CM051:#1055 -- the ROOT FIX, deferred to v1.0.47 ON PURPOSE, by ORM.
   #
@@ -5319,7 +6196,8 @@ deferrals:
       patch-id match is not a byte-identity proof. Durable remote home at
       preservation/2026-08-29/archie-write-actions-actor-family-219 (tip 40dec17b),
       verified by ls-remote with a negative control. Retire together with the 219-v2 row.
-    until_cut: "v1.0.52"
+      2026-11-21 (KArchie full review 05:15:56Z, count correction): re-deferred as CUT-EXTERNAL DEBT, owner KAesop, until_cut v1.0.137 and review_by 2026-11-24, whichever first. Terminal disposition at expiry: push/open PR or delete; merge or delete only when separately authorized (not authorized in this task). Evidence re-measured 2026-11-21: tip 40dec17b still NOT on ostler-assistant main; all four commits already applied in archie/219-v2 by patch-id per the record below, so this is a preserved duplicate lineage, not unlanded work. No renewal without named active-work proof.
+    until_cut: "v1.0.137"
   - ref: "CM051:archie/rebase-1415"
     reason: >-
       NOT FOR THIS CUT, and not a judgement that it is unwanted. This is the
@@ -5825,3 +6703,356 @@ deferrals:
   - ref: "CM051:fix/1162-grounded-probe-rephrasing-pair"
     reason: "Carries tests/test_the_grounded_probe_can_see_a_phrasing_asymmetry.sh, 307 lines, which exists NOWHERE else: absent from origin/main and absent from open pull request CM051 #2195's head, checked with a positive control (assistant_answers_grounded.sh is present on all three, so the lookup is not answering no to everything). Had no remote until 2026-09-19; pushed rather than deleted. NOT opened as a competing pull request because it edits assistant_answers_grounded.sh and #2195 is the live lane for that file; #2195 has been told, with the measurement. It CANNOT stand alone: run against main's probe the test is FAIL, 6 of 13 arms, because it depends on the rephrasing-pair feature #2195 adds. Retires when #2195 takes the file, or when it is opened separately after #2195 merges."
     review_by: 2026-09-26
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie disposition 2026-11-21T03:55:37Z). 104 individual CUT-EXTERNAL rows,
+  # owner KAesop, each quoting gate-measured local-only status and a tip date
+  # or ref-absent-canonical status. The literal 'CM041:' empty identity the ruling
+  # named is RESOLVED, not exempted: the operator run now points CM041_DIR at the
+  # canonical clone, the gate measured CM041 for real, and the 21 real branches
+  # are rowed individually below. Cut-created exclusion, exhaustive: this cut
+  # created exactly cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051),
+  # bom/v1.0.136 (OS003) and orm136/ledger (HR015); none of the 104 is one of
+  # those. At expiry: push/open PR or delete; no renewal without named
+  # active-work proof.
+  # -------------------------------------------------------------------------
+  - ref: "CM031:feat/ios-demo-mode-a"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/ios-final-pass-parakeet"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-10-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/ios-final-pass-speechanalyzer"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/memory-tab-visible"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/pairing-faceid-steps"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/pairing-happy-eyeballs"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/pro-discoverability"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:feat/status-pill-state-machine"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/app-does-not-observe-sync"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/chat-return-sends-the-whole-text"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/ios-declare-destination"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/multilingual-final-pass"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/pill-checking-not-offline"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/pill-not-clipped-on-ios26"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/qr-scan-zoom"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/swiftdata-store-not-backed-up"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/timeline-calendar-rows"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/timeline-calendar-rows-rebased-117"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/timeline-event-classification"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/timeline-event-classification-rebased-117"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/timeline-hub-dates"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:fix/today-owner-promises-only"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:r10/cm031-merge"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:rescue/CM031-morning-build-20261117"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM031:rescue/CM031-onboarding-fix-test-20261117"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/296-assert-resolve-owner-local"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/forget-reaches-everything-134"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/memory-employer-destination"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/memory-l3-withhold"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/privacy-effective-sites"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/rsvp-owner-response"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/rt134-cm041-09-untagged-commitments"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/rt134-cm041-privacy-effective-level"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:fix/timeline-meetings-two-phase"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r06/minors-forget-arm"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r06/mirror-arm"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r08/owner-file-gate"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r295"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r296"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r300"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r301"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r302"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:r305"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:wf19/lane8-followups-commitments"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-10-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:wip/rescue-2026-11-17/wf-19"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM041:working-tree"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:ci/cm051-path-filters"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:cut130-remake"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-13; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:cut130-remake2"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-13; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:feat/cm051-doctor-passkey-133"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:feat/forget-sweep-doctor-row"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:feat/public-lookups-withdraw-134"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/ab-results-sha-flag"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/evernote-ignores-override-regression"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/forget-wiki-tick-134-local"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/forget-writer-scrub-dir"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/hung-slot-test-cleanup"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/model-size-labels-every-tier"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-10-19; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/pii-guard-any-root"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:fix/t2-calendar-id-producer-local"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:harness/walk126-probe-tests-split"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-06; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:ostler-vmsize-probe"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-16; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3502b"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-14; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3502c"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-14; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3502d"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-14; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3503b"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-14; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3516-merge"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-16; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:pr3535b"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:probe-merge"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-16; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:probe/no-l3-forward-seed-url"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:probe/no-l3-seed-topic-decision-pref-w2"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:r3587"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:rescue/cm051-prep-20261117"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:rt134d/cm051-3582"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:rt134d/cm051-3598"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:sweep/doctor-proxy-paths-ios"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:t2/cm051-calendar-134"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:wip/rescue-2026-11-17/orm-wt-people-exclusion"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-17; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:wt/r07-graft"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051:wt3603-fix"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM059:feat/frontpage-setup-cards"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM059:feat/tell-ostler-what-youre-into-v2"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-09-13; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:backup/local-agent-ostler-reminders-eventkit-2026-05-10-2026-07-12"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-05-19; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/brief-declare-owner-own-brief"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-18; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/brief-derived-prefs"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/brief-v2-judgement"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-15; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/egress-approvals-store"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/grounded-sources-cache"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/people-circles-ui"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/run-source-photokit"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:feat/support-gate-owner-facts"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/133-outbound-l1l2-hub"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/brief-conv-event-133"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/brief-count-per-source-133"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/derived-l2-l3-withhold"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/gate-class2-refusals"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-16; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/gateway-conversation-status-speakers-proxy"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-10-07; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/imessage-tapbacks-whatsapp-ack-reactions"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/knowledge-search-l1-l2-filter-134"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/pairing-token-provenance-898"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-08-28; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/taste-drop-l0"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:fix/taste-drop-l0-hub"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); ref absent from the canonical clone (gate-measured local-only); cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:integration/hub-v0.4.44"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-07-31; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+  - ref: "daemon:r10/oa-security-dir"
+    reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie re-review ruling, relayed by KAesop
+  # 14:2xZ, recorded to_coordinator.md 14:04:27Z). Five individual CUT-EXTERNAL
+  # rows, owner KAesop, review_by 2026-11-24, one per pre-existing local-only
+  # branch. Evidence is KArchie's gate measurement of record (canonical checkout
+  # for this cut is the ORM workdir at head ac3b3c8e, which carries zero p26xx;
+  # CI and future cuts use a fresh clean clone of the exact cut SHA, where these
+  # local-only refs do not exist either). Zero remote containers for every ref.
+  # Cut-created exclusion, exhaustive: this cut created exactly cut/v1.0.136 and
+  # orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003) and orm136/ledger
+  # (HR015); none of the five is one of those. No branch deleted in this task.
+  # -------------------------------------------------------------------------
+  - ref: "CM051:p2664"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 15407048), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2669"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 2d527638), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2670b"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 5cf75aee), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2673"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip b49cc0c1), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2673b"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 7da77d4b), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24

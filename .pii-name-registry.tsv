@@ -2496,3 +2496,7 @@ nonperson	vendor/divergences/cm041_assistant_api.patch::3805b4ae12ffabc4	PRODUCT
 nonperson	vendor/cm041/assistant_api/ical-server.py::3805b4ae12ffabc4	PRODUCT: the Apple Photos app, named as the source of the Timeline photo rows in an upstream docstring; a third-party product, not a person.
 phrase	fixture owner	technical label: the synthetic owner of the people/context latency fixture; not a person
 phrase	example org	technical label: a reserved example organisation name in the people/context latency fixture; not a person
+phrase	people circles	product feature name: the daemon People Circles feature (owner-set relations beside card relations); ostler-assistant branch feat/people-circles-ui and held PR titles carry it. Two capitalised words, no person.
+phrase	app intents	product feature name: the CM031 App Intents shortcuts (Ask Ostler, Who is, Today, Note). Two capitalised words, no person.
+phrase	ask ostler	product surface name: the Ask Ostler shortcut title in the CM031 App Intents PR. No person.
+phrase	hub home	probe fixture name: the Hub Home setup-card walk probe. Two capitalised words, no person.
