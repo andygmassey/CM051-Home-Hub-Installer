@@ -47,6 +47,7 @@
     "why": "Ostler draait zijn databases (Qdrant, Oxigraph, Redis) en wiki in Docker. Ollama en het programma van de assistent draaien native – Docker is alleen de datalaag.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "Ollama draait taalmodellen op de Apple Silicon van je Mac. Elke vraag die je assistent beantwoordt en elke wikisamenvatting loopt hierdoorheen. Niets verlaat de Mac.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "De databases van je Mac lezen",
-    "subtitle": "Het directe onboardingdeel",
+    "subtitle": "The quick first look",
     "why": "macOS laat geen enkele app je berichten, mail, notities, agenda's of foto's lezen zonder jouw uitdrukkelijke toestemming. We hebben die ene toestemming nodig zodat Ostler alles samen in je kennisgraaf kan brengen. Alles blijft op deze Mac – er wordt niets naar buiten gestuurd. Je geeft de toestemming één keer in Systeeminstellingen en macOS onthoudt hem daarna.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "Drie kleine databases starten op: vectoren voor semantisch zoeken, RDF-triples voor relaties en Redis voor de berichtenbus. Allemaal lokaal, allemaal van jou.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane is de lokale webzoek-interface. Het draait in een container op je Mac en praat met je lokale Ollama – webzoekopdrachten verlaten je computer nooit. Als de container niet kan starten, blijft de rest van Ostler gewoon werken; je kunt het webzoeken later opnieuw proberen.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "De eerste download is ~3,6 GB (SearXNG zit erbij). Daarna start het binnen een paar seconden.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "Eerste import: contacten, gesprekken, agenda-afspraken, Safari-geschiedenis. Daarna draait de wikicompiler, die de grafiek omzet in pagina's die je kunt lezen.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "De importtijd hangt af van je geschiedenis. Jaren aan iMessage-gegevens kunnen 10-20 minuten duren.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "Transcripties van gesprekken en vergaderingen instellen",
-    "subtitle": "Transcriberen is altijd jouw keuze",
-    "why": "Dit installeert de app die je gesprekken en vergaderingen op deze Mac kan transcriberen. Er wordt niets getranscribeerd totdat je het zelf start, en de transcriptie gebeurt lokaal.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

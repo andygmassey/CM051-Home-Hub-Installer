@@ -47,6 +47,7 @@
     "why": "Ostlerはデータベース(Qdrant、Oxigraph、Redis)とWikiをDockerで実行します。Ollamaとアシスタントのバイナリはネイティブで動作し、Dockerはデータ層にのみ使われます。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "OllamaはMacのApple Silicon上で言語モデルを実行します。アシスタントが答えるすべてのプロンプトとWikiの要約は、これを通して処理されます。データがマシンの外に出ることはありません。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "Macのデータベースを読み込み中",
-    "subtitle": "オンボーディングの即時ステップ",
+    "subtitle": "The quick first look",
     "why": "macOSでは、明示的な許可なしに、アプリがメッセージ、メール、メモ、カレンダー、写真を読み取ることはできません。Ostlerがそれらをまとめてナレッジグラフに取り込むには、この許可が一つ必要です。すべてこのMac内にとどまり、どこにも送信されません。許可はシステム設定で一度行えば、以降はmacOSが記憶します。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "3つの小さなデータベースが起動します。意味検索用のベクトル、関係性用のRDFトリプル、メッセージバス用のRedisです。すべてローカルで、すべてあなたのものです。",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane は、ローカルで動作する Web 検索のフロントエンドです。Mac 上のコンテナで動作し、ローカルの Ollama と通信するため、Web 検索があなたの Mac の外に出ることはありません。コンテナの起動に失敗しても、Ostler のそのほかの機能は引き続き使えます。Web 検索は後でもう一度試せます。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "初回の取得は約 3.6 GB です(SearXNG を含みます)。2回目以降の起動は数秒で完了します。",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "最初の読み込みでは、連絡先、会話、カレンダーの予定、Safari の履歴を取り込みます。この後に Wiki コンパイラが実行され、グラフを読めるページに変換します。",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "読み込み時間は履歴の量によって変わります。数年分の iMessage データでは 10~20 分かかることがあります。",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "通話と会議の文字起こしを設定中",
-    "subtitle": "文字起こしするかどうかは常にあなた次第です",
-    "why": "このMacでの通話や会議を文字起こしできるアプリをインストールします。あなたが明示的に開始するまでは何も行われず、文字起こしはこのMac上で実行されます。",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

@@ -58,11 +58,9 @@ install.sh.strings.en-GB.sh	MSG_WARN_GB_RAM_DETECTED_WORKS_BUT_LIMITS	needs_revi
 gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_review	GDPR Article 9 consent text: legal review needed; also confirm the "Reset Ostler" menu label matches the localized app.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment concatenated in code; Korean word order may not work with the surrounding pieces. Needs check in the assembled sentence.
-gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/subtitle	needs_review	Source says 'Recording', which conflicts with the transcribe-not-record rule; consent-related heading, used 전사. Human should confirm source wording.
-gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/why	needs_review	Source uses 'record'; per glossary rendered as transcription to avoid implying stored audio. Consent wording, human/legal check advised.
+install.sh.strings.ko.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-install.sh.strings.ko.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending

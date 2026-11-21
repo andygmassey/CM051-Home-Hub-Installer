@@ -47,6 +47,7 @@
     "why": "يشغّل Ostler قواعد بياناته (Qdrant وOxigraph وRedis) وموقع الويكي في Docker. أما Ollama والملف التنفيذي للمساعد فيعملان محليًا بشكل أصلي – وDocker هو طبقة البيانات فقط.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "يشغّل Ollama نماذج اللغة على Apple Silicon في جهاز Mac. كل طلب يجيب عنه مساعدك وكل ملخص ويكي يمر عبره. لا شيء يغادر الجهاز.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "قراءة قواعد بيانات جهاز Mac",
-    "subtitle": "جزء التهيئة الفورية",
+    "subtitle": "The quick first look",
     "why": "لا يسمح macOS لأي تطبيق بقراءة رسائلك أو بريدك أو ملاحظاتك أو تقاويمك أو صورك دون موافقتك الصريحة. نحتاج إلى هذا الإذن الواحد ليتمكن Ostler من جمعها كلها في الرسم البياني للمعرفة. يبقى كل شيء على هذا الجهاز – ولا يُرسل أي شيء إلى أي مكان. ستمنحه مرة واحدة في إعدادات النظام ويتذكره macOS بعد ذلك.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "تبدأ ثلاث قواعد بيانات صغيرة: المتجهات للبحث الدلالي، وثلاثيات RDF للعلاقات، وRedis لناقل الرسائل. كلها محلية وكلها لك.",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane هي الواجهة المحلية للبحث على الويب. تعمل داخل حاوية على جهاز Mac لديك وتتواصل مع Ollama المحلي لديك، لذا لا تغادر عمليات البحث على الويب جهازك أبدًا. إذا تعذّر بدء تشغيل الحاوية، يواصل بقية Ostler عمله، ويمكنك إعادة محاولة البحث على الويب لاحقًا.",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "التنزيل الأول بحجم 3.6 GB تقريبًا (يتضمن SearXNG). وتستغرق عمليات البدء اللاحقة ثوانيَ فقط.",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "الاستيراد الأول: جهات الاتصال والمحادثات وأحداث التقويم وسجل Safari. يعمل مُجمِّع الويكي بعد ذلك ويحوّل الرسم إلى صفحات يمكنك قراءتها.",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "يتناسب وقت الاستيراد مع حجم سجلك. قد تستغرق بيانات iMessage لسنوات من 10 إلى 20 دقيقة.",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "إعداد نصوص المكالمات والاجتماعات",
-    "subtitle": "النسخ النصي دائمًا باختيارك",
-    "why": "يثبّت هذا التطبيق الذي يمكنه تفريغ مكالماتك واجتماعاتك نصيًا على هذا الـ Mac. ولا يفرّغ أي شيء حتى تبدأ ذلك بنفسك صراحةً، ويتم النسخ النصي محليًا.",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

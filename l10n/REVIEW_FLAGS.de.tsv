@@ -64,10 +64,9 @@ gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_r
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment; German case/article depends on the surrounding concatenated sentence. Developer should check assembly.
 gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	German WhatsApp likely labels "Link a device" as „Gerät hinzufügen“. Please verify both labels against the current German WhatsApp UI.
-gui/OstlerInstaller/Resources/HintCopy.json	ostler_remotecapture/subtitle	needs_review	Glossary forbids 'record'; changed to transcribing. Consent-related heading, product/legal should confirm.
+install.sh.strings.de.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-install.sh.strings.de.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending

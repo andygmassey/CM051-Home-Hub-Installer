@@ -47,6 +47,7 @@
     "why": "Ostler 在 Docker 中运行其数据库（Qdrant、Oxigraph、Redis）和维基。Ollama 和助手程序则以原生方式运行，Docker 只负责数据层。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "The first start of the container runtime can take several minutes. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -77,6 +78,7 @@
     "why": "Ollama 在你的 Mac 的 Apple 芯片上运行语言模型。你的助手回答的每一个提示，以及每一份维基摘要，都通过它完成。任何内容都不会离开这台设备。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 180,
+    "long_running_copy": "Downloading and checking the AI engine can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -103,7 +105,7 @@
   "fda_extract": {
     "id": "fda_extract",
     "title": "正在读取你的 Mac 的数据库",
-    "subtitle": "快速上手的一步",
+    "subtitle": "The quick first look",
     "why": "未经你明确许可，macOS 不允许任何 App 读取你的信息、邮件、备忘录、日历或照片。我们需要这一项权限，Ostler 才能把这些内容汇集到你的知识图谱中。所有内容都保留在这台 Mac 上，不会发送到任何地方。你只需在“系统设置”中授权一次，之后 macOS 会记住。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 30,
@@ -118,6 +120,7 @@
     "why": "三个小型数据库正在启动：向量用于语义搜索，RDF 三元组用于关系，Redis 用于消息总线。全部在本地，全部归你所有。",
     "duration_estimate_s": 30,
     "long_running_threshold_s": 90,
+    "long_running_copy": "The first start downloads the three database images, which can take several minutes on a slow connection. It is working, not stuck.",
     "illustration": null,
     "needs_fda": false
   },
@@ -128,7 +131,7 @@
     "why": "Vane 是本地网络搜索前端。它在你 Mac 上的容器中运行，并与本地的 Ollama 通信，网络搜索不会离开你的设备。如果容器启动失败，Ostler 的其他功能仍可正常使用；你可以稍后再重试网络搜索。",
     "duration_estimate_s": 60,
     "long_running_threshold_s": 120,
-    "long_running_copy": "首次拉取约 3.6 GB（已内置 SearXNG）。之后的启动只需几秒。",
+    "long_running_copy": "First-time pull is about 3.5 GB (SearXNG bundled in) and can take an hour or more on a slow connection. Subsequent starts are seconds.",
     "illustration": null,
     "needs_fda": false
   },
@@ -170,7 +173,7 @@
     "why": "首轮导入：联系人、对话、日历事件、Safari 历史记录。之后会运行 wiki 编译器，把图谱转换成可阅读的页面。",
     "duration_estimate_s": 300,
     "long_running_threshold_s": 240,
-    "long_running_copy": "导入时间取决于你的历史数据量。多年的 iMessage 数据可能需要 10-20 分钟。",
+    "long_running_copy": "Import time scales with your history. A large history can take 15 to 45 minutes, and longer on a slower Mac.",
     "illustration": null,
     "needs_fda": false
   },
@@ -485,8 +488,8 @@
   "ostler_remotecapture": {
     "id": "ostler_remotecapture",
     "title": "正在设置通话和会议转写",
-    "subtitle": "是否转写，始终由你决定",
-    "why": "这会安装一款应用，可在这台 Mac 上转写你的通话和会议。在你明确启动之前，它不会转写任何内容，转写在本地完成。",
+    "subtitle": "Capture is always your choice",
+    "why": "This installs the app that can capture and transcribe your calls and meetings on this Mac. It captures nothing until you explicitly start it, and transcription happens locally.",
     "duration_estimate_s": 120,
     "long_running_threshold_s": 90,
     "long_running_copy": null,

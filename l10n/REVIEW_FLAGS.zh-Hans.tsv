@@ -64,9 +64,9 @@ gui/OstlerInstaller/Resources/ViewCopy.json	consent_article_9/intro_body	needs_r
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_count	needs_review	Sentence fragment concatenated in code; Chinese word order likely breaks. Developer should check assembly or use a full-sentence string.
 gui/OstlerInstaller/Resources/ViewCopy.json	device_limit/fallback_max	needs_review	Sentence fragment concatenated in code; Chinese word order likely breaks. Developer should check assembly or use a full-sentence string.
 gui/OstlerInstaller/Resources/ViewCopy.json	whatsapp_link/step2	needs_review	Full-width comma fixed; WhatsApp's own Chinese menu labels should be verified against the current app.
+install.sh.strings.zh-Hans.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/title	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_complete_wrap_up/why	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/subtitle	needs_review	en-GB header asks for human translation of this key
 gui/OstlerInstaller/Resources/HintCopy.json	setup_questions/why	needs_review	en-GB header asks for human translation of this key
-install.sh.strings.zh-Hans.sh	MSG_WARN_MODEL_PULL_UNPINNED_ENGINE_NOT_VERIFIED	needs_review	machine translation added in-session 2026-11-13 (CM051 deferred-pin pull); native review pending
