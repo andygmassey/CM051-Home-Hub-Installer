@@ -126,6 +126,17 @@ def _abcddb_photo_bytes(db_path: Any, row: Any, uid: str,
     return None
 
 
+def _vcard_value(value: str) -> str:
+    """Escape a vCard 3.0 text value (RFC 2426): backslash, comma, semicolon, newline."""
+    return (
+        value.replace("\\", "\\\\")
+        .replace(",", "\\,")
+        .replace(";", "\\;")
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+
 class ContactSyncer:
     """Orchestrates the full contact sync pipeline."""
 
@@ -840,6 +851,34 @@ class ContactSyncer:
                 except _sqlite3.OperationalError:
                     pass
 
+                # G1: the owner's own card carries its Contacts relationship
+                # labels (spouse, manager, ...). The store's ZME column is a
+                # POINTER: one row holds a non-NULL ZME equal to the owner's
+                # Z_PK (measured on the box). Only that card gets the marker
+                # and the related-name lines; other cards' relations are
+                # perspectival and are not emitted.
+                owner_pks: set = set()
+                try:
+                    for orow in conn.execute(
+                        "SELECT ZME FROM ZABCDRECORD WHERE ZME IS NOT NULL"
+                    ).fetchall():
+                        owner_pks.add(orow["ZME"])
+                except _sqlite3.OperationalError as exc:
+                    logger.warning("owner pointer unreadable in %s: %s", db_path, exc)
+                relations_by_pk: Dict[int, List[Tuple[str, str]]] = {}
+                if owner_pks:
+                    try:
+                        for rr in conn.execute(
+                            "SELECT ZOWNER as pk, ZNAME as name, ZLABEL as label "
+                            "FROM ZABCDRELATEDNAME ORDER BY Z_PK"
+                        ).fetchall():
+                            if rr["pk"] in owner_pks and rr["name"]:
+                                relations_by_pk.setdefault(rr["pk"], []).append(
+                                    (str(rr["name"]), str(rr["label"] or ""))
+                                )
+                    except _sqlite3.OperationalError as exc:
+                        logger.warning("ZABCDRELATEDNAME unreadable in %s: %s", db_path, exc)
+
                 def _s(v) -> str:
                     if v is None:
                         return ""
@@ -875,6 +914,14 @@ class ContactSyncer:
                         lines.append(f"EMAIL;TYPE=INTERNET:{em}")
                     for ph in phones_by_pk.get(pk, []):
                         lines.append(f"TEL:{ph}")
+                    if pk in owner_pks:
+                        lines.append("X-OSTLER-OWNER-CARD:TRUE")
+                        for idx, (rname, rlabel) in enumerate(relations_by_pk.get(pk, []), 1):
+                            lines.append(
+                                f"item{idx}.X-ABRELATEDNAMES;TYPE=pref:{_vcard_value(rname)}"
+                            )
+                            if rlabel:
+                                lines.append(f"item{idx}.X-ABLABEL:{_vcard_value(rlabel)}")
                     if note:
                         # vCard NOTE wants newlines escaped.
                         escaped = note.replace("\\", "\\\\").replace("\n", "\\n")
