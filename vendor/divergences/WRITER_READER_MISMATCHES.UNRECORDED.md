@@ -1930,3 +1930,7 @@ Nine vendored files under `agent/` changed in comments and docstrings only. Tree
 Why: the operator name must not ship in a customer Hub. Source-side fix is tracked as CB137-VENDOR-OPERATOR-NAME-AT-SOURCE (`~/walkdriver/v1.0.134/CUT_BLOCKERS.md`). The same scrub for the other shipped trees is in that blocker and is not in this change.
 
 What a future sync must preserve: these nine files' comment and docstring lines, so the name does not return from upstream. Retire when the doctor source at HR015 carries the same role wording natively.
+
+## CB136-HUB-DOCTOR-HYDRATION-502 (ORM, 2026-11-20): hydration passthrough budget
+
+vendor/doctor/agent/web_ui.py: `_HYDRATION_UPSTREAM_TIMEOUT_SECONDS` 5.0 -> 15.0 (with a comment). Not in doctor.patch because the HR015 doctor source is the upstream for this file and it carries the same 5.0 value. Why: the 135 walk box measured the composite at 4.3 s idle and over 5 s under load, so the customer's hydration panel poll returned 502 ReadTimeout. Test: tests/test_hydration_upstream_timeout_covers_the_measured_latency.py (mutant 5.0 red). Source-side fix in HR015 doctor is owed; retire this entry when the HR015 source carries 15.0 and the next doctor re-vendor is measured.

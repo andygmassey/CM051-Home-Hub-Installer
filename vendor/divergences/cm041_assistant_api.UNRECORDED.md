@@ -2444,6 +2444,8 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
 
+Revision (CM041 PR #316 head 9ca732f1, CB136 derived-preferences empty-answer message). Tree: cm041/assistant_api. `derived_preferences.py` is byte-identical to CM041 PR #316 head (sha256 prefix e083aa196504b6a1 in both trees). It adds `count_held_back_by_level` on `DerivedGraphReader` and the held-back wording in `build_derived_preferences_response`. New vendored test `tests/test_derived_withheld_message.py` (byte-identical to CM041), wired into the executed pytest list of `.github/workflows/cm041-133-outbound-privacy.yml`. The test's synthetic route fake is unchanged here. No other vendored file changes in this revision.
+
 ## CB137 (ORM, 2026-11-20): People list service gate, positive evidence only (graft of CM041 #314)
 
 Where: vendor/cm041/assistant_api/ical-server.py. people_row_hidden_as_service (and its helper _named_row_has_service_evidence) sits next to people_list. The text is byte-identical to CM041 main's copy in CM041 #314.

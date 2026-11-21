@@ -64,6 +64,12 @@ home() {
         absent-key)        printf 'USER_ID="jane"\n' > "$h/.ostler/config/.env" ;;
         no-env)            rm -f "$h/.ostler/config/.env" ;;
     esac
+    # The tick (since 136) refuses to run unless the ENGINE is present: an
+    # executable interpreter AND a readable services/enrich/src/cli.py. The
+    # fixture must look installed or every answer, accepted included, stands
+    # down at the engine check before the consent gate is ever reached.
+    mkdir -p "$h/.ostler/services/cm019/services/enrich/src"
+    printf '# fixture marker: the tick checks this file is readable\n' > "$h/.ostler/services/cm019/services/enrich/src/cli.py"
     # Stub CM019 python (both names the launchers use): ingest is local and
     # succeeds; every enrich invocation is COUNTED.
     local stub="$h/.ostler/services/cm019/.venv/bin/python"

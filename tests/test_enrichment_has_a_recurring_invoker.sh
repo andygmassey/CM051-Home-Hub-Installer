@@ -158,10 +158,12 @@ else
         no "a box with no preferences service made the tick exit ${rc}; it must degrade, not die" "$(cat "$TMP/out")"
     elif [ ! -s "$logf" ]; then
         no "the tick exited 0 and wrote NOTHING; silence is indistinguishable from never running" ""
-    elif ! grep -q 'nothing to enrich' "$logf"; then
-        no "the tick logged, but did not say what it found" "$(cat "$logf")"
+    elif ! grep -q 'engine not installed' "$logf"; then
+        no "the tick logged, but did not name the state (engine not installed)" "$(cat "$logf")"
+    elif grep -q 'NOTHING TO ENRICH\|nothing to enrich' "$logf"; then
+        no "an absent engine is reported as nothing-to-enrich; that is a false absence" "$(cat "$logf")"
     else
-        ok "with no preferences service: exits 0, and SAYS why, in its log"
+        ok "with no engine installed: exits 0, and names the state in its log (not nothing-to-enrich)"
     fi
 
     # 8b. The lock must actually exclude. A second pass overlapping the
