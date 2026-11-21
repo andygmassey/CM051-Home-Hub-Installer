@@ -380,8 +380,26 @@ def _derive_wait(prev, budget):
         time.sleep(poll)
 
 
+# The shared Ollama ingest slot is a mkdir lock (install.sh ostler-ingest-slot.sh, the
+# OSTLER_INGEST_LOCK default). A derive tick that finds it held YIELDS. Walk 132: the
+# com.ostler.fda-rerun agent held it for 900 s+, and seven kicks in a row yielded into it.
+INGEST_LOCK = os.environ.get("OSTLER_INGEST_LOCK") or os.path.expanduser(
+    "~/.ostler/workspace/ingest-ollama.lock.d")
+
+
+def _slot_wait(budget, clock=time.time, nap=time.sleep, held=None):
+    """Wait, up to budget seconds, for the ingest slot to be free BEFORE a kick, so a
+    kick is not spent on a tick that can only yield. Returns True when free."""
+    held = held or (lambda: os.path.isdir(INGEST_LOCK))
+    poll = float(os.environ.get("OSTLER_SMARTPREFS_SLOT_POLL_S", "15"))
+    end = clock() + budget
+    while held() and clock() < end:
+        nap(poll)
+    return not held()
+
+
 def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.time, nap=time.sleep, since=None,
-                       now_iso=None):
+                       now_iso=None, pre_kick=None):
     """Kick the derive agent and wait for a pass, RE-KICKING while its tick only deferred or
     yielded. v1.0.121: one kick and one 240s wait; the tick yielded to the busy hourly ingest slot
     (com.ostler.fda-rerun, 900s+), nothing re-asked, and four probes read CANNOT-RUN. A tick that
@@ -405,6 +423,8 @@ def _derive_until_pass(prev, budget, total, kick=None, wait=None, clock=time.tim
     while not ran and clock() < end:
         if st.get("outcome") in ("deferred", "yielded") and (not since or not st.get("ts") or fresh(st)):
             nap(float(os.environ.get("OSTLER_SMARTPREFS_REKICK_PAUSE_S", "30")))
+            if pre_kick is not None:
+                pre_kick(max(1.0, end - clock()))
             if kick()[0] != 0:
                 break
             if since:
@@ -452,6 +472,9 @@ def seed_main():
         out["why"] = "oxigraph overlay insert refused: status=%s %s" % (code, err)
         print(json.dumps(out)); return 0
     out["presence"] = fixture_presence()
+    # Walk 132: the first kick landed on a busy slot and yielded. Wait for the slot first.
+    slot_free = _slot_wait(float(os.environ.get("OSTLER_SMARTPREFS_SLOT_WAIT_S", "1200")))
+    out["slot"] = {"free_before_kick": slot_free}
     prev = _status().get("last_run_at")
     kicked_at = _iso(0)
     rc, kout = _kick(force=True)
@@ -464,7 +487,8 @@ def seed_main():
     t0 = time.time()
     if rc == 0:
         ran, st = _derive_until_pass(prev, float(os.environ.get("OSTLER_SMARTPREFS_DERIVE_BUDGET_S", "240")),
-                                     total, kick=lambda: _kick(force=True), since=kicked_at)
+                                     total, kick=lambda: _kick(force=True), since=kicked_at,
+                                     pre_kick=lambda b: _slot_wait(b))
     mark_left = os.path.exists(KICK_MARK)
     out["derive"] = {"ran_after_seed": ran, "outcome": st.get("outcome"), "reason": (st.get("reason") or "")[:200],
                      "waited_s": int(time.time() - t0), "total_s": int(total), "kick_mark_consumed": not mark_left}

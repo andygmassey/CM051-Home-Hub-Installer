@@ -104,6 +104,7 @@ def collect(jobs_paths, chat_db, logs, now=None) -> dict:
 
     cutoff = now - timedelta(days=WINDOW_DAYS)
     runs = []
+    announce_jobs = set()
     for jid, mode, chan, max_wait, started, finished, status in rows:
         if str(mode or "").lower() != "announce" or str(chan or "").lower() != "imessage":
             continue
@@ -111,9 +112,14 @@ def collect(jobs_paths, chat_db, logs, now=None) -> dict:
             s, f = _ts(started), _ts(finished)
         except ValueError:
             continue
-        if s < cutoff or status != "ok":
+        # Every status counts. A run whose delivery FAILED can be recorded with
+        # a non-ok cron status; dropping it here turned a real failure into
+        # "0 runs" and therefore CANNOT-RUN (walk 132, 2026-11-15).
+        if s < cutoff:
             continue
-        runs.append({"job": jid, "start": s, "end": f + timedelta(seconds=int(max_wait or 0) + SLACK_S)})
+        runs.append({"job": jid, "start": s, "end": f + timedelta(seconds=int(max_wait or 0) + SLACK_S),
+                     "status": status})
+        announce_jobs.add(jid)
 
     # The daemon's own disposition per (job, time).
     labels = []
@@ -148,6 +154,15 @@ def collect(jobs_paths, chat_db, logs, now=None) -> dict:
         cap["chat_db_readable"] = True
     except sqlite3.Error:
         pass
+
+    # A delivery the daemon logged but cron_runs has no row for (or has a row
+    # for, with a non-ok status) is still a run: its own disposition is the record.
+    for (t, jid, lvl) in labels:
+        if lvl not in ("DELIVERED", "FAILED") or t < cutoff or jid not in announce_jobs:
+            continue
+        if any(r["job"] == jid and r["start"] - timedelta(seconds=5) <= t <= r["end"] for r in runs):
+            continue
+        runs.append({"job": jid, "start": t, "end": t + timedelta(seconds=SLACK_S), "status": "log-only"})
 
     for r in runs:
         seen = sum(1 for t in sent if r["start"] - timedelta(seconds=5) <= t <= r["end"])
@@ -210,7 +225,7 @@ def judge(cap: dict):
 # Self-test: synthetic jobs.db, chat.db and log; every case on its own verdict.
 # ---------------------------------------------------------------------------
 
-def _fixture(d: Path, *, disposition, message_at, chat_ok=True, now):
+def _fixture(d: Path, *, disposition, message_at, chat_ok=True, now, cron_status="ok"):
     run = now - timedelta(hours=3)
     jobs = d / "jobs.db"
     con = sqlite3.connect(jobs)
@@ -220,8 +235,8 @@ def _fixture(d: Path, *, disposition, message_at, chat_ok=True, now):
     )
     con.execute("INSERT INTO cron_jobs VALUES ('morning-brief', ?)",
                 (json.dumps({"mode": "announce", "channel": "imessage", "max_wait_secs": 30}),))
-    con.execute("INSERT INTO cron_runs VALUES ('morning-brief', ?, ?, 'ok')",
-                (run.isoformat(), (run + timedelta(seconds=2)).isoformat()))
+    con.execute("INSERT INTO cron_runs VALUES ('morning-brief', ?, ?, ?)",
+                (run.isoformat(), (run + timedelta(seconds=2)).isoformat(), cron_status))
     con.commit(); con.close()
     chat = d / "chat.db"
     if chat_ok:
@@ -255,16 +270,21 @@ CASES = [
     ("suppressed by the settle grace", "SUPPRESSED_SETTLING", None, True, EX_CANNOT),
     ("no disposition line, no message", None, None, True, EX_CANNOT),
     ("chat.db unreadable", "DELIVERED", 40, False, EX_CANNOT),
+    # Walk 132: the FAILED run's cron_runs status was not 'ok', so the old
+    # reader saw zero runs and printed CANNOT. A FAILED delivery is a FAIL.
+    ("logged FAILED, cron status not ok, nothing in chat.db", "FAILED", None, True, EX_FAIL, "error"),
 ]
 
 
 def self_test() -> int:
     now = datetime.now(timezone.utc)
     bad = 0
-    for name, disp, at, chat_ok, want in CASES:
+    for case in CASES:
+        name, disp, at, chat_ok, want = case[:5]
+        cron = case[5] if len(case) > 5 else "ok"
         with tempfile.TemporaryDirectory() as t:
             jobs, chat, logs = _fixture(Path(t), disposition=disp, message_at=at,
-                                        chat_ok=chat_ok, now=now)
+                                        chat_ok=chat_ok, now=now, cron_status=cron)
             _, rc = judge(collect(jobs, chat, logs, now=now))
         mark = "ok" if rc == want else "FAIL"
         bad += rc != want
