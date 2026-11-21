@@ -232,6 +232,27 @@ class DerivedGraphReader:
         keep = [v for v in rows if v.strength < 0 and _view_key(v) not in exclude][: int(limit)]
         return [replace(v, because=self._evidence_titles(v.node)) for v in keep]
 
+    def count_held_back_by_level(self) -> dict:
+        """Every DerivedPreference node in the derived graph, unfiltered by the
+        privacy gate, as {level: count}. The empty key is a node with NO level
+        (fail closed: served only where unlevelled nodes are, i.e. never off-box).
+        Used only to say what exists when the gate serves nothing, so an empty
+        answer can say "held back" rather than "not materialized yet"."""
+        q = (
+            f"PREFIX pwg: <{PWG_NS}>\n"
+            "SELECT ?privacy (COUNT(DISTINCT ?s) AS ?n) WHERE {\n"
+            f"  GRAPH <{self._graph}> {{\n"
+            "    ?s a pwg:DerivedPreference .\n"
+            "    OPTIONAL { ?s pwg:privacyLevel ?privacy }\n"
+            "  }\n"
+            "} GROUP BY ?privacy"
+        )
+        out: dict = {}
+        for b in self._sparql(q):
+            level = (b.get("privacy") or "").strip().upper()
+            out[level] = out.get(level, 0) + int(b.get("n") or 0)
+        return out
+
     def _evidence_titles(self, node_uri: str, limit: int = 3) -> tuple:
         """Titles behind a node: its own pwg:evidenceTitle first (written by the
         CM019 engine, works for every source), else the overlay's matchedTitle for
@@ -299,6 +320,19 @@ def _item(view) -> dict:
     return d
 
 
+def _count_held_back(reader):
+    """{level: count} of every derived node. A reader with no count method (a
+    legacy test double) keeps the old wording: {} . A count that FAILED is None,
+    which is not zero and is never reported as "not materialized"."""
+    counter = getattr(reader, "count_held_back_by_level", None)
+    if counter is None:
+        return {}
+    try:
+        return counter()
+    except Exception:  # noqa: BLE001  an unreadable count is not an empty graph
+        return None
+
+
 def build_derived_preferences_response(
     reader,
     user_id: str,
@@ -355,11 +389,29 @@ def build_derived_preferences_response(
         }
 
     if not views:  # empty graph is NOT a healthy empty result
-        reason = (
-            "no derived preferences materialized yet"
-            if tier == "all"
-            else f"no derived preferences materialized yet in the {tier} tier (tier=all shows every tier)"
-        )
+        # Say what is true. "Not materialized yet" only when the graph holds 0
+        # nodes; when nodes exist but the gate serves none, say how many are held
+        # back and by which level (CB136-DERIVED-EMPTY-IS-WITHHELD).
+        held = _count_held_back(reader)
+        total = sum(held.values()) if held else 0
+        if held is None:
+            reason = "derived preferences could not be counted; none served"
+        elif total == 0:
+            reason = (
+                "no derived preferences materialized yet"
+                if tier == "all"
+                else f"no derived preferences materialized yet in the {tier} tier (tier=all shows every tier)"
+            )
+        else:
+            detail = ", ".join(
+                f"{n} {'with no level' if lvl == '' else 'at ' + lvl}" for lvl, n in sorted(held.items())
+            )
+            if tier == "all":
+                reason = (f"{total} derived preferences held back by privacy level ({detail}); "
+                          "none are served at this destination")
+            else:
+                reason = (f"no derived preferences served in the {tier} tier; {total} exist ({detail}), "
+                          "held back by privacy level or tier (tier=all shows every tier)")
         return {
             "generated_at": ts,
             "items": [],

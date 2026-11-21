@@ -2444,10 +2444,24 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - The CM051 drift stays: the vendored `person_enrichment` carries a two-scan slug resolution (merge-aware resolver plus candidate scan, about 0.2 s at 11,500 persons). The route bar for this tree is 0.4 s (`OSTLER_ROUTE_BAR_S`, set in `.github/workflows/cm041-136-people-context-latency.yml`).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
 
-## CB136 timeline (ORM, 2026-11-20): a failed source is a named notice; the cap is per source (graft of CM041 #315)
+Revision (CM041 PR #316 head 9ca732f1, CB136 derived-preferences empty-answer message). Tree: cm041/assistant_api. `derived_preferences.py` is byte-identical to CM041 PR #316 head (sha256 prefix e083aa196504b6a1 in both trees). It adds `count_held_back_by_level` on `DerivedGraphReader` and the held-back wording in `build_derived_preferences_response`. New vendored test `tests/test_derived_withheld_message.py` (byte-identical to CM041), wired into the executed pytest list of `.github/workflows/cm041-133-outbound-privacy.yml`. The test's synthetic route fake is unchanged here. No other vendored file changes in this revision.
 
-Where: vendor/cm041/assistant_api/ical-server.py. New module-level _TIMELINE_SENTINEL_SOURCE, _TIMELINE_DEGRADED_COPY and _cap_interleaved sit before api_timeline. In api_timeline: error sentinels are removed before the cap and recorded as degraded; the cap is _cap_interleaved(kept, limit, newest_first=not forward) (round-robin per source; a forward page keeps ascending order); one notice entry (type "notice", degraded_source) is inserted per degraded source before the return.
+## CB137 (ORM, 2026-11-20): People list service gate, positive evidence only (graft of CM041 #314)
+
+Where: vendor/cm041/assistant_api/ical-server.py. people_row_hidden_as_service (and its helper _named_row_has_service_evidence) sits next to people_list. The text is byte-identical to CM041 main's copy in CM041 #314.
+
+Shape, in order: a business card is hidden. A person card always shows. A row with a given or family name and no person card is hidden only on positive service evidence: a role or no-reply mailbox (_SERVICE_MAILBOX_LOCAL_RE on an address), or a service phrase (_SERVICE_NAME_PHRASE_RE). Name shape alone never hides it. An unnamed row keeps the organisation and service-shape checks.
+
+Why: Archie's final ruling 2026-11-20 (CB137). Name shape alone must not exclude a named person (F7 fixture: JANE DOE, Alex Doe - Plumber). The blanket exemption for named rows is removed; positive evidence is the only exclusion for them.
+
+Not regenerated: this tree's notes say not to override a sync refusal here. The description is this entry.
+
+Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; a name-shape mutant goes red). F7: tests/test_people_have_human_evidence.py passes (21, including one new case: a named no-card row from a noreply address is excluded; the name-shape mutant turns 2 of them red).
+
+## CB136 timeline (ORM, 2026-11-20): a failed source is a named degraded state; the cap is per source (graft of CM041 #315)
+
+Where: vendor/cm041/assistant_api/ical-server.py. New module-level _TIMELINE_SENTINEL_SOURCE, _TIMELINE_DEGRADED_COPY and _cap_interleaved sit before api_timeline. In api_timeline: error sentinels stay in items with their source (CM051 #2565: every item names its source) and are exempt from the cap, so a failed source is never cut; the cap is _cap_interleaved(kept, limit, newest_first=not forward) (round-robin per source; a forward page keeps ascending order); and the response carries a separate degraded key, one {source, title} named state per failed source, beside the events.
 
 Not byte-identical to CM041 #315: the vendored api_timeline takes before/after paging arguments that CM041 main does not, so the cap call carries newest_first=not forward. The three helper functions are identical text.
 
-Why: the 135 walk showed an empty timeline when the meeting query timed out. Its error had no date and the cap dropped it; photo days also filled the cap. Test: vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py (6 pass; plain-slice mutant red).
+Why: the 135 walk showed an empty timeline when the meeting query timed out. Its error had no date and the cap dropped it; photo days also filled the cap. DEBT corrected: no notice entry is inserted; the test asserts the separate degraded key and that no `"type": "notice"` entry exists (a notice is not an event with a source). Test: vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py (6 pass; plain-slice mutant red).

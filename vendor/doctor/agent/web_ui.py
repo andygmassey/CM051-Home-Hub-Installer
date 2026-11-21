@@ -4319,9 +4319,12 @@ async def api_observability_posture():
 # ``DOCTOR_PROXY_PATHS``.
 
 _HYDRATION_STATUS_PATH = "/api/v1/hydration/status"
-# Loopback round-trip to the upstream composite; a few seconds is generous
-# and a wedged upstream must fail fast rather than hang the panel poll.
-_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 5.0
+# Loopback round-trip to the upstream composite. CB136-HUB-DOCTOR-HYDRATION-502:
+# the composite counts a 1.7M-triple graph, measured 4.3 s idle on the 135 walk
+# box and over 5 s under walk load, so the old 5.0 s budget turned every slow
+# poll into a 502 ReadTimeout. 15 s is ~3x the idle measurement and still fails
+# a wedged upstream well inside the wiki poll interval.
+_HYDRATION_UPSTREAM_TIMEOUT_SECONDS = 15.0
 
 
 async def _fetch_hydration_status(

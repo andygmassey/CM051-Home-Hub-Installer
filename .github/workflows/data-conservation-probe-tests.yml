@@ -54,6 +54,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # The runner python3 is Homebrew and externally managed (PEP 668), so
+      # `python3 -m pip install` into it aborts the whole job. rdflib goes into
+      # an isolated venv instead, and the venv bin dir is prepended to PATH for
+      # every step below, so each bare `python3` (the adjudicator self-test,
+      # the row-evidence and typed-fixture tests, and the probe's
+      # OSTLER_PROBE_PYTHON default) resolves to the same interpreter with
+      # rdflib importable. The system python is never touched.
+      - name: rdflib into an isolated venv (PEP 668 blocks pip into the Homebrew python)
+        run: |
+          python3 -m venv .venv-probe
+          .venv-probe/bin/python3 -m pip install --quiet rdflib
+          echo "$GITHUB_WORKSPACE/.venv-probe/bin" >> "$GITHUB_PATH"
       - name: adjudicator mutation self-test (python3 as shipped to the box)
         run: python3 scripts/box_walk_probes/lib/data_conservation.py selftest
       - name: probe contract, scope row and exit codes
