@@ -1178,6 +1178,7 @@ test_walk_pass_requires_zero_failed_steps.sh	WIRED	.github/workflows/walk-record
 test_walk_port_probe_matches_install_sh.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_probes_122a.sh	WIRED	.github/workflows/walk-probes-122a.yml
 test_walk_probes_bypass_a_local_proxy.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_walk_probes_kickstart_instead_of_waiting.py	WIRED	.github/workflows/people-have-human-evidence.yml
 test_walk_probes_print_causes.py	WIRED	.github/workflows/keyless-store-probe-tests.yml
 test_walk_record_carries_no_home_path.sh	WIRED	.github/workflows/walk-record-gate.yml
 test_walk_record_gates_customer_download.sh	WIRED	.github/workflows/walk-record-gate.yml

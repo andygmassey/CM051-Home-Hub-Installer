@@ -18,6 +18,9 @@ on:
       - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'scripts/box_walk_probes/probes/settling_json_refreshes.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'tests/test_walk_probes_kickstart_instead_of_waiting.py'
       - 'tests/test_people_count_one_definition.py'
       - 'tests/test_people_count_waits_for_the_embed_drain.py'
       - '.github/workflows/people-have-human-evidence.yml'
@@ -33,6 +36,9 @@ on:
       - 'tests/test_organisation_senders_are_not_people.py'
       - 'scripts/box_walk_probes/lib/customer_read.py'
       - 'scripts/box_walk_probes/probes/people_count_agreement.sh'
+      - 'scripts/box_walk_probes/probes/settling_json_refreshes.sh'
+      - 'scripts/box_walk_probes/lib/probe.sh'
+      - 'tests/test_walk_probes_kickstart_instead_of_waiting.py'
       - 'tests/test_people_count_one_definition.py'
       - 'tests/test_people_count_waits_for_the_embed_drain.py'
       - '.github/workflows/people-have-human-evidence.yml'
@@ -98,3 +104,13 @@ jobs:
           if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
           n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
           if [ "${n:-0}" -lt 13 ]; then echo "expected at least 13 passed, got ${n:-0}" >&2; exit 1; fi
+      # Two walk probes kickstart their job instead of waiting on the hourly /
+      # 15-minute tick. launchctl is a stub; the real one is never called.
+      - name: Walk probes kickstart the job instead of waiting on a tick, and a dead job still FAILs
+        if: always()
+        run: |
+          out="$(python -m pytest -q -rs tests/test_walk_probes_kickstart_instead_of_waiting.py 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          if printf '%s' "$out" | grep -q SKIPPED; then echo "SKIPPED is not a pass" >&2; exit 1; fi
+          n="$(printf '%s' "$out" | grep -Eo '[0-9]+ passed' | grep -Eo '[0-9]+')"
+          if [ "${n:-0}" -lt 9 ]; then echo "expected at least 9 passed, got ${n:-0}" >&2; exit 1; fi

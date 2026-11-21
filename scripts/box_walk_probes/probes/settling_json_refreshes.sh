@@ -29,6 +29,8 @@
 # NO TOKEN or no reply = CANNOT-RUN, never PASS.
 # ============================================================================
 
+# WALK_WRITES: on a walk that allows writes (OSTLER_WALK_READ_ONLY=0) kickstarts com.creativemachines.ostler.settling-refresh once, so the second reading does not wait for the 15-minute tick; a read-only or unset-mode run never kickstarts and waits as before
+
 set -uo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/probe.sh"
 
@@ -39,6 +41,27 @@ SETTLING_URL="${OSTLER_SETTLING_URL:-http://127.0.0.1:8000/wiki/settling.json}"
 TOKEN_PATH="${OSTLER_PROBE_TOKEN_PATH:-\$HOME/.ostler/secrets/service_token}"
 WAIT_S="${OSTLER_SETTLING_REFRESH_WAIT_S:-1000}"
 case "$WAIT_S" in ''|*[!0-9]*) WAIT_S=1000 ;; esac
+# KICKSTART INSTEAD OF WAITING FOR THE 15-MINUTE TICK. With writes allowed
+# (OSTLER_WALK_READ_ONLY=0 exactly; unset never kicks) the probe starts the
+# refresh job once and polls for computed_at to move, bounded by
+# OSTLER_SETTLING_KICK_WAIT_S. A kick that is accepted but never moves
+# computed_at still reaches _judge with the same value twice: FAIL, never PASS.
+# A refused kick falls back to the full WAIT_S sleep.
+LABEL="${OSTLER_SETTLING_REFRESH_LABEL:-com.creativemachines.ostler.settling-refresh}"
+LAUNCHCTL="${OSTLER_PROBE_LAUNCHCTL:-/bin/launchctl}"
+KICK_WAIT_S="${OSTLER_SETTLING_KICK_WAIT_S:-300}"
+case "$KICK_WAIT_S" in ''|*[!0-9]*) KICK_WAIT_S=300 ;; esac
+KICK_STEP_S="${OSTLER_SETTLING_KICK_STEP_S:-10}"
+case "$KICK_STEP_S" in ''|*[!0-9]*|0) KICK_STEP_S=10 ;; esac
+
+# _computed_at <body-file> -> the body's computed_at string, or empty.
+_computed_at() {
+    python3 -I -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("computed_at") or "")
+except Exception:
+    print("")' "$1"
+}
 
 # _judge <code1> <body1-file> <code2> <body2-file> <now-epoch>
 # Prints PASS|<why> or FAIL|<why>, one line. Stdlib only, isolated mode.
@@ -113,12 +136,29 @@ run_probe() {
     case "$r1" in NOTOKEN*) rm -rf "$tmp"; probe_cannot_run "no service token at ${TOKEN_PATH}; the gateway fails closed, so nothing was measured" ;; esac
     [ -n "$r1" ] || { rm -rf "$tmp"; probe_cannot_run "no reply from the box for $SETTLING_URL (curl failed or the box is unreachable); not a pass"; }
     c1="${r1##*$'\n'}"; printf '%s\n' "${r1%$'\n'*}" > "$tmp/b1"
-    probe_note "first reading: HTTP $c1; waiting ${WAIT_S}s for a second (agent interval is 900 s)"
-    sleep "$WAIT_S"
+    local ca1 ca2 waited=0 kicked=0 body2
+    if [ "${OSTLER_WALK_READ_ONLY:-}" = "0" ] && [ "$c1" = "200" ]; then
+        if box_run "\"${LAUNCHCTL}\" kickstart gui/\$(id -u)/${LABEL}" >/dev/null; then kicked=1; fi
+    fi
+    if [ "$kicked" -eq 1 ]; then
+        ca1="$(_computed_at "$tmp/b1")"
+        probe_note "first reading: HTTP $c1; kickstarted ${LABEL} once instead of waiting ${WAIT_S}s for the 900 s tick; polling up to ${KICK_WAIT_S}s for computed_at to move off ${ca1:-?}"
+        while [ "$waited" -lt "$KICK_WAIT_S" ]; do
+            sleep "$KICK_STEP_S"; waited=$((waited + KICK_STEP_S))
+            body2="$(box_run "$fetch")"
+            [ -n "$body2" ] || continue
+            printf '%s\n' "${body2%$'\n'*}" > "$tmp/poll"
+            ca2="$(_computed_at "$tmp/poll")"
+            [ -n "$ca2" ] && [ "$ca2" != "$ca1" ] && break
+        done
+    else
+        probe_note "first reading: HTTP $c1; waiting ${WAIT_S}s for a second (agent interval is 900 s)"
+        sleep "$WAIT_S"
+    fi
     r2="$(box_run "$fetch")"
     [ -n "$r2" ] || { rm -rf "$tmp"; probe_cannot_run "no reply from the box for the second reading; not a pass"; }
     c2="${r2##*$'\n'}"; printf '%s\n' "${r2%$'\n'*}" > "$tmp/b2"
-    probe_examined 2 "readings of $SETTLING_URL via the gateway bearer, ${WAIT_S}s apart"
+    probe_examined 2 "readings of $SETTLING_URL via the gateway bearer (kick=${kicked}, ${waited}s polled, else ${WAIT_S}s apart)"
     local v; v="$(_judge "$c1" "$tmp/b1" "$c2" "$tmp/b2" "$(date -u +%s)")"
     rm -rf "$tmp"
     case "$v" in
