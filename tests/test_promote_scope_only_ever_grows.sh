@@ -26,7 +26,35 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCOPE_REL="scripts/walk_promote_scope.tsv"
+_BASE_REF_FROM_ENV="${BASE_REF:-}"
 BASE_REF="${BASE_REF:-origin/main}"
+
+# A HOTFIX RATCHETS AGAINST ITS BASE TAG, NOT MAIN (Archie, 2026-10-26, v1.0.118).
+# A hotfix is the base tag plus one product change. main has moved on and added
+# blocking probes for features the hotfix deliberately does not carry, so
+# comparing against main reports those as "left the blocking set" when they were
+# never in it. Scoped NARROWLY on purpose: only a cut whose own cut.env says
+# CUT_KIND=hotfix, found through the installer's own version, and only against
+# the HOTFIX_BASE_TAG it names. A stacked PR does not get to ratchet against a
+# weaker parent. CUT_KIND=hotfix with no base tag is RED, not a fallback. An
+# explicit BASE_REF in the environment still wins.
+_plist="${ROOT}/gui/OstlerInstaller/Info.plist"
+if [ -z "$_BASE_REF_FROM_ENV" ] && [ -r "$_plist" ]; then
+    _ver="$(awk '/<key>CFBundleShortVersionString<\/key>/{getline; sub(/.*<string>/,""); sub(/<\/string>.*/,""); print; exit}' "$_plist")"
+    _env="${ROOT}/cuts/v${_ver#v}/cut.env"
+    if [ -n "$_ver" ] && [ -r "$_env" ] && grep -qE '^CUT_KIND=hotfix[[:space:]]*$' "$_env"; then
+        _base="$(grep -m1 -E '^HOTFIX_BASE_TAG=' "$_env" | cut -d= -f2- | tr -d "\"' ")"
+        if [ -z "$_base" ]; then
+            printf 'FAIL: cuts/v%s/cut.env says CUT_KIND=hotfix but names no HOTFIX_BASE_TAG.\n' "${_ver#v}" >&2
+            exit 1
+        fi
+        BASE_REF="$_base"
+        # The tag may be absent from a shallow CI clone; fetch it, as for main below.
+        git -C "$ROOT" rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null 2>&1 \
+            || git -C "$ROOT" fetch --quiet origin "refs/tags/${BASE_REF}:refs/tags/${BASE_REF}" >/dev/null 2>&1 || true
+        printf '  HOTFIX cut v%s: ratcheting against its base tag %s, not origin/main.\n' "${_ver#v}" "$BASE_REF"
+    fi
+fi
 
 [ -r "${ROOT}/${SCOPE_REL}" ] || { printf 'CANNOT-RUN: %s is not readable.\n' "$SCOPE_REL" >&2; exit 2; }
 

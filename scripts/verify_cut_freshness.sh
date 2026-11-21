@@ -449,10 +449,110 @@ echo "provenance ledger:   $WIKI_PROVENANCE_FILE"
 echo
 
 # ===========================================================================
+# 0. HOTFIX MODE (Archie, 2026-10-26, v1.0.118)
+# ===========================================================================
+# A hotfix is "the base tag plus one product change". Its inputs are not meant
+# to track upstream: they are meant to be EXACTLY the base tag's. A hold_ack
+# cannot say that honestly, because every hold row carries
+# shipping_bugfixes_grafted = true, and for a hotfix that assertion is false:
+# the held commits include shipping bugfixes deliberately left for the next
+# cut. So in hotfix mode this gate stops comparing against live upstream and
+# instead CHECKS that every vendored tree, the daemon pin and the wiki digests
+# are byte-identical to the base tag. Nothing is asserted; any byte that moved
+# goes RED.
+#
+# Triggered ONLY by the cut's own cut.env: CUT_KIND=hotfix and
+# HOTFIX_BASE_TAG=<tag>. A hotfix cut.env with no base tag is RED, not a
+# fallback to the normal path. The version that finds cut.env comes from
+# FRESHNESS_CUT_VERSION, then OSTLER_CUT_VERSION (the cut job sets it to the
+# ref name, e.g. cut/v1.0.118 or v1.0.118), then the installer Info.plist.
+HOTFIX_MODE=0; HOTFIX_BASE=""; n_frozen=0
+_fv="${FRESHNESS_CUT_VERSION:-${OSTLER_CUT_VERSION:-}}"; _fv="${_fv##*/}"
+_plist="$REPO_ROOT/gui/OstlerInstaller/Info.plist"
+if [ -z "$_fv" ] && [ -r "$_plist" ]; then
+    _fv="$(awk '/<key>CFBundleShortVersionString<\/key>/{getline; sub(/.*<string>/,""); sub(/<\/string>.*/,""); print; exit}' "$_plist")"
+fi
+CUT_ENV_FILE=""
+if [ -n "$_fv" ]; then
+    _fv="v$(printf '%s' "${_fv#v}" | cut -d. -f1-3)"
+    CUT_ENV_FILE="${FRESHNESS_CUT_ENV:-$REPO_ROOT/cuts/${_fv}/cut.env}"
+fi
+if [ -n "$CUT_ENV_FILE" ] && [ -r "$CUT_ENV_FILE" ] \
+   && grep -qE '^CUT_KIND=hotfix[[:space:]]*$' "$CUT_ENV_FILE"; then
+    HOTFIX_MODE=1
+    HOTFIX_BASE="$(grep -m1 -E '^HOTFIX_BASE_TAG=' "$CUT_ENV_FILE" | cut -d= -f2- | tr -d "\"' ")"
+fi
+
+# label  path: RED unless the working tree at <path> is byte-identical to the
+# base tag, tracked AND untracked (gitignored files are not part of the cut's
+# source and are not compared).
+_hotfix_path_frozen() {
+    local label="$1" path="$2" rc untracked
+    git -C "$REPO_ROOT" diff --quiet "$HOTFIX_BASE" -- "$path" 2>/dev/null; rc=$?
+    if [ "$rc" -gt 1 ]; then
+        n_cannot=$((n_cannot+1)); add_row "$label" "$HOTFIX_BASE" "-" "CANNOT-VERIFY git diff rc=$rc"
+        return
+    fi
+    untracked="$(git -C "$REPO_ROOT" ls-files --others --exclude-standard -- "$path" 2>/dev/null | head -5)"
+    if [ "$rc" -eq 1 ] || [ -n "$untracked" ]; then
+        n_stale=$((n_stale+1)); add_row "$label" "$HOTFIX_BASE" "changed" "RED hotfix: differs from base"
+        add_detail "$label RED: hotfix of ${HOTFIX_BASE}, but ${path} is not byte-identical to the base tag:"
+        add_detail "    $(git -C "$REPO_ROOT" diff --stat "$HOTFIX_BASE" -- "$path" 2>/dev/null | tail -1)${untracked:+ untracked: $(printf '%s' "$untracked" | tr '\n' ' ')}"
+        return
+    fi
+    n_frozen=$((n_frozen+1)); add_row "$label" "$HOTFIX_BASE" "=base" "FROZEN identical to base"
+}
+# label  file(repo-relative)  ERE: RED unless the lines matching ERE are
+# identical at the base tag and in the working tree, and at least one exists.
+_hotfix_lines_frozen() {
+    local label="$1" rel="$2" ere="$3" now base
+    now="$(grep -E "$ere" "$REPO_ROOT/$rel" 2>/dev/null)"
+    base="$(git -C "$REPO_ROOT" show "${HOTFIX_BASE}:${rel}" 2>/dev/null | grep -E "$ere")"
+    if [ -z "$now" ] || [ -z "$base" ]; then
+        n_cannot=$((n_cannot+1)); add_row "$label" "$HOTFIX_BASE" "-" "CANNOT-VERIFY pin line not found"
+        add_detail "$label CANNOT-VERIFY: no line matching /${ere}/ in ${rel} (now: ${now:+found}${now:-none}, base: ${base:+found}${base:-none})."
+        return
+    fi
+    if [ "$now" != "$base" ]; then
+        n_stale=$((n_stale+1)); add_row "$label" "$HOTFIX_BASE" "changed" "RED hotfix: pin differs from base"
+        add_detail "$label RED: hotfix of ${HOTFIX_BASE}, but the pin in ${rel} moved: base [$(printf '%s' "$base" | tr '\n' ' ')] now [$(printf '%s' "$now" | tr '\n' ' ')]"
+        return
+    fi
+    n_frozen=$((n_frozen+1)); add_row "$label" "$HOTFIX_BASE" "=base" "FROZEN identical to base"
+}
+
+if [ "$HOTFIX_MODE" = "1" ]; then
+    echo "mode:                HOTFIX of ${HOTFIX_BASE:-<NO HOTFIX_BASE_TAG>} (${CUT_ENV_FILE#$REPO_ROOT/}): every input must be byte-identical to the base tag"
+    echo
+    if [ -z "$HOTFIX_BASE" ]; then
+        n_stale=$((n_stale+1)); add_row "hotfix" "-" "-" "RED CUT_KIND=hotfix without HOTFIX_BASE_TAG"
+        add_detail "hotfix RED: ${CUT_ENV_FILE#$REPO_ROOT/} says CUT_KIND=hotfix but names no HOTFIX_BASE_TAG, so there is nothing to hold the inputs to."
+    elif ! git -C "$REPO_ROOT" rev-parse -q --verify "${HOTFIX_BASE}^{commit}" >/dev/null 2>&1; then
+        n_cannot=$((n_cannot+1)); add_row "hotfix:$HOTFIX_BASE" "-" "-" "CANNOT-VERIFY base tag not in this clone"
+    else
+        while IFS= read -r tree; do
+            [ -z "$tree" ] && continue
+            vp="$(vlib_field "$tree" vendor_path)"
+            if [ -z "$vp" ]; then
+                n_stale=$((n_stale+1)); add_row "vendor:$tree" "-" "-" "RED hotfix: no vendor_path"
+                continue
+            fi
+            _hotfix_path_frozen "vendor:$tree" "$vp"
+        done < <(vlib_tree_names)
+        # Anything in vendor/ outside every tree, and the manifest itself.
+        _hotfix_path_frozen "vendor/ (whole directory)" "vendor"
+        _hotfix_lines_frozen "daemon pin (gui/Makefile)" "gui/Makefile" '^DAEMON_(VERSION|SHA256)[[:space:]]*\?='
+        _hotfix_lines_frozen "daemon pin (install.sh)" "install.sh" '^OSTLER_ASSISTANT_VERSION='
+        _hotfix_lines_frozen "wiki images (install.sh)" "install.sh" 'image: ghcr\.io/[a-z0-9-]+/ostler-wiki-(compiler|site)@sha256:'
+    fi
+fi
+
+# ===========================================================================
 # 1. VENDOR PINS
 # ===========================================================================
 while IFS= read -r tree; do
     [ -z "$tree" ] && continue
+    [ "$HOTFIX_MODE" = "1" ] && continue
     [ -n "$FRESHNESS_ONLY" ] && [ "$tree" != "$FRESHNESS_ONLY" ] && continue
     pinned="$(vlib_field "$tree" pinned_sha)"
     subpath="$(vlib_field "$tree" source_path)"
@@ -916,7 +1016,7 @@ else
     fi
 fi
 }
-[ -z "$FRESHNESS_ONLY" ] && check_daemon
+[ -z "$FRESHNESS_ONLY" ] && [ "$HOTFIX_MODE" != "1" ] && check_daemon
 
 # ===========================================================================
 # 3. WIKI IMAGES  (install.sh digest -> provenance ledger -> vs CM044 main HEAD)
@@ -1037,7 +1137,7 @@ for key in wiki-compiler wiki-site; do
     add_detail "wiki:$key HELD: all delta commits acknowledged (reason: ${hold_reason})"
 done
 }
-[ -z "$FRESHNESS_ONLY" ] && check_wiki
+[ -z "$FRESHNESS_ONLY" ] && [ "$HOTFIX_MODE" != "1" ] && check_wiki
 
 # ===========================================================================
 # TABLE + VERDICT
@@ -1048,7 +1148,7 @@ while IFS=$'\t' read -r input pinned live status; do
     printf '%-34s %-9s %-10s %s\n' "$input" "$pinned" "$live" "$status"
 done < "$ROWS_FILE"
 echo "-----------------------------------------------------------------------"
-echo "fresh=$n_fresh  held=$n_held  exempt=$n_exempt  stale/RED=$n_stale  cannot-verify=$n_cannot"
+echo "fresh=$n_fresh  held=$n_held  exempt=$n_exempt  frozen=$n_frozen  stale/RED=$n_stale  cannot-verify=$n_cannot"
 echo
 
 # Detail block: RED reasons, EXEMPT reasons, HELD reasons + un-acked commits.
@@ -1087,6 +1187,7 @@ fi
 extra=""
 [ "$n_held" -gt 0 ]   && extra="$extra $n_held held (acknowledged)"
 [ "$n_exempt" -gt 0 ] && extra="$extra${extra:+,} $n_exempt exempt (with reason)"
+[ "$n_frozen" -gt 0 ] && extra="$extra${extra:+,} $n_frozen frozen (hotfix of ${HOTFIX_BASE}, byte-identical)"
 if [ -n "$extra" ]; then
     echo "GATE: GREEN -- every input is fresh, held or exempt.$extra. See DETAIL above (audit them)."
 else

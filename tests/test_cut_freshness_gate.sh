@@ -260,8 +260,15 @@ EOF
     cp "$REPO_ROOT/scripts/_vendor_lib.sh" "$FIXROOT/scripts/_vendor_lib.sh"
 }
 
+# FRESHNESS_CUT_ENV names a file that does not exist, so these scenarios run
+# the NORMAL live-HEAD path whatever the real checkout's own cut is. Without it
+# the gate finds this repo's newest Info.plist version, and on a hotfix cut
+# branch (cuts/<v>/cut.env CUT_KIND=hotfix) every scenario here would take
+# hotfix mode instead. Hotfix mode has its own test:
+# tests/test_cut_freshness_hotfix_mode.sh.
 run_gate() { # extra env assignments passed as args
     env \
+      FRESHNESS_CUT_ENV="$WORK/no-such-cut.env" \
       FRESHNESS_GH_BIN="$WORK/gh" \
       VENDOR_MANIFEST="$FIXROOT/vendor/VENDOR_MANIFEST.toml" \
       WIKI_PROVENANCE_FILE="$FIXROOT/scripts/wiki_image_provenance.tsv" \
