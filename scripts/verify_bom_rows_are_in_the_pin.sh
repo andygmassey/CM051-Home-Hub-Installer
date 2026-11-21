@@ -287,8 +287,68 @@ while IFS=$'\t' read -r what repo ref landed cap verify ticket; do
     if grep -qF -- "$LINE" "$PINNED"; then
         IN=$((IN+1))
     else
-        OUT=$((OUT+1))
-        MISSING="${MISSING}\n    ${ticket}  ${ref}  $(printf '%s' "$what" | cut -c1-64)"
+        # REFLOW FALLBACK (v1.0.136, CM051 #3608): the primary key can be
+        # REWRITTEN, not removed, by a LATER LANDED PR. Measured 2026-11-21:
+        # #3608's 138-char added ENRICH_CHOICE line was restructured by the IN
+        # PR #3635 (the consent gate moved), so the single-longest-key test
+        # read ABSENT on a landed row. BOTH fallback limbs below require the
+        # discrimination pair of every candidate: PRESENT AT THE PIN as a
+        # WHOLE LINE and ABSENT AT THE REF'S PARENT as a whole line. Measured
+        # on the near-miss that justifies the pair: #3608's shorter added
+        # line, OSTLER_ENRICH_AGENT_ENABLED=1, reads 2 at the parent and 3 at
+        # the pin by SUBSTRING grep, which looked like it predated the PR and
+        # would false-pass a bare presence test; by whole-line grep (grep -x)
+        # it is 0 at the parent and 1 at the pin, i.e. the PR introduced the
+        # assignment line itself. Whole-line both ways is the fingerprint;
+        # substring either way is how a key lies.
+        _surv=""
+        while IFS= read -r _cand; do
+            [ -n "$_cand" ] || continue
+            if grep -qxF -- "$_cand" "$PINNED" \
+                && ! git -C "$HERE" show "$ref^:install.sh" 2>/dev/null | grep -qxF -- "$_cand"; then
+                _surv="${_cand}"
+                break
+            fi
+        done <<KEYS
+$(git -C "$HERE" show "$ref" -- install.sh 2>/dev/null \
+    | grep '^+' | grep -vE '^\+\+\+|^\+[[:space:]]*#|^\+[[:space:]]*$' \
+    | sed 's/^+//' \
+    | awk '{ if (length($0)>=25 && length($0)<200) print length($0)"\t"$0 }' \
+    | sort -rn | cut -f2-)
+KEYS
+        if [ -n "$_surv" ]; then
+            IN=$((IN+1))
+            echo "  IN THE PIN    ${ticket}  by surviving added key after reflow (primary key rewritten by a later landed PR): ${_surv:0:60}"
+        else
+            # LANDED-REMOVAL RETRY, same discrimination pair from the other
+            # side: a non-comment line the commit DELETED, ABSENT AT THE PIN
+            # and PRESENT AT THE REF'S PARENT, proves the deletion reached
+            # the pinned tree even when every added key was later reflowed.
+            # For #3608: the deleted 111-char opt-in ENRICH_CHOICE line
+            # (yesno "n" variant) is 0 at the pin and 1 at f7226ac1^.
+            _gone=""
+            while IFS= read -r _cand; do
+                [ -n "$_cand" ] || continue
+                if ! grep -qxF -- "$_cand" "$PINNED" \
+                    && git -C "$HERE" show "$ref^:install.sh" 2>/dev/null | grep -qxF -- "$_cand"; then
+                    _gone="${_cand}"
+                    break
+                fi
+            done <<DELS
+$(git -C "$HERE" show "$ref" -- install.sh 2>/dev/null \
+    | grep '^-' | grep -vE '^---|^-[[:space:]]*#|^-[[:space:]]*$' \
+    | sed 's/^-//' \
+    | awk '{ if (length($0)>40 && length($0)<200) print length($0)"\t"$0 }' \
+    | sort -rn | cut -f2-)
+DELS
+            if [ -n "$_gone" ]; then
+                IN=$((IN+1))
+                echo "  IN THE PIN    ${ticket}  by LANDED REMOVAL after reflow (every added key rewritten by a later landed PR; the deleted line stays deleted): ${_gone:0:60}"
+            else
+                OUT=$((OUT+1))
+                MISSING="${MISSING}\n    ${ticket}  ${ref}  $(printf '%s' "$what" | cut -c1-64)"
+            fi
+        fi
     fi
 done < <(grep -v '^#' "$BOM" | grep -v '^[[:space:]]*$' | tail -n +2)
 
