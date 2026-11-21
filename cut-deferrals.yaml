@@ -32,6 +32,52 @@
 # ============================================================================
 
 pr_exemptions:
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie re-review ruling via KAesop 14:2xZ,
+  # recorded to_coordinator.md 14:04:27Z): thirteen individual rows, owner KAesop,
+  # disposition merge-or-close. Held/advisory/draft work (6) review_by 2026-11-28;
+  # the ready seven review_by 2026-11-24. FIRST so verify_pr_age takes these rows.
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3624"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: feat(doctor) owner switch for public look-ups, R02, 137 queue; disposition: merge or close by expiry (an actual merge or close may replace this row); no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3625"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: explain_cites_only_used_facts probe, R05 advisory; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "HR015-Gaming-PC#1584"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; DRAFT work: ledger pr_open row for CM051 #3434 (R01 reply debt); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM041-People-Graph#312"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; DRAFT work (CM041); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#762"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held work: dbkey migration of a plaintext store (137 held); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "ostler-assistant#763"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held work: 137 held; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-28
+  - ref: "CM051-Home-Hub-Installer#3628"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; owner_token seed + GatewayClient owner header (CB137); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3629"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; owner_mint_refuses_unauthenticated probe (CB137); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1583"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1585"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1586"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1587"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
+  - ref: "HR015-Gaming-PC#1588"
+    reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; HR015 work; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
+    review_by: 2026-11-24
   # -------------------------------------------------------------------------
   # v1.0.136 cut, ORM 2026-11-21 (KArchie disposition 2026-11-21T03:55:37Z). 97 FINAL TRIAGE rows (expired)
   # + 160 never-exempted rows, each individual, owner KAesop. No wildcard,
@@ -6981,4 +7027,32 @@ deferrals:
     review_by: 2026-11-24
   - ref: "daemon:r10/oa-security-dir"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: CUT-EXTERNAL DEBT. owner KAesop; gate-measured LOCAL-ONLY (no remote ref, no merged PR); tip 2026-11-20; cut-created exclusion: this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those. At expiry: push/open PR or delete; no renewal without named active-work proof."
+    review_by: 2026-11-24
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM 2026-11-21 (KArchie re-review ruling, relayed by KAesop
+  # 14:2xZ, recorded to_coordinator.md 14:04:27Z). Five individual CUT-EXTERNAL
+  # rows, owner KAesop, review_by 2026-11-24, one per pre-existing local-only
+  # branch. Evidence is KArchie's gate measurement of record (canonical checkout
+  # for this cut is the ORM workdir at head ac3b3c8e, which carries zero p26xx;
+  # CI and future cuts use a fresh clean clone of the exact cut SHA, where these
+  # local-only refs do not exist either). Zero remote containers for every ref.
+  # Cut-created exclusion, exhaustive: this cut created exactly cut/v1.0.136 and
+  # orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003) and orm136/ledger
+  # (HR015); none of the five is one of those. No branch deleted in this task.
+  # -------------------------------------------------------------------------
+  - ref: "CM051:p2664"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 15407048), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2669"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 2d527638), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2670b"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 5cf75aee), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2673"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip b49cc0c1), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
+    review_by: 2026-11-24
+  - ref: "CM051:p2673b"
+    reason: "KArchie re-review ruling 2026-11-21 (relayed by KAesop, recorded to_coordinator.md 14:04:27Z): CUT-EXTERNAL DEBT. owner KAesop; review_by 2026-11-24; terminal disposition at expiry: push/open PR or delete; no deletion authorized in this task. Evidence (KArchie's gate measurement of record, 2026-11-21): pre-existing LOCAL-ONLY branch, dated tip 2026-10-07 (tip 7da77d4b), ZERO remote containers; the canonical checkout for this cut (the ORM workdir at ac3b3c8e) carries zero p26xx and CI uses a fresh clean clone of the exact cut SHA, so this debt is registered for the record and any checkout that enumerates these refs. Cut-created exclusion (exhaustive): this cut created only cut/v1.0.136 and orm/cut-manifest-v1.0.136 (CM051), bom/v1.0.136 (OS003), orm136/ledger (HR015); this branch is none of those."
     review_by: 2026-11-24
