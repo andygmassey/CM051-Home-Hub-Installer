@@ -1623,6 +1623,55 @@ pr_exemptions:
       when the PR lands, whichever is first. NOT A JUDGEMENT ON MERIT.
     review_by: 2026-09-24
 
+
+  # -------------------------------------------------------------------------
+  # v1.0.136 cut, ORM-136 2026-11-21 (cut/v1.0.136 ONLY). CARRIED UNCHANGED from
+  # the v1.0.135 cut (Archie ruling 2026-11-19, review_by 2026-11-24): all 13 are
+  # still OPEN, measured 2026-11-21. The gate now also reds ~96 further CM051 PRs
+  # and ~156 other-repo PRs aged past 48h since the 135 tag; ORM writes NO new
+  # rows for those: they are listed in the cut PR body for KArchie to rule on
+  # (exempt with expiry and owner, or close). The 7 expired oa rows (#550 #485
+  # #477 #473 #465 #464 #433) are likewise KArchie's re-decision, not ORM's.
+  # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3583"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3584"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3586"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3590"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3591"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3592"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3594"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3595"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3596"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3597"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3599"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3600"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
+  - ref: "CM051-Home-Hub-Installer#3602"
+    reason: "CM051 main frozen for the 134/135 cuts (Archie 2026-11-19); judged after 135. Carried into the v1.0.136 cut branch unchanged by ORM-136 2026-11-21; review_by stands."
+    review_by: 2026-11-24
 deferrals:
   - ref: "CM051:archive/people-exact-identifier-merge"
     reason: "superseded by #3217. ORM 2026-10-29, v1.0.119, Archie ruling (via Aesop) on check-orphans: tip 29157827 (a commit of merged #2928) pushed from local-only to archive/ and the local branch removed; the merge journal it touched was rewritten by #3217 (477b5e3e). RENUMBERED 2026-10-29: until v1.0.121 (was v1.0.120), because v1.0.120 is v1.0.119 relabelled after a cut-machinery failure; no new scope. VERDICT-122 (Archie 2026-11-02): RE-EXEMPT-122, final, expires v1.0.123 (Archie 2026-11-02). Reason restated: INTERNAL: archived ref superseded by #3217; no content needed"
