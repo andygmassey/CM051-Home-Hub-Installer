@@ -71,6 +71,11 @@ _STRINGS = {
                                   "check again shortly."),
     # Messages was never set up as a source on this Mac (no consent, or no
     # Messages history at install). Plain, and no promise to retry.
+    # Debts withheld to protect a child (under-18 flag): said as withheld, never
+    # as "couldn't check" or "caught up". Same sentence as the ical-server line.
+    "reply_debt_withheld_title": "Some reply reminders are hidden",
+    "reply_debt_withheld_body": ("Some reply reminders are hidden to protect "
+                                 "a child's privacy."),
     "reply_debt_not_connected_title": "Messages isn't connected",
     "reply_debt_not_connected_body": ("Ostler isn't reading Messages on this "
                                       "Mac, so it can't tell who is waiting "
@@ -434,6 +439,32 @@ def reply_debt_not_connected(raw) -> bool:
             and str(raw.get("reason") or "") in _REPLY_DEBT_NOT_CONNECTED_REASONS)
 
 
+# The reason ical-server gives when debts were withheld for a flagged minor.
+REPLY_DEBT_WITHHELD_REASON = "minor_debts_withheld"
+
+
+def reply_debt_withheld(raw) -> bool:
+    return (reply_debt_degraded(raw)
+            and str(raw.get("reason") or "") == REPLY_DEBT_WITHHELD_REASON)
+
+
+def reply_debt_withheld_card(now: datetime, ledger=None):
+    """The "withheld" card for a degraded payload with the minor reason. Names
+    nobody, quotes nothing: safe at L2."""
+    cid = fp.card_id("signal", "reply_debt_withheld")
+    created = _ledger_created(ledger, cid, now)
+    card = fp._make_card(
+        "signal", "reply_debt_withheld",
+        title=_STRINGS["reply_debt_withheld_title"],
+        body=_STRINGS["reply_debt_withheld_body"], now=now,
+        domain="people",
+        priority=fp.BAND_REPLY_DEBT * 0.25,
+        action=None, source="ostler:conversations", privacy="L2",
+        signal={"type": "reply_debt", "withheld": True})
+    card["created_utc"] = fp._iso(created)
+    return card
+
+
 def reply_debt_unchecked_card(now: datetime, ledger=None, not_connected=False):
     """The "couldn't check" card, or, when Messages was never connected, the
     plain "Messages isn't connected" card (no "will check again" promise).
@@ -569,7 +600,9 @@ def build_signal_cards(raw: dict | None, now: datetime, ledger=None) -> list:
         return []
     cards: list = []
 
-    if reply_debt_degraded(raw.get("reply_debt")):
+    if reply_debt_withheld(raw.get("reply_debt")):
+        cards.append(reply_debt_withheld_card(now, ledger=ledger))
+    elif reply_debt_degraded(raw.get("reply_debt")):
         cards.append(reply_debt_unchecked_card(
             now, ledger=ledger,
             not_connected=reply_debt_not_connected(raw.get("reply_debt"))))

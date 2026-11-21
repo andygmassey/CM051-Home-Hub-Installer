@@ -8932,6 +8932,15 @@ def _load_reply_debt_service():
         return None
 
 
+# Human line for each degraded reason that must still reach the owner as a
+# sentence (Archie, R01 ruling 2026-11-20). A code the customer never sees fails
+# consumer-side proof, so the code maps to words HERE, on the brief surface.
+REPLY_DEBT_DEGRADED_LINES = {
+    "minor_debts_withheld":
+        "Some reply reminders are hidden to protect a child's privacy.",
+}
+
+
 def api_reply_debt(threshold_hours=None, lookback_days=None,
                    include_group=False, limit=None, destination=None):
     """Compute the operator's outstanding reply debts.
@@ -9008,7 +9017,10 @@ def api_reply_debt(threshold_hours=None, lookback_days=None,
     payload.setdefault("degraded", False)
     if payload.get("degraded"):
         # Belt and braces: a degraded payload must never carry the all-clear.
-        payload["brief_line"] = ""
+        # The one exception is a KNOWN withheld reason, which carries its own
+        # human line (never "caught up", never blank).
+        payload["brief_line"] = REPLY_DEBT_DEGRADED_LINES.get(
+            str(payload.get("reason") or ""), "")
     # Same contract as the two payloads above. reply_debt is the "N people are
     # waiting on you" card, badged L2 on the public front-page design.
     if isinstance(payload, dict):

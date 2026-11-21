@@ -456,6 +456,12 @@ def imessage_grant_state():
     return {"consent": consent, "feed_installed": os.path.isfile(plist)}
 
 
+# The exact sentence a customer must see when a debt is withheld for a child
+# (ical-server REPLY_DEBT_DEGRADED_LINES, R01 ruling). The probe reads it from the
+# RENDERED brief_line on the box; the text itself never leaves the box.
+MINOR_WITHHELD_LINE = "Some reply reminders are hidden to protect a child's privacy."
+
+
 def box_reply_debt():
     code, body = _hub("/api/v1/reply-debt")
     out = {"endpoint": code}
@@ -476,6 +482,14 @@ def box_reply_debt():
     l3 = [d.get("person_name") for d in debts if d.get("person_name") and _withheld(d.get("privacy_level"))]
     out["count"] = len(debts)
     out["fields_ok"] = all("person_name" in d and "waiting_hours" in d for d in debts)
+    # WITHHELD (2026-11-16 ruling): minor and private debts are counted, and the
+    # text that says so is graded HERE, on the box. Only counts and yes/no leave.
+    excl = body.get("excluded") or {}
+    out["withheld"] = int(excl.get("minor_withheld") or 0) + int(excl.get("l3_withheld") or 0)
+    said = ((body.get("brief_line") or "") + " " + (body.get("reason") or "")).lower()
+    out["withheld_says_withheld"] = "withheld" in said
+    out["withheld_says_caught_up"] = "caught up" in said
+    out["minor_line_rendered"] = MINOR_WITHHELD_LINE in (body.get("brief_line") or "")
     if out["degraded"]:
         return out
     tools, text, err = ws_chat("Who do I owe a reply to?")
@@ -520,6 +534,13 @@ def judge_reply_debt(c):
     check("reply debt is not degraded (the detector can read Messages)%s"
           % (": " + c.get("reason", "") if c.get("degraded") else ""), not c.get("degraded"))
     check("every debt carries person_name and waiting_hours", c.get("fields_ok", False))
+    if c.get("withheld", 0) > 0:
+        check("%d debt(s) withheld (under-18 or private) are said WITHHELD, never caught up"
+              % c["withheld"],
+              bool(c.get("withheld_says_withheld")) and not c.get("withheld_says_caught_up"))
+    if c.get("reason") == "minor_debts_withheld":
+        check("the rendered brief carries the line 'Some reply reminders are hidden to protect a child's privacy'",
+              bool(c.get("minor_line_rendered")))
     if c.get("degraded"):
         return lines, EX_FAIL
     if c.get("chat_cannot"):
@@ -954,6 +975,27 @@ def self_test():
     ok &= rc == EX_PASS
     _, rc = judge_reply_debt(dict(all_unsaved, says_unsaved=False))
     print("  %s  reply debt mutant rejected: all debts unsaved and the answer omits the line" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    wh_good = dict(rd_good, withheld=1, withheld_says_withheld=True, withheld_says_caught_up=False)
+    _, rc = judge_reply_debt(wh_good)
+    print("  %s  reply debt: a withheld debt said WITHHELD passes" % ("ok   " if rc == EX_PASS else "FAIL "))
+    ok &= rc == EX_PASS
+    _, rc = judge_reply_debt(dict(wh_good, withheld_says_withheld=False))
+    print("  %s  reply debt mutant rejected: a withheld debt the brief does not mention" % ("ok   " if rc == EX_FAIL else "FAIL "))
+    ok &= rc == EX_FAIL
+    minor_good = dict(rd_good, degraded=True, reason="minor_debts_withheld", withheld=1,
+                      withheld_says_withheld=True, withheld_says_caught_up=False,
+                      minor_line_rendered=True)
+    lines, _ = judge_reply_debt(minor_good)
+    ok_line = any(l.startswith("  ok") and "hidden to protect" in l for l in lines)
+    print("  %s  reply debt: a minor-withheld brief that renders the line is ok on the line check" % ("ok   " if ok_line else "FAIL "))
+    ok &= ok_line
+    lines, _ = judge_reply_debt(dict(minor_good, minor_line_rendered=False))
+    red_line = any(l.startswith("  FAIL") and "hidden to protect" in l for l in lines)
+    print("  %s  reply debt mutant rejected: minor-withheld brief with the line dropped" % ("ok   " if red_line else "FAIL "))
+    ok &= red_line
+    _, rc = judge_reply_debt(dict(wh_good, withheld_says_caught_up=True))
+    print("  %s  reply debt mutant rejected: a withheld debt the brief calls caught up" % ("ok   " if rc == EX_FAIL else "FAIL "))
     ok &= rc == EX_FAIL
     mut_names, _ = grade_reply_debts([{"person_name": "Jane Doe", "resolved": True},
                                       {"person_name": "Unknown number", "resolved": False}])
