@@ -200,6 +200,14 @@ jobs:
         if: always()
         run: bash tests/test_enrichment_on_by_default_with_optout.sh
 
+      # The recurring agent installs on the consent answer alone. It was gated
+      # behind "customer has preferences AND an export folder", so a customer
+      # with neither was told yes and never got the agent. Red on the gate
+      # being restored (mutant run recorded in the PR).
+      - name: The enrichment agent installs on consent, with zero people and no exports
+        if: always()
+        run: bash tests/test_enrich_agent_installs_without_exports.sh
+
       # TNM's review point, and it was a fair one: the aggregation assertion in
       # the egress suite is a regex over source text that never constructs a
       # PreferenceFilter. It is sensitive to spelling and blind to behaviour,

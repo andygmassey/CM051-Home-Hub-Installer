@@ -23369,10 +23369,22 @@ _install_enrichment_agent() {
     # value the shipped enricher uses today if the source is not readable,
     # because a tick that cannot form its query is worse than one that
     # guesses the status quo.
-    local enrich_ns
-    enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' \
-                     "${cm019_dir}/services/enrich/src/enricher.py" 2>/dev/null \
-                 | sort -u | head -1)"
+    #
+    # THREE OUTCOMES, KEPT APART. grep exits 0 (found), 1 (the file is readable
+    # and holds no namespace: a real answer, empty on purpose) and 2 (could not
+    # read). Folding 2 into 1 is "could not look" printed as "found nothing".
+    # An absent engine is its own state and is logged once, here, at install.
+    local enrich_ns="" _enricher="${cm019_dir}/services/enrich/src/enricher.py" _grep_rc=0
+    if [[ -r "$_enricher" ]]; then
+        enrich_ns="$(grep -ohE 'https?://[a-z0-9./-]+/ontology#' "$_enricher" 2>/dev/null \
+                     | sort -u | head -1)" || _grep_rc=$?
+        case "$_grep_rc" in
+            0|1) ;;   # 1: readable, no namespace in it. Empty on purpose.
+            *)   warn "could not read the enrichment namespace from the installed engine (grep exit ${_grep_rc}); the agent will report its readback as unreadable" ;;
+        esac
+    else
+        info "enrichment engine not present at install; namespace left default"
+    fi
     #
     # NO FALLBACK LITERAL. An earlier draft composed the current IRI from
     # parts so the ratchet would not see it. That is laundering: the string
@@ -23489,8 +23501,13 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-if [[ ! -x "$CM019_PY" ]]; then
-    log "no preferences service at ${CM019_DIR}; nothing to enrich"
+# ENGINE NOT INSTALLED is a named state, not "nothing to enrich". A customer
+# with no engine has not had their preferences enriched, and "nothing to
+# enrich" would say they had. Exit 0 so launchd does not record a failure every
+# interval, and say why in the log. (CB137-ENRICH-CLI-FALSE-ABSENCE is the
+# separate defect where an UNREACHABLE store reads as empty.)
+if [[ ! -x "$CM019_PY" || ! -r "${CM019_DIR}/services/enrich/src/cli.py" ]]; then
+    log "engine not installed: no enrichment service at ${CM019_DIR}; nothing run"
     exit 0
 fi
 
@@ -26040,11 +26057,7 @@ except Exception:
         # The one-shot enrichment pass earlier in this step is unaffected and
         # still runs, and the #410 provenance gate covers what it may send.
         # The customer-facing question that turns this on lives in #397.
-        if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
-            _install_enrichment_agent
-        else
-            info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
-        fi
+        # The agent's install call is NOT in this block. See below the import gate.
 
         # ── Category coverage guard (CX: silent-blank Food / Music) ─────
         # Preferences landed, but the headline wiki pages (Food, Music,
@@ -26115,6 +26128,26 @@ elif [[ -n "${EXPORTS_DIR:-}" ]]; then
     info "$(printf "$MSG_INFO_YOUR_EXPORTS_ARE_SAFE_IMPORT_THEM" "${EXPORTS_DIR}")"
 fi
 unset _PREFS_DROPZONE _IMPORT_DIRS
+
+# ── Recurring enrichment agent: installed on the consent answer alone ────
+#
+# THIS USED TO SIT INSIDE TWO GATES, and both were wrong for a customer with no
+# exports at install. The agent call was inside `if [[ _PREFS_POINTS -gt 0 ]]`,
+# which sits inside `if [[ ${#_IMPORT_DIRS[@]} -gt 0 ]]`, so with no export
+# folder the whole block was skipped and the agent never installed. Most new
+# customers have no exports on day one, so default-on enrichment was off for
+# them, while the consent screen had just said yes.
+#
+# The consent answer is the only input that decides this: yes installs the
+# agent, no does not. Preference points and export folders do not. With zero
+# people the tick runs, finds nothing, and logs NOTHING TO ENRICH. It does not
+# fail. (tests/test_enrich_agent_installs_without_exports.sh and
+# tests/test_enrich_tick_empty_store_exits_clean.sh.)
+if [[ "${OSTLER_ENRICH_AGENT_ENABLED:-0}" == "1" ]]; then
+    _install_enrichment_agent
+else
+    info "Recurring enrichment agent not installed: public-data enrichment is off until you choose it."
+fi
 
 # Create a ostler-fda command for re-running FDA extraction
 # (e.g. after granting Full Disk Access post-install)
