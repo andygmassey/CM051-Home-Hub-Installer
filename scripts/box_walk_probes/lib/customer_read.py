@@ -318,6 +318,47 @@ def doctor_list_count(doc):
     return tile, None
 
 
+EMAIL_NAME_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def shadowed_pairs(papi):
+    """The email-named rows that shadow a human-named row, each with the human row
+    it shadows. Same rule as the judge's 'people: no row is named by an email
+    address when a human-named row shares that address'."""
+    human_by_email = {}
+    for r in papi:
+        nm, em = (r.get("name") or "").strip(), (r.get("email") or "").strip().lower()
+        if em and nm and "@" not in nm:
+            human_by_email.setdefault(em, r)
+    out = []
+    for r in papi:
+        nm = (r.get("name") or "").strip()
+        if not EMAIL_NAME_RE.fullmatch(nm):
+            continue
+        em = (r.get("email") or "").strip().lower()
+        hit = human_by_email.get(nm.lower()) or (human_by_email.get(em) if em else None)
+        if hit is None:
+            continue
+        out.append({"email_named": {"id": r.get("id", ""), "slug": r.get("slug", ""),
+                                    "card": r.get("card"), "has_phone": bool(r.get("has_phone")),
+                                    "name": nm, "email": em},
+                    "human_named": {"id": hit.get("id", ""), "slug": hit.get("slug", ""),
+                                    "card": hit.get("card"), "has_phone": bool(hit.get("has_phone")),
+                                    "name": (hit.get("name") or "").strip(),
+                                    "email": (hit.get("email") or "").strip().lower()}})
+    return out
+
+
+def person_card(row):
+    """CB137 (Archie 2026-11-20): only a PERSON card the owner made exempts a
+    People row from the service checks, the same rule as the Hub's people_list
+    (CM041 people_row_hidden_as_service). A row with no card field is an old box:
+    a phone stands in for the card there, and only there."""
+    if "card" in row:
+        return row.get("card") == "person"
+    return bool(row.get("has_phone"))
+
+
 def service_sender(name):
     """A People row name that is a service, organisation or subject line, not a person."""
     n = (name or "").strip()
@@ -919,10 +960,10 @@ def judge(f, declared=None):
         # on it is theirs, whatever its shape (F7 measured 5 real carded people
         # this check flagged, plus cards named only by digits). Phone, not
         # email: a service mailbox carries an email too.
-        named_by_customer = [r for r in papi if r.get("has_phone")]
+        named_by_customer = [r for r in papi if person_card(r)]
         kinds = {}
         for r in papi:
-            if r.get("has_phone"):
+            if person_card(r):
                 continue
             k = service_sender(r.get("name"))
             if k:
@@ -932,7 +973,7 @@ def judge(f, declared=None):
                 sum(kinds.values()), len(papi), ", ".join("{} {}".format(v, k) for k, v in sorted(kinds.items()))))
         junk = {}
         for r in papi:
-            if r.get("has_phone"):
+            if person_card(r):
                 continue
             k = junk_name(r.get("name"))
             if k:
@@ -1513,8 +1554,19 @@ def collect(base, token, doctor_base, feed_path, out_dir, wiki_wait_s=180, self_
                     with _local_urlopen(preq, timeout=60) as r:
                         body = json.load(r)
                     f["people_api"] = [{"name": p.get("name") or "", "email": p.get("email") or "",
-                                        "has_phone": bool(p.get("phone"))}
+                                        "has_phone": bool(p.get("phone")),
+                                        "card": p.get("card") if "card" in p else None,
+                                        "id": p.get("id") or "", "slug": p.get("slug") or ""}
                                        for p in body.get("people") or []]
+                    # CB136-HUB-PEOPLE-EMAIL-NAMES capture: the exact shadowed pair, written
+                    # to the walk's evidence folder on the walk driver. Names are NOT printed
+                    # (the verdict says names withheld) and never leave the evidence folder.
+                    try:
+                        _pairs = shadowed_pairs(f["people_api"])
+                        with open(os.path.join(out_dir, "people_shadowed_pairs.json"), "w") as _fh:
+                            json.dump({"count": len(_pairs), "pairs": _pairs}, _fh, indent=1)
+                    except Exception as exc:
+                        f["people_shadow_capture_error"] = str(exc)[:160]
                     f["people_api_total"] = body.get("total", len(f["people_api"]))
                 except Exception as exc:
                     f["people_api_error"] = str(exc)[:160]
@@ -2315,13 +2367,26 @@ def self_test():
     else:
         print("  ok    an em dash inside a person's name on Hub People PASSES (contact-written, not Ostler copy)")
     carded = copy.deepcopy(_good())
-    carded["people_api"] += [{"name": "999", "email": "", "has_phone": True},
-                             {"name": "EXAMPLE BANK ALERTS", "email": "", "has_phone": True}]
-    gotc = [ok for n, ok, _ in judge(carded) if n in (DECLARED[24], DECLARED[31])]
-    if gotc != [True, True]:
-        missed.append("a customer-filled card (has a phone) is still judged by its name shape ({!r})".format(gotc))
+    carded["people_api"] += [{"name": "acme notification team", "email": "", "has_phone": True, "card": "person"}]
+    gotc = [ok for n, ok, _ in judge(carded) if n == DECLARED[24]]
+    if gotc != [True]:
+        missed.append("a PERSON card keeps its name, whatever the name looks like ({!r})".format(gotc))
     else:
-        print("  ok    a contact card with a phone keeps the name the customer gave it")
+        print("  ok    a person card keeps the name the customer gave it (CB137)")
+    orgc = copy.deepcopy(_good())
+    orgc["people_api"] += [{"name": "acme notification team", "email": "", "has_phone": True, "card": "organisation"}]
+    goto = [ok for n, ok, _ in judge(orgc) if n == DECLARED[24]]
+    if goto != [False]:
+        missed.append("an organisation card does not exempt a service name ({!r})".format(goto))
+    else:
+        print("  ok    an organisation card does not exempt a service name (CB137)")
+    namedonly = copy.deepcopy(_good())
+    namedonly["people_api"] += [{"name": "acme notification team", "email": "", "has_phone": False, "card": ""}]
+    gotn2 = [ok for n, ok, _ in judge(namedonly) if n == DECLARED[24]]
+    if gotn2 != [False]:
+        missed.append("a name-only service row is judged as a service ({!r})".format(gotn2))
+    else:
+        print("  ok    a name-only service row is judged as a service (CB137)")
     # Walk #16 customer eyes: real names that look unusual must PASS the junk
     # and organisation predicates, or the check fails real people.
     for real in ("\U0001d479\U0001d48a\U0001d484\U0001d48c\U0001d49a Doe", "Mary-Jane O'Neil", "Henry 8th",
