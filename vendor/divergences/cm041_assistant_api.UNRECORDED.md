@@ -2457,3 +2457,11 @@ Why: Archie's final ruling 2026-11-20 (CB137). Name shape alone must not exclude
 Not regenerated: this tree's notes say not to override a sync refusal here. The description is this entry.
 
 Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; a name-shape mutant goes red). F7: tests/test_people_have_human_evidence.py passes (21, including one new case: a named no-card row from a noreply address is excluded; the name-shape mutant turns 2 of them red).
+
+## CB136 timeline (ORM, 2026-11-20): a failed source is a named degraded state; the cap is per source (graft of CM041 #315)
+
+Where: vendor/cm041/assistant_api/ical-server.py. New module-level _TIMELINE_SENTINEL_SOURCE, _TIMELINE_DEGRADED_COPY and _cap_interleaved sit before api_timeline. In api_timeline: error sentinels stay in items with their source (CM051 #2565: every item names its source) and are exempt from the cap, so a failed source is never cut; the cap is _cap_interleaved(kept, limit, newest_first=not forward) (round-robin per source; a forward page keeps ascending order); and the response carries a separate degraded key, one {source, title} named state per failed source, beside the events.
+
+Not byte-identical to CM041 #315: the vendored api_timeline takes before/after paging arguments that CM041 main does not, so the cap call carries newest_first=not forward. The three helper functions are identical text.
+
+Why: the 135 walk showed an empty timeline when the meeting query timed out. Its error had no date and the cap dropped it; photo days also filled the cap. DEBT corrected: no notice entry is inserted; the test asserts the separate degraded key and that no `"type": "notice"` entry exists (a notice is not an event with a source). Test: vendor/cm041/assistant_api/tests/test_timeline_degraded_and_per_source_cap.py (6 pass; plain-slice mutant red).
