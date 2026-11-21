@@ -72,7 +72,7 @@ DECLARED = [
 
 # The seeded neighbour's note. MUST equal lib/scale_fixture.py NEIGHBOUR_NOTE
 # (pinned by tests/test_scale_gate_probes.sh). Synthetic cast names only.
-NEIGHBOUR_NOTE = "Philip Coe is based in Initech Town"
+NEIGHBOUR_NOTE = "Nathan Brown is based in Initech Town"
 NEIGHBOUR_MARK = "initech town"
 ABOUT_ENTRY = re.compile(r"^-\s*(Places|Family and close people):\s*(.*)$", re.M)
 
