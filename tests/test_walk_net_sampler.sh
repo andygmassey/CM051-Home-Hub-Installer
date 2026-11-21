@@ -19,6 +19,11 @@
 #      (the colima VM as measured 2026-11-05: curl-first left it unseen)
 #   J  hold set on start only                  -> stop's controls hold as long
 #      as start's (the hold is persisted in the run dir, not re-read from env)
+#   K  VM DNS resolves only on the 3rd lookup  -> the start control waits for
+#      it, fires after, is seen; vm_sampler=PASS (v1.0.125 walk race)
+#   L  VM DNS never resolves                   -> no VM control fired, the waited
+#      time is named, vm_sampler=CANNOT-RUN, rc 2 (never PASS)
+#   M  a bare copy with no host list           -> start refuses, rc 2, nothing runs
 # Then code mutants of the sampler itself; each must turn its case red.
 #
 # Debug knobs (never set in CI): ONLY_CASES="A C" runs those cases and skips
@@ -144,6 +149,16 @@ echo "$(date +%s) vm nc open" >> "$SHIM_STATE/nc.log"
 : > "$SHIM_STATE/vm_nc_held"; cat >/dev/null; rm -f "$SHIM_STATE/vm_nc_held"
 echo "$(date +%s) vm nc closed" >> "$SHIM_STATE/nc.log"
 EOF
+cat > "$V/getent" <<'EOF'
+#!/bin/sh
+# The VM resolver. SHIM_DNS_NEVER: never resolves. SHIM_DNS_FAIL_FIRST=N: the
+# first N lookups fail (the resolver is still coming up), then it resolves.
+n=$(( $(cat "$SHIM_STATE/dns_calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$SHIM_STATE/dns_calls"
+echo "$(date +%s) vm dns lookup $n" >> "$SHIM_STATE/nc.log"
+[ -n "${SHIM_DNS_NEVER:-}" ] && exit 2
+[ "$n" -le "${SHIM_DNS_FAIL_FIRST:-0}" ] && exit 2
+echo "198.51.100.80   $3"
+EOF
 V2="${T}/vmshim_socat"; mkdir -p "$V2"   # second VM shape: socat and curl, no nc
 cat > "$V2/socat" <<'EOF'
 #!/bin/sh
@@ -167,12 +182,12 @@ VB="${T}/vmbase"; mkdir -p "$VB"
 for d in /usr/bin /bin; do
     for f in "$d"/*; do
         b="${f##*/}"
-        case "$b" in nc|ncat|netcat|nc.*|socat|curl|wget|busybox) continue ;; esac
+        case "$b" in nc|ncat|netcat|nc.*|socat|curl|wget|busybox|getent|nslookup|host|dig) continue ;; esac
         [ -e "$VB/$b" ] || ln -s "$f" "$VB/$b"
     done
 done
 # The second VM shape, as measured on the colima VM 2026-11-05.
-cp "$V/sudo" "$V/conntrack" "$V/docker" "$V2/"
+cp "$V/sudo" "$V/conntrack" "$V/docker" "$V/getent" "$V2/"
 
 # ------------------------------------------------------------------ fixtures
 # lsof -F: an ssh session (LAN, not outbound), a listener, and one declared
@@ -289,6 +304,18 @@ expect_case() {
            [ "${rows}" = "host:start:8 host:stop:8 vm:start:8 vm:stop:8 " ] \
                || { echo "    J: control holds are '${rows}', want all four at 8"; e=1; }
            [ "$(cat "${OUTD}/control_hold" 2>/dev/null)" = "8" ] || { echo "    J: start's hold not persisted"; e=1; } ;;
+        K) run_case "$s" K SHIM_DNS_FAIL_FIRST=2 NETSAMP_VM_DNS_POLL_S=1
+           has "vm control dns ready after 2s" || { echo "    K: the DNS wait was not logged as ready after 2s"; e=1; }
+           has "vm control (start): SEEN" || { echo "    K: VM start control not seen after the DNS wait"; e=1; }
+           has "vm_sampler=PASS" || { echo "    K: no vm_sampler=PASS"; e=1; }
+           [ "$RC" -eq 0 ] || { echo "    K: rc=$RC, want 0"; e=1; } ;;
+        L) run_case "$s" L SHIM_DNS_NEVER=1 NETSAMP_VM_DNS_WAIT_S=3 NETSAMP_VM_DNS_POLL_S=1
+           has "reason: no VM control fired: dns never resolved example.com inside the VM after 3s" \
+               || { echo "    L: the never-resolved reason with its waited time is missing"; e=1; }
+           has "vm_sampler=CANNOT-RUN" || { echo "    L: vm_sampler is not CANNOT-RUN"; e=1; }
+           awk -F'\t' '$1 == "vm"' "${OUTD}/controls.tsv" 2>/dev/null | grep -q . \
+               && { echo "    L: a VM control window was stamped though no control could fire"; e=1; }
+           [ "$RC" -eq 2 ] || { echo "    L: rc=$RC, want 2"; e=1; } ;;
     esac
     if [ "$e" -ne 0 ]; then
         printf '%s\n' "${REPORT}" | sed 's/^/      | /'
@@ -301,7 +328,7 @@ expect_case() {
 }
 
 echo "== cases against scripts/walk_net_sampler.sh"
-for c in ${ONLY_CASES:-A B C D E F G H I J}; do
+for c in ${ONLY_CASES:-A B C D E F G H I J K L}; do
     if expect_case "${SAMPLER}" "$c"; then ok "case $c"; else bad "case $c"; fi
 done
 
@@ -309,6 +336,23 @@ done
 # Each mutant breaks one check in a copy of the sampler; the case that guards
 # it must go red. A mutant whose sed did not change the file is itself a FAIL
 # (a mutant that did not apply looks exactly like one that was not caught).
+# Case M (v1.0.125: the sampler ran from a bare copy without its host list).
+# A start with no readable list must refuse, rc 2, start nothing, and say why.
+expect_m() { # sampler ; returns 0 when the refusal held
+    local s="$1" o="${T}/out.M.${RANDOM}" bare="${T}/bare.${RANDOM}" e=0 out rc
+    mkdir -p "$bare"; cp "$s" "$bare/walk_net_sampler.sh"; chmod +x "$bare/walk_net_sampler.sh"
+    OUTS="${OUTS} ${o}"
+    out="$(env NETSAMP_SUDO="${H}/sudo" NETSAMP_LSOF="${H}/lsof" NETSAMP_COLIMA="${H}/colima" \
+        "$bare/walk_net_sampler.sh" start --out "$o" --period 1 2>&1)"; rc=$?
+    [ "$rc" -eq 2 ] || { echo "    M: rc=$rc, want 2"; e=1; }
+    printf '%s' "$out" | grep -q 'telemetry host list is unreadable or empty' || { echo "    M: refusal not named: $out"; e=1; }
+    [ -e "$o/host.pid" ] || [ -e "$o/vm.pid" ] && { echo "    M: a sampler started without its host list"; e=1; }
+    return $e
+}
+if [ -z "${ONLY_CASES:-}" ] || case " ${ONLY_CASES} " in *" M "*) true ;; *) false ;; esac; then
+    if expect_m "${SAMPLER}"; then ok "case M"; else bad "case M"; fi
+fi
+
 echo "== code mutants (each must turn its case red)"
 mutant() { # label case old new
     local label="$1" c="$2" old="$3" new="$4" m="${T}/mut.$1"
@@ -334,11 +378,23 @@ mutant() { # label case old new
 [ -n "${ONLY_CASES:-}" ] || mutant vm_control_curl_first I 'if command -v socat >/dev/null 2>&1; then t=socat' 'if command -v curl >/dev/null 2>&1; then t=curl
 elif command -v socat >/dev/null 2>&1; then t=socat'
 [ -n "${ONLY_CASES:-}" ] || mutant stop_rereads_hold_from_env J 'case "${saved}" in ""|*[!0-9]*) ;; *) echo "${saved}"; return 0 ;; esac' ':'
+[ -n "${ONLY_CASES:-}" ] || mutant dns_wait_skipped L 'if \$r >/dev/null 2>&1; then' 'if true; then'
+[ -n "${ONLY_CASES:-}" ] || mutant dns_failure_still_fires L '                exit 0
+            fi
+            status vm control_dns' '            fi
+            status vm control_dns'
+if [ -z "${ONLY_CASES:-}" ]; then
+    mm="${T}/mut.no_host_list_refusal"; mkdir -p "$mm"; cp "${SAMPLER}" "$mm/walk_net_sampler.sh"
+    OLD='if [ ! -r "${TELEMETRY_LIST}" ] ||' NEW='if false &&' perl -0pi -e 's/\Q$ENV{OLD}\E/$ENV{NEW}/' "$mm/walk_net_sampler.sh"
+    if cmp -s "${SAMPLER}" "$mm/walk_net_sampler.sh"; then bad "mutant no_host_list_refusal: did not apply"
+    elif expect_m "$mm/walk_net_sampler.sh" > "${T}/mut.M.log" 2>&1; then bad "mutant no_host_list_refusal: case M stayed green"
+    else ok "mutant no_host_list_refusal: case M went red ($(grep -m1 '^    M:' "${T}/mut.M.log" | sed 's/^ *//'))"; fi
+fi
 [ -n "${ONLY_CASES:-}" ] || mutant vm_rows_not_in_telemetry H 'awk -F'"'"'\t'"'"' '"'"'{ print "vm\t" $9 "\t" $6 }'"'"'' 'true'
 
 echo
 echo "test_walk_net_sampler: ${PASSES} ok, ${FAILS} failed (of $((PASSES + FAILS)))"
 [ "${FAILS}" -eq 0 ] || exit 1
-# The denominator: 10 cases + 8 mutants. Fewer means something did not run.
-[ -n "${ONLY_CASES:-}" ] || [ "${PASSES}" -eq 18 ] || { echo "denominator: ${PASSES} of 18 ran"; exit 1; }
+# The denominator: 13 cases + 11 mutants. Fewer means something did not run.
+[ -n "${ONLY_CASES:-}" ] || [ "${PASSES}" -eq 24 ] || { echo "denominator: ${PASSES} of 24 ran"; exit 1; }
 exit 0
