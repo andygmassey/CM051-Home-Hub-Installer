@@ -7,9 +7,9 @@
 # in OS003 cannot pass quietly. That divergence is what left CM051 running
 # a rollforward gate 239 diff lines behind the original.
 os003_repo	andygmassey/OS003-Ostler-Release
-os003_sha	c17d08af6b753932a62712c241171cd9acfdc678
+os003_sha	ce2efacaba58ad0aa1ca091f7d041f4f9680a8bd
 os003_branch	main
 bin/rollforward_gate.sh	a9da1523e041f8c47d713f6a35d51a260a1abe527ef61f0c4e6d8801e7994b74
 bin/lib_redact.sh	01412e4139f443f65a5802ef15e94038d513a860fab7e47c5869b6e87ab15cc5
 bin/redact_selftest.sh	3219242322271a168b6f815a2cad8c21b7829f7c69cb1f8998893d6ce8a2f3c6
-cuts/DEFECTS_ROLLFORWARD.md	9fcddc906c59d58e68edf19e7bb0338f849d43951b4ce87edaee99dd0f9cb2f3
+cuts/DEFECTS_ROLLFORWARD.md	513fc0e7da2ed6578fcd1abc8a608ea98ca88171c6b0f6b89e198642207d3da5
