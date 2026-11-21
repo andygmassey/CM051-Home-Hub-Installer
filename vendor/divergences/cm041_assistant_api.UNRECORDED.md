@@ -2445,3 +2445,15 @@ Revision (CM041 PR2 head 0a86b7a, on top of 8309e840: person card and timeline).
 - Test files: `test_people_context_latency.py` and `test_133_outbound_levels.py` byte-identical to CM041 PR2 head 0a86b7a; `test_person_timeline_by_uri.py` (CM051 drifted copy) takes the level-answering double by hand.
 
 Revision (CM041 PR #316 head 9ca732f1, CB136 derived-preferences empty-answer message). Tree: cm041/assistant_api. `derived_preferences.py` is byte-identical to CM041 PR #316 head (sha256 prefix e083aa196504b6a1 in both trees). It adds `count_held_back_by_level` on `DerivedGraphReader` and the held-back wording in `build_derived_preferences_response`. New vendored test `tests/test_derived_withheld_message.py` (byte-identical to CM041), wired into the executed pytest list of `.github/workflows/cm041-133-outbound-privacy.yml`. The test's synthetic route fake is unchanged here. No other vendored file changes in this revision.
+
+## CB137 (ORM, 2026-11-20): People list service gate, positive evidence only (graft of CM041 #314)
+
+Where: vendor/cm041/assistant_api/ical-server.py. people_row_hidden_as_service (and its helper _named_row_has_service_evidence) sits next to people_list. The text is byte-identical to CM041 main's copy in CM041 #314.
+
+Shape, in order: a business card is hidden. A person card always shows. A row with a given or family name and no person card is hidden only on positive service evidence: a role or no-reply mailbox (_SERVICE_MAILBOX_LOCAL_RE on an address), or a service phrase (_SERVICE_NAME_PHRASE_RE). Name shape alone never hides it. An unnamed row keeps the organisation and service-shape checks.
+
+Why: Archie's final ruling 2026-11-20 (CB137). Name shape alone must not exclude a named person (F7 fixture: JANE DOE, Alex Doe - Plumber). The blanket exemption for named rows is removed; positive evidence is the only exclusion for them.
+
+Not regenerated: this tree's notes say not to override a sync refusal here. The description is this entry.
+
+Test: vendor/cm041/assistant_api/tests/test_people_row_service_gate.py (7 pass; a name-shape mutant goes red). F7: tests/test_people_have_human_evidence.py passes (21, including one new case: a named no-card row from a noreply address is excluded; the name-shape mutant turns 2 of them red).
