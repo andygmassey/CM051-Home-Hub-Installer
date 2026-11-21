@@ -24,7 +24,7 @@ import re
 import time
 from typing import Any
 
-from banner_copy import EMPTY_MAIL_NUDGE, backfill_progress
+from banner_copy import EMPTY_MAIL_NUDGE, OWNER_EMAIL_UNKNOWN, OWNER_EMAIL_UNREADABLE, backfill_progress
 
 from diagnostic_copy import (
     MINORS_UNREADABLE_TITLE,
@@ -3182,6 +3182,35 @@ def check_minors_registry(snapshot: Any) -> list[dict]:
     return findings
 
 
+def check_owner_email(snapshot: Any) -> list[dict]:
+    """Does Ostler know which email address is the owner's?
+
+    Reads the owner state the installer writes (owner_addresses.json, 0600).
+    Fires "doesn't know" when that file records no address (status none) or is
+    missing after setup. Fires a distinct "couldn't check" row when the store
+    could not be read. Silent when addresses are known, and silent before
+    setup completes (the install has not finished deriving them yet).
+    """
+    findings: list[dict] = []
+    state = getattr(snapshot, "owner_addresses_state", None)
+    if state is None:
+        pipeline = getattr(snapshot, "pipeline_signals", None)
+        if pipeline is None or getattr(pipeline, "install_completed_ts", None) is None:
+            return findings
+        findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN, "form": "owner_email",
+                         "risk": "low", "category": "installation"})
+        return findings
+    if state.get("addresses"):
+        return findings
+    if state.get("status") == "unreadable":
+        findings.append({"severity": "info", **OWNER_EMAIL_UNREADABLE,
+                         "risk": "low", "category": "installation"})
+        return findings
+    findings.append({"severity": "info", **OWNER_EMAIL_UNKNOWN, "form": "owner_email",
+                     "risk": "low", "category": "installation"})
+    return findings
+
+
 ALL_RULES = [
     check_minors_registry,
     check_scheduled_agents,
@@ -3214,6 +3243,7 @@ ALL_RULES = [
     check_licence_expiry,
     check_parked_facts,
     check_time_machine_exclusion,
+    check_owner_email,
 ]
 
 

@@ -1511,6 +1511,45 @@ def render_source_status() -> str:
     )
 
 
+# ── Owner's email address: the input on the Doctor row that asks for it ──
+#
+# Customer copy only. Submits to POST /api/v1/owner-email. The page reloads
+# on success, so the row clears because the file now holds an address.
+OWNER_EMAIL_FORM_HTML = (
+    '<form class="owner-email-form" onsubmit="return window.ownerEmailSave(this)">'
+    '<label class="owner-email-label" for="ownerEmailInput">Your email address</label>'
+    '<input id="ownerEmailInput" class="owner-email-input" type="email" '
+    'name="owner-email" autocomplete="email" required>'
+    '<button type="submit" class="owner-email-save">Save</button>'
+    '<div class="owner-email-error" role="alert"></div>'
+    '</form>'
+)
+
+OWNER_EMAIL_JS = r"""
+window.ownerEmailSave = function (form) {
+  var input = form.elements['owner-email'];
+  var err = form.querySelector('.owner-email-error');
+  var value = (input.value || '').trim();
+  err.textContent = '';
+  if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(value)) {
+    err.textContent = 'That does not look like an email address.';
+    return false;
+  }
+  fetch('/api/v1/owner-email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({addresses: [value]})
+  }).then(function (r) {
+    return r.json().then(function (j) { return {ok: r.ok, j: j}; });
+  }).then(function (x) {
+    if (x.ok) { window.location.reload(); }
+    else { err.textContent = (x.j && x.j.error) || 'Try again.'; }
+  }).catch(function () { err.textContent = 'Could not save. Try again.'; });
+  return false;
+};
+"""
+
+
 def render_dashboard(
     snapshot: SystemSnapshot,
     findings: list[dict],
@@ -1696,6 +1735,8 @@ def render_dashboard(
             <div class="fix-box">
                 <div class="fix-description">{f['fix']}</div>
             </div>"""
+        if f.get("form") == "owner_email":
+            fix_html += OWNER_EMAIL_FORM_HTML
 
         findings_html += f"""
         <div class="finding" style="border-left:3px solid {sev_color}">
@@ -2281,6 +2322,8 @@ def render_dashboard(
     </div>
 
     <script>
+    {OWNER_EMAIL_JS}
+    var OWNER_EMAIL_FORM_HTML_JS = {json.dumps(OWNER_EMAIL_FORM_HTML)};
     (function() {{
         // --- Auto-refresh ---
         let autoRefresh = true;
@@ -2340,6 +2383,9 @@ def render_dashboard(
                         + '</div>';
                 }} else if (f.fix) {{
                     fixHtml = '<div class="fix-box"><div class="fix-description">' + f.fix + '</div></div>';
+                }}
+                if (f.form === 'owner_email') {{
+                    fixHtml += OWNER_EMAIL_FORM_HTML_JS;
                 }}
                 fhtml += '<div class="finding" style="border-left:3px solid ' + sc + '">'
                     + '<div class="finding-header">'
@@ -4451,6 +4497,35 @@ async def api_pause_get():
     except Exception:
         return {"paused": False, "expiry": None, "indefinite": False,
                 "expiry_human": "", "scope": None}
+
+
+@app.post("/api/v1/owner-email", response_class=JSONResponse)
+async def api_owner_email_post(request: Request):
+    """Set the owner's own email address(es), for the Doctor row that asks.
+
+    Body: ``{"addresses": ["..."]}``. Writes state/owner_addresses.json at
+    mode 0600 through owner_email.write_owner_addresses, which refuses anything
+    that is not an address. Same cross-site guard as the other POST routes.
+    The addresses are never echoed back or logged.
+    """
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site is not None and sec_fetch_site not in ("same-origin", "none"):
+        return JSONResponse({"error": "Cross-site request refused"}, status_code=403)
+
+    from owner_email import write_owner_addresses
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Send the address as JSON."}, status_code=400)
+    raw = body.get("addresses") if isinstance(body, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return JSONResponse({"error": "Enter the email address you use."}, status_code=400)
+    try:
+        write_owner_addresses(raw)
+    except ValueError:
+        return JSONResponse({"error": "That does not look like an email address."}, status_code=400)
+    return JSONResponse({"status": "ok", "count": len({str(a).strip().lower() for a in raw})}, status_code=200)
 
 
 @app.post("/api/v1/pause", response_class=JSONResponse)

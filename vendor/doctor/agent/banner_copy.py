@@ -47,6 +47,31 @@ EMPTY_MAIL_NUDGE = {
 }
 
 
+# ── Owner's email address (the email and reply-debt consumers need it) ──
+
+OWNER_EMAIL_UNKNOWN = {
+    "title": "Ostler doesn't know which email address is yours",
+    "detail": (
+        "Ostler uses your own address to tell the messages you wrote from "
+        "the ones written to you. Until it knows it, replies you have sent "
+        "and promises you have made by email are not counted."
+    ),
+    "fix": "Tell Ostler your email address",
+    "fix_command": None,
+}
+
+OWNER_EMAIL_UNREADABLE = {
+    "title": "Ostler couldn't check which email address is yours",
+    "detail": (
+        "Ostler could not read the accounts on this Mac just now, so it "
+        "cannot tell which email address is yours. It will try again on "
+        "the next check."
+    ),
+    "fix": None,
+    "fix_command": None,
+}
+
+
 # ── #260 Mail backfill progress banner ────────────────────────────────
 
 

@@ -282,6 +282,8 @@ class SystemSnapshot:
     pwg_version: str | None = None
     docker_version: str | None = None
     pipeline_signals: PipelineSignalsInfo | None = None
+    # Owner's own email addresses (owner_addresses.json). None = file missing.
+    owner_addresses_state: dict | None = None
     backfill_checkpoint: BackfillCheckpointInfo | None = None
 
     # Per-source ingest outcomes. EMPTY before this graft because nothing read
@@ -811,6 +813,8 @@ def collect_full_snapshot() -> SystemSnapshot:
     services = collect_service_health()
     network = collect_network_checks()
     pipeline_signals = collect_pipeline_signals()
+    from owner_email import read_owner_state  # noqa: E402
+    owner_addresses_state = read_owner_state()
     backfill_checkpoint = collect_backfill_checkpoint()
     ram_total_gb, ram_available_gb = collect_memory()
     hydrate_markers = collect_hydrate_markers()
@@ -829,6 +833,7 @@ def collect_full_snapshot() -> SystemSnapshot:
         network_checks=network,
         docker_version=docker_version,
         pipeline_signals=pipeline_signals,
+        owner_addresses_state=owner_addresses_state,
         backfill_checkpoint=backfill_checkpoint,
         hydrate_markers=hydrate_markers,
         ram_total_gb=ram_total_gb,
