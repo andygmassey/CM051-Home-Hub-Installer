@@ -61,7 +61,35 @@ SECTION_STORE = {
     "Confirmed by you": "user_asserted_facts",
     "Recent meetings (last 7 days)": "meetings_7d",
     "Calendar events by owner": "calendar_events",
+    # Walk 132: "Routines and priorities" had no store measure, so its nothing-stored
+    # line was NOT MEASURED. Measured here by the open commitments the generator reads.
+    "Routines and priorities": "routines_priorities",
+    # Walk 132 (second pass): Tastes and Channel style had no store measure either.
+    "Tastes": "tastes",
+    "Channel style": "channel_style",
 }
+
+# Taste domains as the generator reads them (generate_pwg_context.py _TASTE_DOMAINS).
+TASTE_DOMAINS = ("food", "music", "film & tv")
+
+
+def count_tastes(interests):
+    """Interests in the taste domains, non-negative, not L3: the rows _tastes_section can print.
+    interests is the list from interest_profile.json. Pure, so the control can run without a box."""
+    n = 0
+    for it in interests or []:
+        if not isinstance(it, dict):
+            continue
+        dom = " ".join(str(it.get("domain") or "").lower().split())
+        if dom not in TASTE_DOMAINS:
+            continue
+        pol = str(it.get("polarity") or "").lower()
+        if pol.startswith(("neg", "dis")) or pol == "-1":
+            continue
+        if str(it.get("privacy") or it.get("privacy_level") or "").upper() == "L3":
+            continue
+        n += 1
+    return n
 
 DECLARED = [
     "digest: About you names at least one organisation, and top people and preferences are non-empty",
@@ -261,6 +289,19 @@ def _http(url, data=None, headers=None, timeout=30):
         return json.loads(r.read().decode() or "null")
 
 
+def _routines_count(commitments, owner_meetings):
+    """Routines and priorities: open commitments PLUS the owner's diary meetings in the routine
+    window (generator _routines_lines, 90 days). Each half returns a real count (zero included)
+    or None when that read FAILED. Any failed half makes the total None: a store that could not
+    be read is never a zero. The owner-meeting count uses the anchor node, so it can UNDERCOUNT a
+    fragmented owner; an undercount can only miss a lie, never invent one."""
+    c = commitments()
+    m = owner_meetings
+    if c is None or m is None:
+        return None
+    return c + m
+
+
 def measure_stores():
     """Each store's count, or None when it could not be read. Never assumed."""
     h = _store_headers()
@@ -323,6 +364,49 @@ def measure_stores():
     cal_facts = sparql_count('?f a pwg:PersonFact ; pwg:factDomain "calendar" ; pwg:factText ?t .')
     cal_ahead = sparql_count('?m a pwg:Meeting ; pwg:meetingSummary ?s ; pwg:meetingDate ?d . FILTER(STR(?d) >= "%s" && STR(?d) < "%s" && %s >= "%s")' % (today, ahead, at, now_s))
     out["calendar_events"] = None if cal_facts is None or cal_ahead is None else cal_facts + cal_ahead
+    # Open commitments, the second half of "Routines and priorities" (the generator's
+    # _commitment_lines, GET /api/v1/commitments?owner=user&status=open). Stored as None
+    # when zero: the diary-timing half is not measured here, so zero commitments cannot
+    # prove the section empty, and a zero must read NOT MEASURED, never "empty store".
+    def daemon_commitments():
+        try:
+            tok = open(os.path.expanduser("~/.ostler/secrets/zeroclaw_admin_token"), encoding="utf-8").read().strip()
+            d = _http("http://127.0.0.1:8000/api/v1/commitments?owner=user&status=open&limit=50",
+                      headers={"Authorization": "Bearer " + tok})
+            rows = d.get("commitments") if isinstance(d, dict) else None
+            return len(rows) if isinstance(rows, list) else None
+        except Exception:
+            return None
+    uid_ = ""
+    try:
+        for line in open(os.path.expanduser("~/.ostler/config/.env"), encoding="utf-8"):
+            if line.startswith("USER_ID="):
+                uid_ = line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    owner_meetings = None
+    import datetime as _dt
+    if uid_:
+        utcnow_ = _dt.datetime.utcnow()
+        owner_meetings = sparql_count(
+            '?m a pwg:Meeting ; pwg:meetingAttendee <https://schema.ostler.ai/ontology#user_%s> ; '
+            'pwg:meetingDate ?d . FILTER(STR(?d) >= "%s")' % (uid_, (utcnow_ - _dt.timedelta(days=90)).strftime("%Y-%m-%d")))
+    out["routines_priorities"] = _routines_count(daemon_commitments, owner_meetings)
+
+    # Tastes: the same interest profile the generator reads. Zero is a real count here:
+    # the profile is the whole store, so an empty taste set is an empty store.
+    out["tastes"] = None
+    try:
+        pf = os.path.join(os.environ.get("OSTLER_DIR") or os.path.expanduser("~/.ostler"), "preferences", "interest_profile.json")
+        out["tastes"] = count_tastes(json.load(open(pf, encoding="utf-8")).get("interests") or [])
+    except Exception:
+        pass
+
+    # Channel style: the owner's sent-message counts per channel (generator _channel_style_section,
+    # pwg:RelationshipSignal userMessages). Zero is a real count: the signal rows are the store.
+    out["channel_style"] = sparql_count(
+        '?s a pwg:RelationshipSignal ; pwg:signalType ?t ; pwg:userMessages ?u . '
+        'FILTER(<http://www.w3.org/2001/XMLSchema#integer>(?u) > 0)')
     uid = ""
     try:
         for line in open(os.path.expanduser("~/.ostler/config/.env")):

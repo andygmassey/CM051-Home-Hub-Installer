@@ -55,6 +55,7 @@ FAIL_FLOOR = 3
 # and by nothing wider. The daemon's census has no source filter (pinned daemon
 # d323c07c), so the exclusion is made here, on the box, read-only.
 WALK_GLOB = "ostler-walk-todo-*"
+WALK_1TO1_GLOB = "ostler-walk-todo-*-1to1"
 KEYED_SQL = "status IN ('pushed', 'completed') AND thread_key IS NOT NULL AND thread_key != ''"
 
 COUNT_FIELDS = ("keyed_rows", "keys_matching_one_to_one", "keys_matching_group",
@@ -99,6 +100,12 @@ def _walk_residue():
         excl = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE source_session_id GLOB ? AND " + KEYED_SQL,
                             (WALK_GLOB,)).fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE " + KEYED_SQL).fetchone()[0]
+        # The synthetic 1:1 seeded through the shipped writer (todo_reminders_box.py seed-1to1):
+        # did the product build a thread key for it? Any status: the key is set at write time.
+        one_rows = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE source_session_id GLOB ?",
+                                (WALK_1TO1_GLOB,)).fetchone()[0]
+        one_keyed = conn.execute("SELECT COUNT(*) FROM reminders_map WHERE source_session_id GLOB ? "
+                                 "AND thread_key IS NOT NULL AND thread_key != ''", (WALK_1TO1_GLOB,)).fetchone()[0]
         # A walk key equal to a real row's key cannot be excluded by key.
         collide = conn.execute(
             "SELECT COUNT(*) FROM reminders_map w WHERE w.source_session_id GLOB ? "
@@ -111,7 +118,8 @@ def _walk_residue():
     finally:
         conn.close()
     return {"walk_db_readable": True, "walk_synthetic_keyed": excl,
-            "walk_synthetic_collisions": collide, "db_keyed_rows": total}
+            "walk_synthetic_collisions": collide, "db_keyed_rows": total,
+            "walk_1to1_rows": one_rows, "walk_1to1_keyed": one_keyed}
 
 
 def box():
@@ -193,6 +201,17 @@ def judge(c):
         lines.append("  CANNOT %d walk-synthetic key(s) are shared with a real row, so the exclusion cannot be made "
                      "by key" % c["walk_synthetic_collisions"])
         return lines, EX_CANNOT
+    # The product's key builder, on a synthetic 1:1 (a counterpart, through the shipped
+    # writer). No key on a 1:1 is a product defect: the feature cannot see any thread.
+    if c.get("walk_1to1_rows"):
+        if c.get("walk_1to1_keyed", 0) == 0:
+            lines.append("  FAIL  a synthetic 1:1 reminder was built with NO thread key: the product's key builder "
+                         "produced nothing for a 1:1 with a counterpart")
+            return lines, EX_FAIL
+        lines.append("  note  a synthetic 1:1 reminder carries a thread key: the key IS built (matching it to a "
+                     "chat.db thread still needs a real chat, so the match arm stays CANNOT)")
+    else:
+        lines.append("  note  no synthetic 1:1 this walk (seed not run): the key builder was not measured")
     n_all = c["keyed_rows"]
     excl = c["walk_synthetic_keyed"]
     n = n_all - excl
