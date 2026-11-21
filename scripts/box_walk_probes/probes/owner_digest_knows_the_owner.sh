@@ -48,6 +48,38 @@ run_probe() {
     n="$(printf '%s\n' "${out}" | grep -cE '^  (ok|FAIL|CANNOT|N/A) ')"
     probe_examined "${n}" "owner-digest assertions"
     [ "${n}" -gt 0 ] || probe_fail "the owner-digest judge printed no assertion; a silent probe is not a pass"
+    # The seeding side removes its own seed. owner_knowledge_score ran after this probe and was
+    # refused because the employer fact was still live (walk 132, MBP). The judgement above is
+    # already taken, so removing the seed here changes no verdict. The forget prints the count
+    # before and after: "before" above zero is the positive control (the seed was there and
+    # the delete acted on it); "after=0" is the removal. Anything else is reported, never silent.
+    if [ "${OSTLER_OWNER_SEED_STATE:-}" = "seeded" ] && [ "${OSTLER_OWNER_SEED_KEEP:-0}" != "1" ]; then
+        # Sourcing the library resets OSTLER_OWNER_SEED_STATE to "unrun" (owner_employer_seed.sh:21),
+        # so forget returned at once and removed nothing (MBP, walk-132 re-run). Keep the real state.
+        _oes_state_kept="${OSTLER_OWNER_SEED_STATE:-}"
+        . "${_HERE}/lib/owner_employer_seed.sh"
+        OSTLER_OWNER_SEED_STATE="${_oes_state_kept}"; export OSTLER_OWNER_SEED_STATE
+        _oes_out="$(owner_employer_seed_forget 2>&1)"
+        printf '%s\n' "${_oes_out}" | sed 's/^/  own-end: /'
+        _oes_before="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES before=\([0-9]*\).*/\1/p' | tail -1)"
+        _oes_after="$(printf '%s\n' "${_oes_out}" | sed -n 's/.*OES after=\([0-9]*\).*/\1/p' | tail -1)"
+        # Archie's ruling: a removal that is not confirmed is a CLEANUP FAILED error on the
+        # real-data box, printed to stderr and reflected in the cleanup step's exit status.
+        # The probe's verdict below is NOT changed by it.
+        . "${_HERE}/lib/owner_seed_cleanup.sh"
+        _oc="$(owner_seed_cleanup_verdict "${_oes_before:-}" "${_oes_after:-}")"; _ocrc=$?
+        printf '%s\n' "${_oc}" | sed 's/^/  own-end: /'
+        if [ "${_ocrc}" -ne 0 ]; then
+            # Archie's ruling: an unconfirmed removal on the real-data box is an ERROR and a
+            # non-zero cleanup status. It does not change the verdict below.
+            OWNER_SEED_CLEANUP_RC=1
+            printf '%s\n' "${_oc}" >&2
+        else
+            OWNER_SEED_CLEANUP_RC=0
+        fi
+        probe_note "owner-employer seed cleanup status: rc=${OWNER_SEED_CLEANUP_RC}"
+    fi
+
     case "${rc}" in
         0)  probe_pass "the digest knows the owner and the chat names the seeded employer" ;;
         78) probe_cannot_run "an owner-digest assertion could not be measured (see the CANNOT lines above)" ;;
