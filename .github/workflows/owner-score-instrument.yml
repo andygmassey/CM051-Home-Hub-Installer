@@ -10,6 +10,8 @@ on:
     paths:
       - 'scripts/owner_score/**'
       - 'scripts/owner_score.sh'
+      - 'scripts/intelligence_eval/**'
+      - 'tests/test_intelligence_eval_selftest.sh'
       - 'scripts/box_walk_probes/probes/owner_knowledge_score.sh'
       - 'scripts/walk_promote_scope.tsv'
       - 'scripts/box_walk_probes/lib/promote_order.sh'
@@ -42,6 +44,8 @@ jobs:
         run: python3 -m pip install pyoxigraph
       - name: The owner-knowledge instrument is valid
         run: /bin/bash tests/test_owner_score_instrument_is_valid.sh
+      - name: The brief and owner-knowledge eval tells good from bad
+        run: /bin/bash tests/test_intelligence_eval_selftest.sh
       - name: An advisory probe is not a walk FAIL
         if: always()
         run: /bin/bash tests/test_an_advisory_probe_is_not_a_walk_fail.sh
