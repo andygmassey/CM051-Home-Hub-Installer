@@ -35,9 +35,31 @@ def _make_resolver(existing_by_value, names_by_uri):
     def _name(uri):
         return names_by_uri.get(uri)
 
+    def _names(uri):
+        # Since CM051 f4e0ae85 (#3073) the BW-1 guard reads EVERY displayName
+        # on the node, not just the elected one.
+        n = names_by_uri.get(uri)
+        return [n] if n else []
+
+    def _id_values(uri, id_type):
+        # RULE 2 (CM051 #2545) reads the matched node's canonical keys. The
+        # nodes here carry none, and absence is not a conflict.
+        return set()
+
     r.find_by_identifier = _find          # type: ignore[assignment]
     r._person_display_name = _name        # type: ignore[assignment]
+    r._person_display_names = _names      # type: ignore[assignment]
+    r._person_identifier_values = _id_values  # type: ignore[assignment]
     return r
+
+
+def _resolve(r, identity):
+    """resolve() degrades ANY Oxigraph error to match_type "new", which is
+    also the expected answer of every decline test below. Refuse a degraded
+    result so a lookup that escaped the stubs cannot pass as a decline."""
+    match = r.resolve(identity, use_fuzzy=False)
+    assert r.stats["degraded"] == 0, match.details
+    return match
 
 
 SHARED_EMAIL = "shared.address@example.com"
@@ -52,7 +74,7 @@ def test_same_name_shared_email_merges():
         names_by_uri={"uri_a": "Sam Carter"},
     )
     identity = PersonIdentity(display_name="Sam Carter", emails=[SHARED_EMAIL])
-    match = r.resolve(identity, use_fuzzy=False)
+    match = _resolve(r, identity)
     assert match.person_uri == "uri_a"
     assert match.match_type == "exact_identifier"
 
@@ -65,7 +87,7 @@ def test_different_name_shared_email_does_not_merge():
         names_by_uri={"uri_b": "Jamie Rivera"},
     )
     identity = PersonIdentity(display_name="Robin Rivera", emails=[SHARED_EMAIL])
-    match = r.resolve(identity, use_fuzzy=False)
+    match = _resolve(r, identity)
     assert match.person_uri is None
     assert match.match_type == "new"
 
@@ -79,7 +101,7 @@ def test_different_name_shared_phone_does_not_merge():
     identity = PersonIdentity(display_name="Pat Quinn", phones=[SHARED_PHONE])
     # phones are normalised by _iter_identifiers; SHARED_PHONE is already E.164
     # so it passes through normalise_phone unchanged.
-    match = r.resolve(identity, use_fuzzy=False)
+    match = _resolve(r, identity)
     assert match.person_uri is None
     assert match.match_type == "new"
 
@@ -93,7 +115,7 @@ def test_unique_identifier_match_always_trusted():
         names_by_uri={"uri_d": "Old Name"},
     )
     identity = PersonIdentity(display_name="New Name", icloud_uid=uid)
-    match = r.resolve(identity, use_fuzzy=False)
+    match = _resolve(r, identity)
     assert match.person_uri == "uri_d"
     assert match.match_type == "exact_identifier"
 
@@ -106,7 +128,7 @@ def test_missing_incoming_name_declines_shareable_match():
         names_by_uri={"uri_a": "Sam Carter"},
     )
     identity = PersonIdentity(display_name="", emails=[SHARED_EMAIL])
-    match = r.resolve(identity, use_fuzzy=False)
+    match = _resolve(r, identity)
     assert match.person_uri is None
 
 
