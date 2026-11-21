@@ -2080,18 +2080,29 @@ def ingest_photos(fda_dir: Path) -> dict:
 MAIL_CONTACT_MIN_COUNT = 3
 
 
+def is_two_way_correspondent(counts: dict) -> bool:
+    """A Person needs a two-way exchange: the owner sent at least one message
+    to the address AND received at least one from it. Pure inbound senders,
+    however frequent, are not people (marketing and notifications land here)."""
+    return int(counts.get("sent", 0)) >= 1 and int(counts.get("received", 0)) >= 1
+
+
 def ingest_mail_contacts(fda_dir: Path) -> dict:
-    """Ingest frequent email contacts into the people graph.
+    """Create Person nodes for two-way mail correspondents.
 
-    Uses the sender frequency data to create/enrich Person nodes
-    with email identifiers.
+    Reads ``apple_mail_exchange.json`` ({address: {"sent": n, "received": m}}).
+    A Person needs at least one owner-sent and one received message. The old
+    sender-frequency rule (count >= MAIL_CONTACT_MIN_COUNT over a top-50 map)
+    made inbound-only senders into people and could never see mail the owner
+    wrote, so it is gone. The owner, machine, role and forgotten gates below
+    still apply to every candidate.
     """
-    contacts_file = fda_dir / "apple_mail_contacts.json"
-    if not contacts_file.exists():
-        logger.info("No Apple Mail contacts to ingest")
-        return {"status": "skipped", "reason": "no data"}
+    exchange_file = fda_dir / "apple_mail_exchange.json"
+    if not exchange_file.exists():
+        logger.info("No Apple Mail exchange data to ingest")
+        return {"status": "skipped", "reason": "no exchange data"}
 
-    contacts = json.loads(contacts_file.read_text())
+    contacts = json.loads(exchange_file.read_text())
     people_created = 0
     people_matched = 0
     lookup_failed = 0
@@ -2100,9 +2111,9 @@ def ingest_mail_contacts(fda_dir: Path) -> dict:
     machine, correspondents = _machine_senders.load(fda_dir)
     machine_skipped = 0
 
-    for email, count in contacts.items():
-        if not email or count < MAIL_CONTACT_MIN_COUNT:
-            # Skip very infrequent senders
+    for email, counts in contacts.items():
+        if not email or not is_two_way_correspondent(counts):
+            # Inbound-only senders, and owner-sent-only addresses, are not people
             continue
 
         # A role/bulk sender is not a person. Keying on it merges every

@@ -911,7 +911,7 @@ def run_all(
     # ── Apple Mail ─────────────────────────────────────────────────
     if "apple_mail" in sources:
         try:
-            from .apple_mail import extract_messages, email_stats, frequent_contacts
+            from .apple_mail import extract_messages, email_stats, frequent_contacts, exchange_counts
             from .apple_mail import envelope_index_total
             # Mail history window is configurable, same shape as the
             # other sources (OSTLER_IMESSAGE_BACKFILL_DAYS etc). The
@@ -958,6 +958,14 @@ def run_all(
             )
             (output_dir / "apple_mail_contacts.json").write_text(
                 json.dumps(contacts, indent=2, default=str)
+            )
+            # Two-way correspondence (uncapped): the only input Person creation
+            # accepts. Owner = OSTLER_USER_EMAIL plus senders in Sent mailboxes.
+            exchange = exchange_counts(
+                messages, owners=[os.environ.get("OSTLER_USER_EMAIL", "")]
+            )
+            (output_dir / "apple_mail_exchange.json").write_text(
+                json.dumps(exchange, indent=2, default=str)
             )
             # DMG #27: which senders are machines (no-reply, calendar system,
             # notification domain, all-list mail) and which are people the
