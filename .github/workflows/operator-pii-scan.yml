@@ -104,6 +104,17 @@ jobs:
           OPERATOR_PII_INVENTORY: ${{ secrets.OPERATOR_PII_INVENTORY }}
         run: |
           set -euo pipefail
+          # Never write into a real home folder: a local replay of this step on an
+          # operator's Mac overwrote their real inventory twice (2026-10-22). Write
+          # only on a GitHub runner, and never over a file that already exists.
+          if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+              echo "SKIP: GITHUB_ACTIONS is not 'true'; not writing $HOME/.ostler-operator-pii.toml outside a runner."
+              exit 0
+          fi
+          if [ -e "$HOME/.ostler-operator-pii.toml" ]; then
+              echo "SKIP: $HOME/.ostler-operator-pii.toml already exists; not overwriting it."
+              exit 0
+          fi
           if [ -n "${OPERATOR_PII_INVENTORY:-}" ]; then
               printf '%s' "$OPERATOR_PII_INVENTORY" > "$HOME/.ostler-operator-pii.toml"
               echo "Inventory source: OPERATOR_PII_INVENTORY secret (full)"
@@ -178,6 +189,11 @@ jobs:
       - name: Prove the operator-PII scanner sees every text kind
         if: always()
         run: bash tests/test_operator_pii_scan_sees_all_text_kinds.sh
+
+      # The inventory step above must never overwrite a real home-folder file.
+      - name: Prove the inventory step never clobbers an existing home file
+        if: always()
+        run: bash tests/test_operator_pii_step_never_clobbers_home.sh
 
       # Prove the PATTERNS, having just proved the SCOPE. The two are separate
       # questions and this repo answered only the first for weeks: the scope
