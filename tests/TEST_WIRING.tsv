@@ -292,6 +292,7 @@ test_customer_read_click_timeout_names_its_cause.py	WIRED	.github/workflows/hub-
 test_customer_read_contacts_not_masked_by_people.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_dismisses_welcome_modal.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_exempts_marked_customer_text.py	WIRED	.github/workflows/hub-screens-and-106c.yml
+test_customer_read_mono_dates_any_class.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_customer_read_waits_for_a_fresh_contacts_diff.py	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_cut_bom_is_fresh.sh	WIRED	.github/workflows/cut.yml
 test_cut_deferrals_no_duplicate_keys.sh	WIRED	.github/workflows/cut-manifest.yml
