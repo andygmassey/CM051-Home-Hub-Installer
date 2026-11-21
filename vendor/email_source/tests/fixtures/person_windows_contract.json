@@ -1,0 +1,61 @@
+{
+  "rows": [
+    {
+      "active_months_12": 4,
+      "last_contact_days": 0.9583,
+      "median_reply_min_365": 1380.0,
+      "person_id": "c01",
+      "reciprocity_365": 1.0,
+      "recv_30": 3,
+      "recv_365": 6,
+      "recv_90": 5,
+      "reply_pairs_365": 2,
+      "sent_30": 3,
+      "sent_365": 6,
+      "sent_90": 5
+    },
+    {
+      "active_months_12": 1,
+      "last_contact_days": 4.9167,
+      "median_reply_min_365": 120.0,
+      "person_id": "c02",
+      "reciprocity_365": 1.0,
+      "recv_30": 1,
+      "recv_365": 1,
+      "recv_90": 1,
+      "reply_pairs_365": 1,
+      "sent_30": 1,
+      "sent_365": 1,
+      "sent_90": 1
+    },
+    {
+      "active_months_12": 0,
+      "last_contact_days": 12.0,
+      "median_reply_min_365": null,
+      "person_id": "c03",
+      "reciprocity_365": 1.0,
+      "recv_30": 1,
+      "recv_365": 1,
+      "recv_90": 1,
+      "reply_pairs_365": 0,
+      "sent_30": 1,
+      "sent_365": 1,
+      "sent_90": 1
+    },
+    {
+      "active_months_12": 0,
+      "last_contact_days": 400.0,
+      "median_reply_min_365": null,
+      "person_id": "c05",
+      "reciprocity_365": null,
+      "recv_30": 0,
+      "recv_365": 0,
+      "recv_90": 0,
+      "reply_pairs_365": 0,
+      "sent_30": 0,
+      "sent_365": 0,
+      "sent_90": 0
+    }
+  ],
+  "schema": "person_signals.v1"
+}
