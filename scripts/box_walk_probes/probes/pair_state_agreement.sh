@@ -465,7 +465,11 @@ run_probe() {
     #
     # Two questions, two adjudications, both still enforced.
     local res_dev res_pol tok_dev tok_pol det_dev det_pol
-    res_dev="$(adjudicate "$h" "$d" "$m")"      # device-layer agreement
+    # Walk 132: the paired_devices/*.json signal ($m) is a DEAD PATH (no shipped writer),
+    # so it is UNAVAILABLE on every box and only turned the device layer into a permanent
+    # INSUFFICIENT. It is retired from the adjudication and kept as a noted finding above.
+    # The two live device-layer signals (daemon health, devices.db) still must agree.
+    res_dev="$(adjudicate "$h" "$d")"           # device-layer agreement (live signals only)
     res_pol="$(adjudicate "$c" "$g")"           # policy agreement (#512 lives here)
     tok_dev="${res_dev%% *}"; det_dev="${res_dev#* }"
     tok_pol="${res_pol%% *}"; det_pol="${res_pol#* }"

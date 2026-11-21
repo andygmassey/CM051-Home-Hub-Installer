@@ -280,6 +280,7 @@ test_converge_must_resync_qdrant_people_too.sh	WIRED	.github/workflows/cold-box-
 test_converge_path_enforces_rule2.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_conversation_bundle_user_id_wired.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_conversation_process_metadata_conversation_id.sh	WIRED	.github/workflows/vendor-integrity.yml
+test_conversation_seed_curl_config_quoted.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_conversations_ingest_wiring.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_creation_name_writes.sh	WIRED	.github/workflows/creation-name-writes.yml
 test_credential_generation_does_not_sigpipe.sh	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -486,7 +487,9 @@ test_film_tv_detail_reaches_the_graph.py	WIRED	.github/workflows/enrichment-reac
 test_final_summary_nounset_safe.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_first_window_adaptive.py	WIRED	.github/workflows/catchup-machinery.yml
 test_first_window_end_to_end.py	WIRED	.github/workflows/catchup-machinery.yml
+test_followup_1to1_key_builder.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_followup_keys_probe.sh	WIRED	.github/workflows/followup-keys-probe.yml
+test_followup_seed_resolves_pwg_convo_like_install.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_food_mbox_consumed_and_pruned.py	WIRED	.github/workflows/derived-preferences.yml
 test_forget_does_not_claim_an_erasure_it_did_not_do.py	WIRED	.github/workflows/forget-reaches-every-graph.yml
 test_forget_tombstone_every_syncer.py	WIRED	.github/workflows/forget-tombstone.yml
@@ -510,6 +513,7 @@ test_grep_c_arith_safety.sh	WIRED	.github/workflows/grep-c-arith-safety.yml
 test_grep_row_cannot_be_satisfied_by_its_own_manifest.py	WIRED	.github/workflows/cut-manifest.yml
 test_grounding_reports_who_fetched.sh	WIRED	.github/workflows/every-probe-is-collected.yml
 test_group_followup_key_counts_silent_members.py	WIRED	.github/workflows/cm048-participants-as-strings.yml
+test_guard_prints_count_at_phase2.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_gui_progress_emitter.sh	WIRED	.github/workflows/install-gui-contract.yml
 test_homebrew_bootstrap_is_pinned.sh	WIRED	.github/workflows/tests-unwired-sweep-al.yml
 test_homebrew_refusal_reaches_the_screen.py	WIRED	.github/workflows/cold-box-source-truth.yml
@@ -721,11 +725,18 @@ test_owner_digest_about_check_accepts_the_owner_uri.py	WIRED	.github/workflows/c
 test_owner_digest_counts_only_meetings_that_happened.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_hydration_retries_5xx.py	WIRED	.github/workflows/walk-record-gate.yml
 test_owner_digest_preferences_count_above_the_floor.py	WIRED	.github/workflows/walk-record-gate.yml
+test_owner_digest_routines_store_measured.py	WIRED	.github/workflows/walk-harness-faults.yml
+test_owner_digest_store_measures_tastes_channel_routines.py	WIRED	.github/workflows/walk-harness-faults.yml
+test_owner_employer_seed_removed_by_its_seeding_probe.py	WIRED	.github/workflows/walk-harness-faults.yml
+test_owner_knowledge_refuses_while_owner_seed_live.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_owner_language_from_installer.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_name_id_never_empty.sh	WIRED	.github/workflows/tests-unwired-sweep-mz.yml
 test_owner_node_is_minted_and_read.py	WIRED	.github/workflows/owner-node-is-minted.yml
 test_owner_score_instrument_is_valid.sh	WIRED	.github/workflows/owner-score-instrument.yml
+test_owner_seed_cleanup_failure_is_an_error.py	WIRED	.github/workflows/walk-harness-faults.yml
+test_owner_seed_removal_matches_the_guard.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_oxigraph_proxy_credential.sh	WIRED	.github/workflows/store-host-exposure.yml
+test_pair_state_device_layer_uses_live_signals.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_parser_claims_do_not_cross_services.py	WIRED	.github/workflows/parser-claim-separation.yml
 test_passive_plays_are_not_likes.py	WIRED	.github/workflows/misclassified-things.yml
 test_pause_expiry_reenables_cron.py	WIRED	.github/workflows/status-honesty-pause.yml
@@ -1164,6 +1175,7 @@ test_vm_size_from_host_ram.sh	WIRED	.github/workflows/upgrade-payload-shape.yml
 test_voice_consent_matches_catalogue.sh	WIRED	.github/workflows/consent-data-handling.yml
 test_walk134_thin_walk_probes.sh	WIRED	.github/workflows/walk134-thin-walk-probes.yml
 test_walk_arms_distinguish_cannot_run_from_fail.sh	WIRED	.github/workflows/cut-gate-wrappers.yml
+test_walk_box_declares_only_walk_accounts.py	WIRED	.github/workflows/walk-harness-faults.yml
 test_walk_cleanup_runs_on_abort.sh	WIRED	.github/workflows/hub-screens-and-106c.yml
 test_walk_driver_cancel_is_not_a_build_verdict.sh	WIRED	.github/workflows/cold-box-source-truth.yml
 test_walk_driver_does_not_inherit_a_stale_result.sh	WIRED	.github/workflows/walk-record-gate.yml

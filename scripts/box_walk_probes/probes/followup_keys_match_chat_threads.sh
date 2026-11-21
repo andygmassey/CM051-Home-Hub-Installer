@@ -62,11 +62,38 @@ run_probe() {
     remote="/tmp/ostler-probe-followup-$$.py"
     box_run "printf %s '$(base64 < "${_LIB}" | tr -d '\n')' | base64 -d > ${remote}" >/dev/null 2>&1 \
         || probe_cannot_run "could not stage the follow-up census reader on the box"
+    # Walk 132 left this key builder unmeasured: no synthetic conversation was ever written.
+    # Seed ONE synthetic 1:1 through the shipped writer (the same path todos_reach_reminders
+    # uses), so the census can see whether the product builds a thread key for it. The seed
+    # never touches chat.db. Its result is judged by lib/followup_keys_probe.py.
+    local seed_py seed_remote seed_out
+    seed_remote="/tmp/ostler-probe-followup-seed-$$.py"
+    # Where install.sh puts pwg-convo (install.sh:24724-24725 and the ${OSTLER_DIR}/bin link it
+    # falls back to under a GUI install): the first executable of these candidates. The shebang
+    # of that file names the venv interpreter that has the shipped CM048 package. Never one path.
+    seed_py="$(box_run "D=\"\${OSTLER_DIR:-\$HOME/.ostler}\"; for c in \"\${OSTLER_CONVO_SEED_CLI:-}\" \"\$D/bin/pwg-convo\" /usr/local/bin/pwg-convo \"\$D/services/cm048/.venv/bin/pwg-convo\"; do [ -n \"\$c\" ] && [ -x \"\$c\" ] && { head -1 \"\$c\" | sed -n 's/^#!//p'; break; }; done")"
+    if [ -n "${seed_py}" ] && box_run "[ -x '${seed_py}' ]" && \
+       box_run "printf %s '$(base64 < "${_HERE}/lib/todo_reminders_box.py" | tr -d '\n')' | base64 -d > ${seed_remote}" >/dev/null 2>&1; then
+        seed_out="$(box_run "'${seed_py}' ${seed_remote} seed-1to1 --token ostler-walk-todo-fk-$$" 2>/dev/null)"
+        seed_staged=1
+        probe_note "1:1 seed through the shipped writer: ${seed_out:-no answer}"
+    else
+        box_run "rm -f ${seed_remote}" >/dev/null 2>&1
+        probe_note "1:1 seed NOT run: the pwg-convo interpreter could not be resolved on the box (the key builder is unmeasured)"
+    fi
+
     cap="$(mktemp)"
     box_run "/usr/bin/python3 ${remote} box; rm -f ${remote}" > "${cap}" 2>/dev/null
     python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${cap}" 2>/dev/null \
         || { rm -f "${cap}"; probe_cannot_run "the box-side reader returned no capture"; }
     trap 'rm -f "${cap}"' EXIT
+    # Remove the synthetic 1:1 this probe wrote. forget drops its map row when no reminder
+    # exists yet, so the daemon never claims it and no Reminders residue is left behind.
+    if [ -n "${seed_py:-}" ] && [ "${seed_staged:-0}" = 1 ]; then
+        local fg
+        fg="$(box_run "'${seed_py}' ${seed_remote} forget --token ostler-walk-todo-fk-$$ --text none; rm -f ${seed_remote}" 2>/dev/null)"
+        probe_note "1:1 seed cleanup: ${fg:-no answer}"
+    fi
     decide "${cap}"
 }
 
