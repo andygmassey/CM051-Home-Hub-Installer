@@ -40,6 +40,8 @@ on:
       - 'tests/test_no_divergent_vendor_twin.sh'
       - 'tests/test_context_refresh_vendor_sha.sh'
       - 'tests/test_vendor_fresh_gate.sh'
+      - 'tests/test_cm019_health_not_compartment5.sh'
+      - 'scripts/verify_cm019_health_compartment.py'
       - 'tests/test_conversation_process_metadata_conversation_id.sh'
       - 'tests/test_vendor_import_resolution.py'
       - 'tests/test_vendor_entrypoint_resolution.py'
@@ -340,6 +342,14 @@ jobs:
       - name: Vendor-freshness gate self-test
         if: always()
         run: bash tests/test_vendor_fresh_gate.sh
+
+      # Archie ruling, 133: no vendor/cm019 re-pin while upstream apple.py writes
+      # Apple Health as compartment_level=5. Hermetic and synthetic; the same
+      # check also runs inside the freshness gate below (vendored bytes always,
+      # upstream at the new pin on a re-pin).
+      - name: CM019 health is never compartment 5 on a re-pin (RED, GREEN, control, mutant)
+        if: always()
+        run: bash tests/test_cm019_health_not_compartment5.sh
 
       # VENDOR_FRESH_STRICT=0 IS SET HERE ON PURPOSE, AND IT IS THE ONLY PLACE.
       #
