@@ -69,7 +69,11 @@ struct ContentView: View {
             // customer grants it and reopens -- so the quit-and-reopen
             // happens before any questions, not mid-install.
             case .fullDiskAccess:
-                FullDiskAccessGateView()
+                if FDAFlow.usesDragScreen() {
+                    FullDiskAccessDragGateView()
+                } else {
+                    FullDiskAccessGateView()
+                }
             // CX-17 (2026-05-23): the permissions intro screen lands
             // BEFORE everything else (licence, admin gate, install).
             // The macOS TCC dialogs must fire while the customer is

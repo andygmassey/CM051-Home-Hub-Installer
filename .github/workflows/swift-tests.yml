@@ -78,6 +78,7 @@ on:
       # deleted with every check green, which is precisely the em-dash hole
       # recorded above, in the opposite direction.
       - 'tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py'
+      - 'tests/test_fda_gate_drag_handoff.sh'
       - '.github/workflows/swift-tests.yml'
   push:
     branches: [main]
@@ -166,6 +167,9 @@ jobs:
         # guard and a passing one are indistinguishable from the summary.
         if: always()
         run: python3 tests/test_the_wiki_button_is_not_offered_before_the_wiki_serves.py
+      - name: The FDA screen hands over the app itself (macOS 27.3 cannot add apps to Full Disk Access)
+        if: always()
+        run: bash tests/test_fda_gate_drag_handoff.sh
   swift-tests:
     runs-on: macos-26
     timeout-minutes: 30

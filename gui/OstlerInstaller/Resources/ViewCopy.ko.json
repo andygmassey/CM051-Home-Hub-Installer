@@ -167,6 +167,19 @@
     "continue_anyway_button": "그래도 계속",
     "quit_reopen_button": "종료 후 다시 열기"
   },
+  "fda_drag": {
+    "heading": "Ostler가 메시지와 메일을 읽도록 허용하세요",
+    "reveal_button": "Finder에서 보기",
+    "instruction": "{app}을(를) 목록으로 드래그한 다음 켜세요.",
+    "cant_drag": "드래그할 수 없나요?",
+    "manual_steps": "목록 아래의 +를 클릭하고 {app}을(를) 선택하세요.",
+    "already_on_link": "이미 켰나요?",
+    "waiting": "접근 권한을 기다리는 중...",
+    "granted": "접근 권한이 허용되었습니다",
+    "anim_drag": "앱을 목록으로 끌어다 놓기",
+    "anim_switch_on": "켜기",
+    "anim_done": "Ostler가 알아서 계속합니다"
+  },
   "log_drawer": {
     "header_label": "로그",
     "copy_log": "로그 복사",

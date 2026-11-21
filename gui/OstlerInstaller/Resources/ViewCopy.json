@@ -178,6 +178,19 @@
     "continue_anyway_button": "Continue anyway",
     "quit_reopen_button": "Quit and reopen"
   },
+  "fda_drag": {
+    "heading": "Let Ostler read your messages and mail",
+    "reveal_button": "Show in Finder",
+    "instruction": "Drag {app} into the list, then switch it on.",
+    "cant_drag": "Can't drag it?",
+    "manual_steps": "Click + below the list and choose {app}.",
+    "already_on_link": "Already switched it on?",
+    "waiting": "Waiting for access...",
+    "granted": "Access granted",
+    "anim_drag": "Drag the app into the list",
+    "anim_switch_on": "Switch it on",
+    "anim_done": "Ostler carries on by itself"
+  },
 
   "log_drawer": {
     "header_label": "LOG",

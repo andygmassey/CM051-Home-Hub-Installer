@@ -19,6 +19,7 @@
 // Logs carry paths and errno only, never file contents.
 
 import Foundation
+import AppKit
 
 enum FDAReadOutcome: Equatable {
     case readable
@@ -129,5 +130,99 @@ struct FDAGateState: Equatable {
         if launchDecision(report) == .proceed { return .proceed }
         failedRechecks += 1
         return .hold
+    }
+}
+
+/// Auto-advance on grant. The gate polls the probe every 2 seconds and
+/// feeds each report here. Returns true exactly once: on the first tick
+/// where a protected read succeeds. A denial or an inconclusive report
+/// (every probe file absent) never advances.
+struct FDAGrantWatch: Equatable {
+    private(set) var fired = false
+
+    mutating func tick(_ report: FDAProbeReport) -> Bool {
+        guard !fired, report.granted else { return false }
+        fired = true
+        return true
+    }
+}
+
+/// The app the customer must add to Full Disk Access. The probe reads
+/// from this process, so the bundle that owns this process's executable
+/// is the one macOS needs listed. The gate drags exactly this bundle.
+enum FDAHandoff {
+    static func appBundleURL(_ bundle: Bundle = .main) -> URL {
+        bundle.bundleURL
+    }
+
+    /// The customer-facing name, as System Settings lists the app: the
+    /// display name ("Ostler Installer"), then the bundle name, then the
+    /// file name without ".app".
+    static func displayName(_ bundle: Bundle = .main) -> String {
+        if let shown = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, !shown.isEmpty {
+            return shown
+        }
+        if let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String, !name.isEmpty {
+            return name
+        }
+        return appBundleURL(bundle).deletingPathExtension().lastPathComponent
+    }
+
+    /// Ostler itself (OstlerAssistant.app): the program that reads Messages,
+    /// Mail and the rest at runtime. It travels inside this installer; nil when
+    /// the installer was built without it. macOS grants Full Disk Access to the
+    /// app's code identity, so the copy install.sh later stages under ~/.ostler
+    /// is the same program to macOS as this one.
+    static func assistantBundleURL(_ bundle: Bundle = .main) -> URL? {
+        #if DEBUG
+        if let path = ProcessInfo.processInfo.environment["OSTLER_DEBUG_FDA_ASSISTANT_APP"], !path.isEmpty {
+            return URL(fileURLWithPath: path)
+        }
+        #endif
+        let url = bundle.bundleURL.appendingPathComponent("Contents/Resources/ostler-payload/assistant-agent/OstlerAssistant.app")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The name System Settings shows for the background daemon bundle. Its
+    /// Info.plist already says CFBundleDisplayName "Ostler", yet the Privacy
+    /// row was measured reading the FILE name ("OstlerAssistant", install.sh
+    /// FDA row-name comment), so the tile quotes the file name: the customer
+    /// must see the same string in both places. (Daemon is LSBackgroundOnly,
+    /// so there is no foreground display name for Settings to use.)
+    static func settingsRowName(ofAppAt url: URL) -> String {
+        url.deletingPathExtension().lastPathComponent
+    }
+
+    /// The app's icon as a bitmap with `pixels` x `pixels` real pixels, shown
+    /// at `points` x `points`. `NSWorkspace.icon(forFile:)` returns a
+    /// multi-representation image whose 32pt-ish default size is then scaled
+    /// up by SwiftUI, which is what made the tile soft on Retina. Drawing it
+    /// once into a bitmap at 4x the largest size it is shown at lets every
+    /// use scale DOWN, which stays sharp.
+    static func icon(forFile path: String, points: CGFloat, pixels: Int) -> NSImage {
+        let source = NSWorkspace.shared.icon(forFile: path)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return source }
+        rep.size = NSSize(width: points, height: points)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return source }
+        NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .high
+        source.draw(in: NSRect(x: 0, y: 0, width: points, height: points),
+                    from: .zero, operation: .sourceOver, fraction: 1,
+                    respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
+        let out = NSImage(size: NSSize(width: points, height: points))
+        out.addRepresentation(rep)
+        return out
+    }
+
+    /// A drag source that carries the bundle's file URL, so dropping it on
+    /// the Full Disk Access list adds this app and nothing else.
+    static func dragProvider(for url: URL) -> NSItemProvider {
+        NSItemProvider(contentsOf: url) ?? NSItemProvider(object: url as NSURL)
     }
 }
