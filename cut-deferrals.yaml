@@ -39,6 +39,54 @@ pr_exemptions:
   # disposition merge-or-close. Held/advisory/draft work (6) review_by 2026-11-28;
   # the ready seven review_by 2026-11-24. FIRST so verify_pr_age takes these rows.
   # -------------------------------------------------------------------------
+  - ref: "CM051-Home-Hub-Installer#3645"
+    reason: "Exemption: CM051 #3645, head 6074a9fc5adf1b5d315cd65672f21a54466767cc. This PR's age results from the signed v1.0.136 freeze and the DO-NOT-MERGE hold pending exact-SHA clearance, not from staleness. Head unchanged; CI re-measured green 2026-11-23 (74 pass, 0 fail, 1 skip). Exempt from verify_pr_age.sh until 2026-11-26 or the v1.0.136 tag, whichever comes first. AM, 2026-11-23."
+    review_by: 2026-11-26
+  - ref: "CM051-Home-Hub-Installer#3638"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "CM051-Home-Hub-Installer#3639"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "CM041-People-Graph#313"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "CM041-People-Graph#314"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "CM041-People-Graph#315"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "CM041-People-Graph#316"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1592"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1593"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1594"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1595"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1596"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "HR015-Gaming-PC#1597"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "ostler-assistant#764"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "ostler-assistant#765"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
+  - ref: "ostler-assistant#766"
+    reason: "Frozen under the signed launch manifest: all non-launch scope waits for the post-launch triage. Exempt from verify_pr_age.sh until 2026-11-30. AM, 2026-11-23."
+    review_by: 2026-11-30
   - ref: "CM051-Home-Hub-Installer#3624"
     reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: feat(doctor) owner switch for public look-ups, R02, 137 queue; disposition: merge or close by expiry (an actual merge or close may replace this row); no further renewal without fresh active-work proof."
     review_by: 2026-11-28
