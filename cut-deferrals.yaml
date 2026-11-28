@@ -113,10 +113,10 @@ pr_exemptions:
     review_by: 2026-11-30
   - ref: "CM051-Home-Hub-Installer#3624"
     reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: feat(doctor) owner switch for public look-ups, R02, 137 queue; disposition: merge or close by expiry (an actual merge or close may replace this row); no further renewal without fresh active-work proof."
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3625"
     reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; held/advisory work: explain_cites_only_used_facts probe, R05 advisory; disposition: merge or close by expiry; no further renewal without fresh active-work proof."
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "HR015-Gaming-PC#1584"
     reason: "KArchie re-review ruling 2026-11-21 (via KAesop, recorded to_coordinator.md 14:04:27Z): owner KAesop; DRAFT work: ledger pr_open row for CM051 #3434 (R01 reply debt); disposition: merge or close by expiry; no further renewal without fresh active-work proof."
     review_by: 2026-11-28
@@ -448,58 +448,58 @@ pr_exemptions:
     review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3571"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: tests: clear proxy env for the vendored assistant_api suite (harness, draft)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3564"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: gate: refuse a vendor/cm019 re-pin while upstream writes Apple Health as compartment 5 (DRAFT)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3561"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: receipts (134): vendor core and extractor, flag-off tick step, probe"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3560"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT harness: meeting_brief probe refuses before seeding on a fixture-slug collision; rename scale neighbour"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3559"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: switch on the assistant derived-preferences reader (walk 132, dislike_respected_in_brief) [DRAFT, box"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3545"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: People Circles env on the assistant daemon (held for 134)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3542"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: eval(I4): made-up-answer measurement on the shipped /ws/chat path (held)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3541"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: install: refuse in preflight when Homebrew belongs to another account (O3, held for 133)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3532"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor doctor: the owner gate covers the proxied routes (HOLD, stacked on #3531, mirrors HR015 #1499)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3531"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor doctor: owner email row and owner-email setter (HOLD until after 132 tag)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3530"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: owner addresses: derive every owner mail address at install, store 0600 (stacked on #3528, HELD)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3529"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: vendor ostler_fda: Person only for two-way mail correspondents (HOLD until after 132 tag)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3528"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: installer records the owner's mail domains, not addresses (stacked on #3527)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3527"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: producer emits related names for every card (G1 stack on #3522)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3525"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: whatsapp_source: per-person windowed aggregates (HELD until after the 132 tag)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3523"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: email_source: per-person windowed aggregates (HELD until after the 132 tag)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3522"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: HELD until v1.0.132 tag: abcddb producer emits the owner's card and its relations (G1)"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM051-Home-Hub-Installer#3461"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: [DRAFT] Walk probe: judge the Hub Home setup card"
-    review_by: 2026-11-28
+    review_by: 2026-12-12
   - ref: "CM044-PWG-Personal-Wiki#450"
     reason: "KArchie disposition 2026-11-21T03:55:37Z: owner KAesop; held-class title (draft/held/hold/withhold/blocked/backlog/flag-off/spike/not-ready); refresh, merge or close by expiry. Title: DRAFT (unwired): wiki meeting pages leave out a muted calendar (T2)"
     review_by: 2026-11-28
